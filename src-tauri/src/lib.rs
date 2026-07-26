@@ -1,4 +1,7 @@
-use std::{collections::{BTreeSet, HashMap}, fs, io::{Read, Write}, net::{SocketAddr, TcpStream, ToSocketAddrs}, path::Path, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Duration, Instant, SystemTime, UNIX_EPOCH}};
+mod command_contract;
+mod support;
+
+use std::{collections::{BTreeSet, HashMap}, fs, io::{Read, Write}, net::{SocketAddr, TcpStream, ToSocketAddrs}, path::Path, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, time::{Duration, Instant}};
 
 use axum::{
     body::{to_bytes, Body},
@@ -23,6 +26,7 @@ use tokio::sync::{oneshot, RwLock};
 use toml_edit::{value as toml_value, DocumentMut, Item, Table};
 use url::Url;
 use uuid::Uuid;
+use support::{api_base_url, base, now};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -775,7 +779,6 @@ impl Store {
     }
 }
 
-fn now() -> i64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64 }
 fn credential_entry(id: &str) -> Result<Entry, String> { Entry::new("api-assistant", id).map_err(|e| e.to_string()) }
 fn save_secret(id: &str, secret: &Secret) -> Result<(), String> { credential_entry(id)?.set_password(&serde_json::to_string(secret).map_err(|e| e.to_string())?).map_err(|e| e.to_string()) }
 fn load_secret(id: &str) -> Result<Secret, String> { serde_json::from_str(&credential_entry(id)?.get_password().map_err(|_| "未找到该站点的安全凭据".to_string())?).map_err(|e| e.to_string()) }
@@ -1313,8 +1316,6 @@ fn tray_rate_label(rate: &GroupRate) -> String {
         _ => format!("{} · {} · ×{:.2}", rate.group, rate.model, rate.multiplier),
     }
 }
-fn base(url: &str) -> String { url.trim_end_matches('/').to_string() }
-fn api_base_url(url: &str) -> String { let root = base(url); if root.ends_with("/v1") { root } else { format!("{root}/v1") } }
 impl GatewayController {
     fn new(client: Client, token: String, port: u16) -> Self {
         Self { runtime: Arc::new(RwLock::new(GatewayRuntime { token, port, route: None })), client, shutdown: Mutex::new(None) }
@@ -2998,6 +2999,13 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_the_public_tauri_command_contract_complete() {
+        assert_eq!(command_contract::COMMAND_NAMES.len(), 51);
+        assert!(command_contract::COMMAND_NAMES.contains(&"detect_model_authenticity"));
+        assert!(command_contract::COMMAND_NAMES.contains(&"backup_database"));
+    }
 
     #[test]
     fn normalizes_newapi_numeric_key_status_and_quota() {

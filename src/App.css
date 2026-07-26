@@ -1,5 +1,36 @@
 /* ── 基础按钮 & 导航共用 ─────────────────────────────── */
 :root { color-scheme: light; }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.page-header h1 { margin: 0; color: #292524; font-size: 1.5rem; font-weight: 650; }
+.page-header p, .panel-header p { margin: .25rem 0 0; color: #78716c; font-size: .8125rem; line-height: 1.35rem; }
+.page-header-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.panel { border: 1px solid #e7edf4; border-radius: 14px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.03); }
+.panel-header { padding: 1rem 1.1rem; border-bottom: 1px solid #eef0f3; }
+.panel-header h2 { margin: 0; color: #292524; font-size: .95rem; font-weight: 650; }
+.form-field { display: grid; gap: .4rem; color: #475569; font-size: .8125rem; font-weight: 500; }
+.form-field > span b { color: #be123c; }
+.form-field small { color: #64748b; font-size: .75rem; font-weight: 400; }
+.empty-state { display: grid; justify-items: center; gap: .45rem; padding: 2.5rem 1rem; color: #64748b; text-align: center; }
+.empty-state strong { color: #334155; font-size: .9rem; }
+.empty-state p { margin: 0; font-size: .8125rem; }
+.inline-alert { display: flex; align-items: center; gap: .5rem; border: 1px solid; border-radius: .5rem; padding: .55rem .75rem; font-size: .8125rem; }
+.inline-alert span { flex: 1; }
+.inline-alert button, .toast button { display: grid; place-items: center; border: 0; background: transparent; color: inherit; }
+.inline-alert-error { border-color: #fecdd3; background: #fff1f2; color: #be123c; }
+.inline-alert-success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.inline-alert-info { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+.toast-region { position: fixed; z-index: 100; right: 1rem; bottom: 1rem; display: grid; width: min(24rem, calc(100vw - 2rem)); gap: .5rem; }
+.toast { display: flex; align-items: center; gap: .55rem; border: 1px solid; border-radius: .6rem; box-shadow: 0 10px 24px rgba(15,23,42,.14); padding: .7rem .8rem; font-size: .8125rem; }
+.toast span { flex: 1; }
+.toast-success { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.toast-error { border-color: #fecdd3; background: #fff1f2; color: #be123c; }
+.toast-info { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+.button-danger { border: 1px solid #be123c; border-radius: 7px; background: #be123c; padding: .58rem .8rem; color: #fff; }
+.button-danger:hover { background: #9f1239; }
+.setting-update { border-bottom: 1px solid #f1f5f9; }
+.setting-update-progress { display: grid; gap: .45rem; padding: 0 1rem 1rem; color: #475569; font-size: .75rem; }
+.setting-update-progress i { display: block; height: .35rem; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
+.setting-update-progress b { display: block; height: 100%; border-radius: inherit; background: #111; transition: width .2s ease; }
 .app-shell { display: flex; height: 100vh; height: 100dvh; flex-direction: column; overflow: hidden; background: linear-gradient(155deg, #fcf9fa 0%, #f9f2f4 54%, #f5ebee 100%); color: #0f172a; }
 .window-titlebar { position: relative; display: flex; height: 2.5rem; flex: 0 0 auto; align-items: stretch; overflow: hidden; background: transparent; user-select: none; }
 .window-drag-region { min-width: 0; flex: 1; }

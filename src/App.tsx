@@ -1,7 +1,13 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { DataTable, FormDialog, TableBulkActions } from "./components/ui";
+import { DataTable, FormDialog, InlineAlert, TableBulkActions, useConfirm, usePrompt } from "./components/ui";
 import { ApiDetectionPage } from "./features/api-detection";
+import { apiKeyApi } from "./features/api-keys";
+import { OffersPage, type Offer } from "./features/offers";
+import { remoteApi } from "./features/remote";
+import { SettingsPage } from "./features/settings";
+import { stationApi } from "./features/stations";
+import { usageApi } from "./features/usage";
 import { primaryNavigation, type AppView } from "./app/routes";
 import { isTauri } from "./lib/platform";
 import {
@@ -72,13 +78,6 @@ type KeyInfo = {
   last30DaysSpent?: number;
   expiresAt?: number;
   createdAt?: number;
-};
-type Offer = {
-  id: string;
-  title: string;
-  summary: string;
-  sourceUrl: string;
-  publishedAt?: number;
 };
 type UsageSummary = {
   todayInputTokens?: number;
@@ -571,8 +570,7 @@ const formatValue = (value?: number | null) =>
       );
 
 function App() {
-  const [hasNewVersion, setHasNewVersion] = useState(false);
-  const pendingUpdate = useRef<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null);
+  const prompt = usePrompt();
   const [stations, setStations] = useState<Station[]>(() =>
     isTauri() ? [] : demoStations,
   );
@@ -617,7 +615,7 @@ function App() {
       return;
     }
     try {
-      const next = await invoke<Station[]>("list_stations");
+      const next = await stationApi.list<Station[]>();
       setStations(next);
       setSelectedId((current) =>
         current && next.some((station) => station.id === current)
@@ -636,7 +634,7 @@ function App() {
     if (!id) return setSnapshot(emptySnapshot);
     try {
       setSnapshot(
-        (await invoke<Snapshot | null>("get_snapshot", { id })) ??
+        (await stationApi.snapshot<Snapshot>(id)) ??
           emptySnapshot,
       );
     } catch (reason) {
@@ -649,7 +647,7 @@ function App() {
       return;
     }
     try {
-      setKeyRows(await invoke<KeyRow[]>("list_key_rows"));
+      setKeyRows(await apiKeyApi.rows<KeyRow[]>());
     } catch (reason) {
       setError(String(reason));
     }
@@ -682,7 +680,7 @@ function App() {
       return;
     }
     try {
-      setUsageSummary(await invoke<UsageSummary>("get_usage_summary"));
+      setUsageSummary(await usageApi.summary<UsageSummary>());
     } catch (reason) {
       setError(String(reason));
     }
@@ -693,7 +691,7 @@ function App() {
       return;
     }
     try {
-      setUsageLogs(await invoke<UsageLog[]>("list_usage_logs"));
+      setUsageLogs(await usageApi.logs<UsageLog[]>());
     } catch (reason) {
       setError(String(reason));
     }
@@ -704,7 +702,7 @@ function App() {
       return;
     }
     try {
-      setRemoteServers(await invoke<RemoteServer[]>("list_remote_servers"));
+      setRemoteServers(await remoteApi.list<RemoteServer[]>());
     } catch (reason) {
       setError(String(reason));
     }
@@ -740,7 +738,7 @@ function App() {
   }, [stations.length]);
   useEffect(() => {
     if (!busy || !isTauri()) return;
-    const update = () => void invoke<SyncProgress | null>("get_sync_progress").then(setSyncProgress).catch(() => undefined);
+    const update = () => void stationApi.syncProgress<SyncProgress>().then(setSyncProgress).catch(() => undefined);
     update();
     const timer = window.setInterval(update, 500);
     return () => window.clearInterval(timer);
@@ -760,35 +758,12 @@ function App() {
     return () => unlisten?.();
   }, []);
 
-  const checkForUpdates = async () => {
-    if (!isTauri()) return;
-    try {
-      const { check } = await import("@tauri-apps/plugin-updater");
-      const update = await check();
-      pendingUpdate.current = update;
-      setHasNewVersion(Boolean(update));
-    } catch {
-      // 更新源尚未发布首个版本时保持静默，不影响正常使用。
-    }
-  };
-  const installUpdate = async () => {
-    const update = pendingUpdate.current;
-    if (!update) return void checkForUpdates();
-    if (!window.confirm(`发现 RelayHub ${update.version}，现在下载并重启安装吗？`)) return;
-    try {
-      await update.downloadAndInstall();
-      const { relaunch } = await import("@tauri-apps/plugin-process");
-      await relaunch();
-    } catch (reason) { setError(`更新失败：${String(reason)}`); }
-  };
-  useEffect(() => { void checkForUpdates(); }, []);
-
   const refreshAll = async () => {
     if (!isTauri()) return;
     setBusy(true);
     setError("");
     try {
-      await invoke<SyncResult[]>("refresh_all");
+      await stationApi.refreshAll<SyncResult[]>();
       await loadStations();
       await loadSnapshot(selectedId);
       await loadKeyRows();
@@ -803,7 +778,7 @@ function App() {
     }
   };
   const cancelRefresh = async () => {
-    try { await invoke("cancel_sync"); }
+    try { await stationApi.cancelSync(); }
     catch (reason) { setError(String(reason)); }
   };
   const refreshSelected = async () => {
@@ -811,7 +786,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await invoke<SyncResult>("refresh_station", { id: selectedId });
+      await stationApi.refresh<SyncResult>(selectedId);
       await loadStations();
       await loadSnapshot(selectedId);
       await loadKeyRows();
@@ -826,14 +801,11 @@ function App() {
   };
   const reauthenticateSelected = async () => {
     if (!selectedId || !isTauri()) return;
-    const totp = window.prompt("如站点启用二步验证，请输入验证码；否则留空。");
+    const totp = await prompt({ title: "二步验证", description: "如站点启用二步验证，请输入验证码；否则留空。", label: "验证码", inputMode: "numeric" });
     setBusy(true);
     setError("");
     try {
-      await invoke<SyncResult>("reauthenticate_station", {
-        id: selectedId,
-        totp: totp?.trim() || null,
-      });
+      await stationApi.reauthenticate<SyncResult>(selectedId, totp?.trim() || null);
       await loadStations();
       await loadSnapshot(selectedId);
       await loadKeyRows();
@@ -850,7 +822,7 @@ function App() {
     setBusy(true);
     setError("");
     try {
-      await invoke("clear_station_session", { id: selectedId });
+      await stationApi.clearSession(selectedId);
     } catch (reason) {
       setError(String(reason));
     } finally {
@@ -946,16 +918,6 @@ function App() {
             </div>
             <div className="flex items-center gap-1.5">
               <p className="text-lg font-semibold">RelayHub</p>
-              {hasNewVersion && (
-                <button
-                  type="button"
-                  className="button-secondary version-button"
-                  onClick={() => void installUpdate()}
-                  title="检测到新版本"
-                >
-                  New
-                </button>
-              )}
             </div>
           </div>
           <nav className="space-y-1">
@@ -987,24 +949,14 @@ function App() {
         </aside>
         <main className="min-w-0 flex-1">
           <section className="content-surface">
-            {error && (
-              <div className="mb-4 flex items-center justify-between rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
-                <span className="flex items-center gap-2">
-                  <CircleAlert size={16} />
-                  {error}
-                </span>
-                <button onClick={() => setError("")}>
-                  <X size={16} />
-                </button>
-              </div>
-            )}
+            {error && <div className="mb-4"><InlineAlert onDismiss={() => setError("")}>{error}</InlineAlert></div>}
             {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
             {view === "overview" && stations.length === 0 && (
               <EmptyState onAdd={() => setShowAdd(true)} />
             )}
             {(view !== "overview" || stations.length > 0) && (
               <>
-                {view === "settings" && <SettingsView onManageProfiles={() => setView("profiles")} />}
+                {view === "settings" && <SettingsPage onManageProfiles={() => setView("profiles")} />}
                 {view === "overview" && (
                   <Sub2Dashboard
                     stations={stations}
@@ -1063,7 +1015,7 @@ function App() {
                 {view === "profiles" && (
                   <LoginProfilesPage setError={setError} onAddStation={() => setShowAdd(true)} />
                 )}
-                {view === "offers" && <Offers offers={snapshot.offers} />}
+                {view === "offers" && <OffersPage offers={snapshot.offers} />}
                 {snapshot.unavailable.length > 0 && (
                   <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                     <strong>部分数据不可获取：</strong>
@@ -1893,6 +1845,7 @@ function SettingsView({ onManageProfiles }: { onManageProfiles: () => void }) {
           description="应用打开期间每 30 分钟自动刷新所有站点。"
           value="30 分钟"
         />
+        <UpdateSettings />
         <SettingRow
           title="桌面通知"
           description="仅在倍率、密钥状态或优惠内容发生变化时提醒。"
@@ -2069,6 +2022,7 @@ function RemoteConfig({
   onChanged: () => Promise<void>;
   setError: (message: string) => void;
 }) {
+  const confirm = useConfirm();
   const [showAdd, setShowAdd] = useState(false);
   const [editingServer, setEditingServer] = useState<RemoteServer | null>(null);
   const [deletingServer, setDeletingServer] = useState<string | null>(null);
@@ -2195,7 +2149,7 @@ function RemoteConfig({
     }
   };
   const deleteSelectedServers = async () => {
-    if (selectedServers.length === 0 || !window.confirm(`确认删除选中的 ${selectedServers.length} 台服务器吗？`)) return;
+    if (selectedServers.length === 0 || !(await confirm({ title: "删除远程服务器", description: `确认删除选中的 ${selectedServers.length} 台服务器吗？`, confirmLabel: "删除", destructive: true }))) return;
     setBulkAction("delete");
     const failures: string[] = [];
     try {
@@ -2222,7 +2176,7 @@ function RemoteConfig({
     finally { setSavingRelay(null); }
   };
   const deleteServer = async (server: RemoteServer) => {
-    if (!window.confirm(`确认删除服务器“${server.name}”吗？`)) return;
+    if (!(await confirm({ title: "删除远程服务器", description: `确认删除服务器“${server.name}”吗？`, confirmLabel: "删除", destructive: true }))) return;
     setDeletingServer(server.id);
     try {
       if (isTauri()) await invoke("delete_remote_server", { id: server.id });

@@ -1,4 +1,4 @@
-import type { FormEventHandler, ReactNode } from "react";
+import { useEffect, useRef, type FormEventHandler, type ReactNode } from "react";
 import { X } from "lucide-react";
 
 type FormDialogProps = {
@@ -26,6 +26,15 @@ export function FormDialog({
   onSubmit,
   noValidate,
 }: FormDialogProps) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeButton.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
   return (
     <div
       className="modal-backdrop"
@@ -48,6 +57,7 @@ export function FormDialog({
             {description && <p className="form-dialog-description">{description}</p>}
           </div>
           <button
+            ref={closeButton}
             type="button"
             className="icon-button"
             aria-label="关闭"

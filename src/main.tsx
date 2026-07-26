@@ -1,6 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ConfirmationProvider, PromptProvider, ToastProvider } from "./components/ui";
 import "./index.css";
 
 type ErrorBoundaryProps = { children: ReactNode };
@@ -38,7 +39,13 @@ document.documentElement.dataset.appMounted = "true";
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <AppErrorBoundary>
-      <App />
+      <ToastProvider>
+        <ConfirmationProvider>
+          <PromptProvider>
+            <App />
+          </PromptProvider>
+        </ConfirmationProvider>
+      </ToastProvider>
     </AppErrorBoundary>
   </React.StrictMode>,
 );

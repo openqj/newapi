@@ -1,5 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../../lib/platform";
+import { invokeDesktop } from "../../lib/tauri";
 import type { DetectionResult, ModelDetectionRequest } from "./types";
 
 export async function detectModelAuthenticity(
@@ -7,5 +7,5 @@ export async function detectModelAuthenticity(
   demoResult: DetectionResult,
 ) {
   if (!isTauri()) return demoResult;
-  return invoke<DetectionResult>("detect_model_authenticity", { request });
+  return invokeDesktop<DetectionResult>("detect_model_authenticity", { request });
 }

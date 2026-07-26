@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { DataTable } from "./ui";
+import { DataTable, useConfirm } from "./ui";
 import { isTauri } from "../lib/platform";
 import {
   Activity,
@@ -262,6 +262,7 @@ export function Sub2Dashboard({ stations, keys, summary, usageRows, onRefresh, o
 function EmptyState({ message }: { message: string }) { return <div className="sub2-empty"><TriangleAlert size={22} /><span>{message}</span></div>; }
 
 export function Sub2ApiKeys({ rows, stations, onUpdated, setError }: { rows: KeyRow[]; stations: Station[]; onUpdated: () => Promise<void>; setError: (message: string) => void }) {
+  const confirm = useConfirm();
   const [query, setQuery] = useState("");
   const [station, setStation] = useState("all");
   const [status, setStatus] = useState("all");
@@ -303,7 +304,7 @@ export function Sub2ApiKeys({ rows, stations, onUpdated, setError }: { rows: Key
     catch (reason) { setError(String(reason)); }
   };
   const remove = async (row: KeyRow) => {
-    if (!window.confirm(`确定删除“${row.key.name || row.key.id}”吗？此操作无法撤销。`)) return;
+    if (!(await confirm({ title: "删除 API 密钥", description: `确定删除“${row.key.name || row.key.id}”吗？此操作无法撤销。`, confirmLabel: "删除", destructive: true }))) return;
     try { await invoke("delete_api_key", { stationId: row.stationId, keyId: row.key.id }); await onUpdated(); } catch (reason) { setError(String(reason)); }
   };
   const refresh = async () => {
