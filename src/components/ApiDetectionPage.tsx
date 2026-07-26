@@ -1,5 +1,10 @@
 import { FormEvent, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { detectModelAuthenticity } from "../features/api-detection/api";
+import type {
+  DetectionResult,
+  DetectionStatus,
+  SavedApiKeyRow,
+} from "../features/api-detection/types";
 import {
   CheckCircle2,
   ChevronDown,
@@ -12,22 +17,6 @@ import {
   XCircle,
 } from "lucide-react";
 
-type DetectionStatus = "pass" | "warning" | "fail";
-type DetectionCheck = {
-  name: string;
-  status: DetectionStatus;
-  detail: string;
-  trace?: string;
-};
-type DetectionResult = {
-  score: number;
-  checks: DetectionCheck[];
-  elapsedMs: number;
-  tokensPerSecond?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  cacheReadTokens?: number;
-};
 type HistoryItem = DetectionResult & {
   id: string;
   endpoint: string;
@@ -35,13 +24,6 @@ type HistoryItem = DetectionResult & {
   createdAt: number;
 };
 
-export type SavedApiKeyRow = {
-  stationId: string;
-  stationName: string;
-  stationUrl: string;
-  models: string[];
-  key: { id: string; name: string; maskedKey: string };
-};
 
 const modelOptions = [
   { label: "Opus 5", value: "claude-opus-5", protocol: "anthropic", isNew: true },
@@ -58,7 +40,6 @@ const protocolForModel = (model: string) =>
   modelOptions.find((option) => option.value === model)?.protocol ??
   (model.toLowerCase().includes("claude") ? "anthropic" : "openai");
 
-const isTauri = () => "__TAURI_INTERNALS__" in window;
 const scoreText = (score: number) =>
   score >= 88 ? "信号良好" : score >= 60 ? "需要复核" : "风险较高";
 const statusText = (status: DetectionStatus) =>
@@ -134,13 +115,12 @@ export function ApiDetectionPage({ keyRows }: { keyRows: SavedApiKeyRow[] }) {
     setExpandedTrace(undefined);
     try {
       const protocol = protocolForModel(model);
-      const next = isTauri()
-        ? await invoke<DetectionResult>("detect_model_authenticity", {
-          request: savedKeyId && selectedSavedKey
-            ? { model, protocol, stationId: selectedSavedKey.stationId, keyId: selectedSavedKey.key.id }
-            : { endpoint, apiKey, model, protocol },
-          })
-        : demoResult;
+      const next = await detectModelAuthenticity(
+        savedKeyId && selectedSavedKey
+          ? { model, protocol, stationId: selectedSavedKey.stationId, keyId: selectedSavedKey.key.id }
+          : { endpoint, apiKey, model, protocol },
+        demoResult,
+      );
       const item: HistoryItem = {
         ...next,
         id: `${Date.now()}`,

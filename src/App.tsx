@@ -1,9 +1,9 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { DataTable } from "./components/DataTable";
-import { TableBulkActions } from "./components/ManagementTable";
-import { FormDialog } from "./components/FormDialog";
-import { ApiDetectionPage } from "./components/ApiDetectionPage";
+import { DataTable, FormDialog, TableBulkActions } from "./components/ui";
+import { ApiDetectionPage } from "./features/api-detection";
+import { primaryNavigation, type AppView } from "./app/routes";
+import { isTauri } from "./lib/platform";
 import {
   Sub2Accounts,
   Sub2ApiKeys,
@@ -16,7 +16,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  Activity,
   Bell,
   Check,
   ChevronDown,
@@ -27,7 +26,6 @@ import {
   ExternalLink,
   FolderOpen,
   KeyRound,
-  LayoutDashboard,
   LogIn,
   Minimize2,
   Minus,
@@ -36,13 +34,9 @@ import {
   PlugZap,
   Plus,
   RefreshCw,
-  ScanSearch,
-  ServerCog,
   Settings,
   Square,
-  Tags,
   Trash2,
-  UsersRound,
   X,
 } from "lucide-react";
 import "./App.css";
@@ -567,7 +561,6 @@ const statusText = (status: string) =>
     error: "需要处理",
     connecting: "连接中",
   })[status] ?? "未同步";
-const isTauri = () => "__TAURI_INTERNALS__" in window;
 const openStationUrl = (url: string) =>
   isTauri() ? openUrl(url) : window.open(url, "_blank", "noopener");
 const formatValue = (value?: number | null) =>
@@ -578,7 +571,8 @@ const formatValue = (value?: number | null) =>
       );
 
 function App() {
-  const hasNewVersion = true;
+  const [hasNewVersion, setHasNewVersion] = useState(false);
+  const pendingUpdate = useRef<{ version: string; downloadAndInstall: () => Promise<void> } | null>(null);
   const [stations, setStations] = useState<Station[]>(() =>
     isTauri() ? [] : demoStations,
   );
@@ -607,18 +601,7 @@ function App() {
     isTauri() ? [] : demoRemoteServers,
   );
   const [usageScope, setUsageScope] = useState<"all" | "current">("all");
-  const [view, setView] = useState<
-    | "overview"
-    | "accounts"
-    | "rates"
-    | "keys"
-    | "usage"
-    | "apiDetection"
-    | "remote"
-    | "profiles"
-    | "offers"
-    | "settings"
-  >("overview");
+  const [view, setView] = useState<AppView>("overview");
   const [showAdd, setShowAdd] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -776,6 +759,29 @@ function App() {
     });
     return () => unlisten?.();
   }, []);
+
+  const checkForUpdates = async () => {
+    if (!isTauri()) return;
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      pendingUpdate.current = update;
+      setHasNewVersion(Boolean(update));
+    } catch {
+      // 更新源尚未发布首个版本时保持静默，不影响正常使用。
+    }
+  };
+  const installUpdate = async () => {
+    const update = pendingUpdate.current;
+    if (!update) return void checkForUpdates();
+    if (!window.confirm(`发现 RelayHub ${update.version}，现在下载并重启安装吗？`)) return;
+    try {
+      await update.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (reason) { setError(`更新失败：${String(reason)}`); }
+  };
+  useEffect(() => { void checkForUpdates(); }, []);
 
   const refreshAll = async () => {
     if (!isTauri()) return;
@@ -944,6 +950,7 @@ function App() {
                 <button
                   type="button"
                   className="button-secondary version-button"
+                  onClick={() => void installUpdate()}
                   title="检测到新版本"
                 >
                   New
@@ -958,60 +965,15 @@ function App() {
               label="添加站点"
               onClick={() => setShowAdd(true)}
             />
-            <Nav
-              active={view === "overview"}
-              icon={<LayoutDashboard size={16} />}
-              label="总览"
-              onClick={() => setView("overview")}
-            />
-            <Nav
-              active={view === "accounts"}
-              icon={<UsersRound size={16} />}
-              label="站点账户"
-              onClick={() => setView("accounts")}
-            />
-            <Nav
-              active={view === "rates"}
-              icon={<RefreshCw size={16} />}
-              label="倍率"
-              onClick={() => setView("rates")}
-            />
-            <Nav
-              active={view === "keys"}
-              icon={<KeyRound size={16} />}
-              label="API 密钥"
-              onClick={() => setView("keys")}
-            />
-            <Nav
-              active={view === "usage"}
-              icon={<Activity size={16} />}
-              label="使用记录"
-              onClick={() => setView("usage")}
-            />
-            <Nav
-              active={view === "apiDetection"}
-              icon={<ScanSearch size={16} />}
-              label="API 检测"
-              onClick={() => setView("apiDetection")}
-            />
-            <Nav
-              active={view === "remote"}
-              icon={<ServerCog size={16} />}
-              label="远程配置"
-              onClick={() => setView("remote")}
-            />
-            <Nav
-              active={view === "offers"}
-              icon={<Tags size={16} />}
-              label="优惠中心"
-              onClick={() => setView("offers")}
-            />
-            <Nav
-              active={view === "settings"}
-              icon={<Settings size={16} />}
-              label="设置"
-              onClick={() => setView("settings")}
-            />
+            {primaryNavigation.map(({ view: itemView, label, Icon }) => (
+              <Nav
+                key={itemView}
+                active={view === itemView}
+                icon={<Icon size={16} />}
+                label={label}
+                onClick={() => setView(itemView)}
+              />
+            ))}
           </nav>
           <SidebarStats
             usage={

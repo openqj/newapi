@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { DataTable } from "./DataTable";
+import { DataTable } from "./ui";
+import { isTauri } from "../lib/platform";
 import {
   Activity,
   ArrowRight,
@@ -178,7 +179,6 @@ const formatTime = (value?: number) =>
   value
     ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(value * 1000)
     : "尚未同步";
-const isTauri = () => "__TAURI_INTERNALS__" in window;
 const statusLabel = (value: string) =>
   (({ online: "正常", partial: "部分可用", error: "异常", connecting: "连接中" })[value] ?? value) || "未知";
 

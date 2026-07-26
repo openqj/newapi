@@ -1,6 +1,6 @@
 [package]
 name = "relayhub"
-version = "0.1.4"
+version = "0.1.5"
 description = "Personal multi-station API monitor"
 authors = ["you"]
 edition = "2021"
@@ -37,6 +37,8 @@ ssh2 = "0.9"
 tempfile = "3"
 toml = "0.8"
 toml_edit = "0.22"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }

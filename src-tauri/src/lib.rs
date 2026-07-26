@@ -2804,7 +2804,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
             fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
             let store = Store::open(directory.join("api-assistant.sqlite"))?;
