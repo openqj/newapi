@@ -96,6 +96,7 @@ type UsageSummary = {
   totalSpent?: number;
   totalLimit?: number;
 };
+type SyncProgress = { operationId: string; completed: number; total: number; currentStation?: string; status: string };
 type Snapshot = {
   stationBalance?: number;
   rates: Rate[];
@@ -621,7 +622,8 @@ function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showMessages, setShowMessages] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
-  const [, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [error, setError] = useState("");
   const selected = stations.find((station) => station.id === selectedId);
   void selected;
@@ -754,6 +756,13 @@ function App() {
     return () => window.clearInterval(timer);
   }, [stations.length]);
   useEffect(() => {
+    if (!busy || !isTauri()) return;
+    const update = () => void invoke<SyncProgress | null>("get_sync_progress").then(setSyncProgress).catch(() => undefined);
+    update();
+    const timer = window.setInterval(update, 500);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+  useEffect(() => {
     if (!isTauri()) return;
     const appWindow = getCurrentWindow();
     let unlisten: (() => void) | undefined;
@@ -784,7 +793,12 @@ function App() {
       setError(String(reason));
     } finally {
       setBusy(false);
+      setSyncProgress(null);
     }
+  };
+  const cancelRefresh = async () => {
+    try { await invoke("cancel_sync"); }
+    catch (reason) { setError(String(reason)); }
   };
   const refreshSelected = async () => {
     if (!selectedId || !isTauri()) return;
@@ -1022,6 +1036,7 @@ function App() {
                 </button>
               </div>
             )}
+            {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
             {view === "overview" && stations.length === 0 && (
               <EmptyState onAdd={() => setShowAdd(true)} />
             )}

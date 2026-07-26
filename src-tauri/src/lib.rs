@@ -339,7 +339,7 @@ struct StationProbe {
     kind: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UsageLog {
     id: String,
@@ -507,8 +507,19 @@ struct SyncResult {
     change_summary: Vec<String>,
 }
 
-struct Store { connection: Connection }
-struct AppState { store: Mutex<Store>, client: Client, gateway: GatewayController, auth_backoff: Mutex<HashMap<String, AuthBackoff>>, remote_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>> }
+struct Store { connection: Connection, path: std::path::PathBuf }
+
+#[derive(Clone, Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct SyncProgress {
+    operation_id: String,
+    completed: usize,
+    total: usize,
+    current_station: Option<String>,
+    status: String,
+}
+
+struct AppState { store: Mutex<Store>, client: Client, gateway: GatewayController, auth_backoff: Mutex<HashMap<String, AuthBackoff>>, remote_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>, sync_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>, sync_progress: Mutex<HashMap<String, SyncProgress>> }
 
 struct RemoteOperationGuard { id: String, operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>, cancelled: Arc<AtomicBool> }
 
@@ -571,7 +582,7 @@ struct GatewayController {
 
 impl Store {
     fn open(path: std::path::PathBuf) -> Result<Self, String> {
-        let connection = Connection::open(path).map_err(|e| e.to_string())?;
+        let connection = Connection::open(&path).map_err(|e| e.to_string())?;
         connection.execute_batch(
             "CREATE TABLE IF NOT EXISTS stations (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, base_url TEXT NOT NULL,
@@ -586,6 +597,10 @@ impl Store {
              CREATE TABLE IF NOT EXISTS audit_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, station_id TEXT NOT NULL, action TEXT NOT NULL, outcome TEXT NOT NULL,
                 detail TEXT NOT NULL, created_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS usage_log_cache (
+                station_id TEXT NOT NULL, log_id TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL,
+                PRIMARY KEY (station_id, log_id)
              );
              CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY, value TEXT NOT NULL
@@ -616,7 +631,7 @@ impl Store {
         let _ = connection.execute("ALTER TABLE remote_servers ADD COLUMN last_synced_at INTEGER", []);
         let _ = connection.execute("ALTER TABLE remote_servers ADD COLUMN last_sync_status TEXT", []);
         let _ = connection.execute("ALTER TABLE remote_servers ADD COLUMN last_sync_error TEXT", []);
-        Ok(Self { connection })
+        Ok(Self { connection, path })
     }
 
     fn list_stations(&self) -> Result<Vec<Station>, String> {
@@ -671,6 +686,21 @@ impl Store {
     fn record_audit(&self, station_id: &str, action: &str, outcome: &str, detail: &str) -> Result<(), String> {
         self.connection.execute("INSERT INTO audit_events (station_id,action,outcome,detail,created_at) VALUES (?1,?2,?3,?4,?5)", params![station_id, action, outcome, detail, now()]).map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    fn cache_usage_logs(&mut self, logs: &[UsageLog]) -> Result<(), String> {
+        let transaction = self.connection.transaction().map_err(|e| e.to_string())?;
+        for log in logs {
+            transaction.execute("INSERT OR REPLACE INTO usage_log_cache (station_id,log_id,payload,created_at) VALUES (?1,?2,?3,?4)", params![log.station_id, log.id, serde_json::to_string(log).map_err(|e| e.to_string())?, now()]).map_err(|e| e.to_string())?;
+        }
+        transaction.commit().map_err(|e| e.to_string())
+    }
+
+    fn cached_usage_logs(&self, station_id: &str) -> Result<Vec<UsageLog>, String> {
+        let mut statement = self.connection.prepare("SELECT payload FROM usage_log_cache WHERE station_id=?1 ORDER BY created_at DESC").map_err(|e| e.to_string())?;
+        let logs = statement.query_map([station_id], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?.map(|row| serde_json::from_str::<UsageLog>(&row.map_err(|e| e.to_string())?).map_err(|e| e.to_string())).collect();
+        logs
     }
 
     fn list_login_profiles(&self) -> Result<Vec<LoginProfile>, String> {
@@ -1525,6 +1555,7 @@ async fn fetch_all_pages(state: &AppState, station: &Station, secret: &mut Secre
         items.extend(page_items);
         let total = integer(root, &["total"]);
         if count == 0 || count < page_size as usize || total.is_some_and(|total| items.len() as i64 >= total) { break; }
+        tokio::time::sleep(Duration::from_millis(100)).await;
         page += 1;
     }
     Ok(json!({"data": {"items": items}}))
@@ -2136,11 +2167,26 @@ fn clear_station_session(state: State<'_, AppState>, id: String) -> Result<(), S
 #[tauri::command]
 async fn refresh_all(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<SyncResult>, String> {
     let stations = state.store.lock().map_err(|_| "本地数据库不可用".to_string())?.list_stations()?;
+    let cancelled = Arc::new(AtomicBool::new(false));
+    state.sync_operations.lock().map_err(|_| "同步状态不可用".to_string())?.insert("all".into(), cancelled.clone());
+    state.sync_progress.lock().map_err(|_| "同步状态不可用".to_string())?.insert("all".into(), SyncProgress { operation_id: "all".into(), completed: 0, total: stations.len(), current_station: None, status: "running".into() });
     let mut results = Vec::new();
-    for station in stations { match sync_one(&state, &station.id).await { Ok(result) => { if result.changed { let _ = app.notification().builder().title(&result.station.name).body(result.change_summary.join("；")).show(); } results.push(result); }, Err(error) => {
+    for station in stations { if cancelled.load(Ordering::Relaxed) { break; } if let Ok(mut progress) = state.sync_progress.lock() { if let Some(progress) = progress.get_mut("all") { progress.current_station = Some(station.name.clone()); } } match sync_one(&state, &station.id).await { Ok(result) => { if result.changed { let _ = app.notification().builder().title(&result.station.name).body(result.change_summary.join("；")).show(); } results.push(result); }, Err(error) => {
         let mut failed = station.clone(); failed.status = "error".into(); failed.last_error = Some(error); let _ = state.store.lock().map_err(|_| "本地数据库不可用".to_string())?.save_station(&failed);
-    } } }
+    } } if let Ok(mut progress) = state.sync_progress.lock() { if let Some(progress) = progress.get_mut("all") { progress.completed += 1; } } }
+    if let Ok(mut progress) = state.sync_progress.lock() { if let Some(progress) = progress.get_mut("all") { progress.current_station = None; progress.status = if cancelled.load(Ordering::Relaxed) { "cancelled".into() } else { "completed".into() }; } }
+    if let Ok(mut operations) = state.sync_operations.lock() { operations.remove("all"); }
     Ok(results)
+}
+
+#[tauri::command]
+fn get_sync_progress(state: State<'_, AppState>) -> Result<Option<SyncProgress>, String> { Ok(state.sync_progress.lock().map_err(|_| "同步状态不可用".to_string())?.get("all").cloned()) }
+
+#[tauri::command]
+fn cancel_sync(state: State<'_, AppState>) -> Result<(), String> {
+    let operations = state.sync_operations.lock().map_err(|_| "同步状态不可用".to_string())?;
+    operations.get("all").ok_or("当前没有可取消的同步任务")?.store(true, Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2173,7 +2219,11 @@ async fn list_usage_logs(state: State<'_, AppState>) -> Result<Vec<UsageLog>, St
         let Ok(mut secret) = load_authenticated_secret(&state, &station).await else { continue; };
         let adapter = StationAdapter::for_station(&station)?;
         if let Ok(value) = fetch_all_pages(&state, &station, &mut secret, adapter, PagedResource::Usage).await {
-            logs.extend(parse_usage_logs(&value, &station));
+            let station_logs = parse_usage_logs(&value, &station);
+            if let Ok(mut store) = state.store.lock() { let _ = store.cache_usage_logs(&station_logs); }
+            logs.extend(station_logs);
+        } else if let Ok(store) = state.store.lock() {
+            logs.extend(store.cached_usage_logs(&station.id)?);
         }
     }
     logs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
@@ -2719,6 +2769,16 @@ async fn detect_model_authenticity(state: State<'_, AppState>, request: ModelDet
 #[tauri::command]
 fn delete_station(state: State<'_, AppState>, id: String) -> Result<(), String> { state.store.lock().map_err(|_| "本地数据库不可用".to_string())?.delete_station(&id)?; clear_secret(&id); Ok(()) }
 
+#[tauri::command]
+fn backup_database(state: State<'_, AppState>, destination: String) -> Result<(), String> {
+    let store = state.store.lock().map_err(|_| "本地数据库不可用".to_string())?;
+    let destination = std::path::PathBuf::from(destination);
+    if destination == store.path { return Err("备份文件不能覆盖当前数据库".into()); }
+    let _ = store.connection.execute_batch("PRAGMA wal_checkpoint(FULL)");
+    fs::copy(&store.path, &destination).map_err(|e| e.to_string())?;
+    Store::open(destination).map(|_| ()).map_err(|e| format!("备份校验失败：{e}"))
+}
+
 #[cfg(windows)]
 fn sync_caption_colors(window: &tauri::WebviewWindow) {
     use std::{ffi::c_void, mem::size_of};
@@ -2752,7 +2812,7 @@ pub fn run() {
             let (mode, port) = load_gateway_settings(&store)?;
             let token = load_or_create_gateway_token()?;
             let gateway = GatewayController::new(client.clone(), token, port);
-            app.manage(AppState { store: Mutex::new(store), client, gateway, auth_backoff: Mutex::new(HashMap::new()), remote_operations: Arc::new(Mutex::new(HashMap::new())) });
+            app.manage(AppState { store: Mutex::new(store), client, gateway, auth_backoff: Mutex::new(HashMap::new()), remote_operations: Arc::new(Mutex::new(HashMap::new())), sync_operations: Arc::new(Mutex::new(HashMap::new())), sync_progress: Mutex::new(HashMap::new()) });
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 sync_caption_colors(&window);
@@ -2927,7 +2987,7 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .invoke_handler(tauri::generate_handler![probe_station, add_station, list_stations, list_login_profiles, get_login_profile, save_login_profile, delete_login_profile, list_remote_servers, list_remote_sync_logs, cancel_remote_server_operation, install_or_update_remote_codex_command, choose_private_key_file, add_remote_server, update_remote_server, delete_remote_server, test_remote_server, verify_remote_codex_session_command, assign_remote_relay_key, update_remote_relay, refresh_station, reauthenticate_station, clear_station_session, refresh_all, get_snapshot, get_usage_summary, list_usage_logs, get_history, list_key_rows, list_account_rows, list_rate_rows, list_station_groups, update_key_group, create_api_key, update_api_key, delete_api_key, reveal_key, get_gateway_status, set_routing_mode, set_gateway_port, start_gateway, stop_gateway, set_active_gateway_route, get_gateway_credentials, rotate_gateway_token, import_to_cc_switch, test_api_models, detect_model_authenticity, delete_station])
+        .invoke_handler(tauri::generate_handler![probe_station, add_station, list_stations, list_login_profiles, get_login_profile, save_login_profile, delete_login_profile, list_remote_servers, list_remote_sync_logs, cancel_remote_server_operation, install_or_update_remote_codex_command, choose_private_key_file, add_remote_server, update_remote_server, delete_remote_server, test_remote_server, verify_remote_codex_session_command, assign_remote_relay_key, update_remote_relay, refresh_station, reauthenticate_station, clear_station_session, refresh_all, get_sync_progress, cancel_sync, get_snapshot, get_usage_summary, list_usage_logs, get_history, list_key_rows, list_account_rows, list_rate_rows, list_station_groups, update_key_group, create_api_key, update_api_key, delete_api_key, reveal_key, get_gateway_status, set_routing_mode, set_gateway_port, start_gateway, stop_gateway, set_active_gateway_route, get_gateway_credentials, rotate_gateway_token, import_to_cc_switch, test_api_models, detect_model_authenticity, delete_station, backup_database])
         .run(tauri::generate_context!())
         .expect("error while running RelayHub");
 }
