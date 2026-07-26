@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: cargo test
+        working-directory: src-tauri
+
+  real-station-e2e:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: windows-latest
+    environment: production-e2e
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run credential-backed station lifecycle suite
+        shell: pwsh
+        env:
+          RELAYHUB_E2E_SUB2_EMAIL: ${{ secrets.RELAYHUB_E2E_SUB2_EMAIL }}
+          RELAYHUB_E2E_SUB2_PASSWORD: ${{ secrets.RELAYHUB_E2E_SUB2_PASSWORD }}
+          RELAYHUB_E2E_NEWAPI_USERNAME: ${{ secrets.RELAYHUB_E2E_NEWAPI_USERNAME }}
+          RELAYHUB_E2E_NEWAPI_PASSWORD: ${{ secrets.RELAYHUB_E2E_NEWAPI_PASSWORD }}
+        run: ./scripts/test-station-lifecycle.ps1

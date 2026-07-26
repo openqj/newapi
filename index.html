@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RelayHub</title>
+  </head>
+
+  <body>
+    <div id="root">
+      <div id="boot-status" role="status">RelayHub is starting...</div>
+    </div>
+    <script>
+      (() => {
+        window.addEventListener("contextmenu", (event) => event.preventDefault());
+
+        const showStartupError = (message) => {
+          if (document.documentElement.dataset.appMounted === "true") return;
+          const status = document.getElementById("boot-status");
+          if (status) status.textContent = `RelayHub could not start: ${message}`;
+        };
+        window.addEventListener("error", (event) => showStartupError(event.message || "failed to load the application"));
+        window.addEventListener("unhandledrejection", (event) => showStartupError(String(event.reason || "an unexpected error occurred")));
+        window.setTimeout(() => showStartupError("the interface did not load"), 8000);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

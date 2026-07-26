@@ -1,0 +1,4 @@
+interface:
+  display_name: "Clone Sub2API Pages"
+  short_description: "Clone responsive Sub2API dashboard pages into this project."
+  default_prompt: "Use $clone-sub2api-pages to align the dashboard, API keys, usage, or channel status page with Sub2API."
