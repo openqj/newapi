@@ -1,10 +1,10 @@
 import { FormEvent, useMemo, useState } from "react";
-import { detectModelAuthenticity } from "../features/api-detection/api";
+import { detectModelAuthenticity } from "./api";
 import type {
   DetectionResult,
   DetectionStatus,
   SavedApiKeyRow,
-} from "../features/api-detection/types";
+} from "./types";
 import {
   CheckCircle2,
   ChevronDown,

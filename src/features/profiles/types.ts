@@ -1,0 +1,5 @@
+export type LoginProfile = {
+  id: string;
+  name: string;
+  username: string;
+};

@@ -35,17 +35,17 @@ export function UpdateSettings() {
       const available = await check();
       setUpdate(available as PendingUpdate | null);
       setState(available ? "idle" : "latest");
-      if (!available) notify("You are running the latest version.", "success");
+      if (!available) notify("当前已是最新版本。", "success");
     } catch (reason) {
       setUpdate(null);
       setState("error");
-      setMessage(errorMessage(reason, "Unable to check for updates. Please try again."));
+      setMessage(errorMessage(reason, "无法检查更新，请稍后重试。"));
     }
   };
 
   const install = async () => {
     if (!update) return void check();
-    if (!(await confirm({ title: "Install update", description: `RelayHub ${update.version} is available. Download and restart to install it?`, confirmLabel: "Download and install" }))) return;
+    if (!(await confirm({ title: "安装更新", description: `RelayHub ${update.version} 已可用。下载后将重启应用完成安装。`, confirmLabel: "下载并安装" }))) return;
     setState("downloading");
     setProgress(0);
     let contentLength = 0;
@@ -62,12 +62,12 @@ export function UpdateSettings() {
       await relaunch();
     } catch (reason) {
       setState("error");
-      setMessage(errorMessage(reason, "Unable to install the update. Please try again."));
+      setMessage(errorMessage(reason, "无法安装更新，请稍后重试。"));
     }
   };
 
-  if (!isTauri()) return <SettingRow title="Desktop updates" description="Updates are available in the RelayHub desktop app." value="Web demo" />;
-  return <div className="setting-update"><SettingRow title="Desktop updates" description={version ? `Current version ${version}. Updates are installed only after signature verification.` : "Check for a signed RelayHub update."} value={update ? `Version ${update.version} available` : state === "latest" ? "Up to date" : ""} action={<><button type="button" className="button-secondary" disabled={state === "checking" || state === "downloading"} onClick={() => void check()}><RefreshCw size={15} className={state === "checking" ? "animate-spin" : ""} />Check</button>{update && <button type="button" className="button-primary" disabled={state === "downloading"} onClick={() => void install()}><Download size={15} />{state === "downloading" ? "Downloading" : "Install"}</button>}</>} />{state === "downloading" && <div className="setting-update-progress" role="status"><span>{progress == null ? "Downloading update..." : `Downloading update: ${progress}%`}</span>{progress != null && <i><b style={{ width: `${progress}%` }} /></i>}</div>}{state === "error" && <div className="px-4 pb-4"><InlineAlert onDismiss={() => setState("idle")}>{message}</InlineAlert></div>}</div>;
+  if (!isTauri()) return <SettingRow title="桌面更新" description="请在 RelayHub 桌面应用中检查更新。" value="Web 演示" />;
+  return <div className="setting-update"><SettingRow title="桌面更新" description={version ? `当前版本 ${version}。更新仅在签名验证后安装。` : "检查已签名的 RelayHub 更新。"} value={update ? `可更新至 ${update.version}` : state === "latest" ? "已是最新" : ""} action={<><button type="button" className="button-secondary" disabled={state === "checking" || state === "downloading"} onClick={() => void check()}><RefreshCw size={15} className={state === "checking" ? "animate-spin" : ""} />检查更新</button>{update && <button type="button" className="button-primary" disabled={state === "downloading"} onClick={() => void install()}><Download size={15} />{state === "downloading" ? "下载中" : "安装"}</button>}</>} />{state === "downloading" && <div className="setting-update-progress" role="status"><span>{progress == null ? "正在下载更新..." : `正在下载更新：${progress}%`}</span>{progress != null && <i><b style={{ width: `${progress}%` }} /></i>}</div>}{state === "error" && <div className="px-4 pb-4"><InlineAlert onDismiss={() => setState("idle")}>{message}</InlineAlert></div>}</div>;
 }
 
 function SettingRow({ title, description, value, action }: { title: string; description: string; value?: string; action?: ReactNode }) {

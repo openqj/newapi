@@ -9,4 +9,6 @@ export const stationApi = {
   clearSession: (id: string) => invokeDesktop<void>("clear_station_session", { id }),
   syncProgress: <T>() => invokeDesktop<T | null>("get_sync_progress"),
   cancelSync: () => invokeDesktop<void>("cancel_sync"),
+  probe: <T>(baseUrl: string) => invokeDesktop<T>("probe_station", { baseUrl }),
+  add: <T>(request: Record<string, unknown>) => invokeDesktop<T>("add_station", { request }),
 };
