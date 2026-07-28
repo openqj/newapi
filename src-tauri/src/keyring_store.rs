@@ -40,26 +40,60 @@ pub(crate) fn remote_relay_key_entry(id: &str) -> Result<Entry, String> {
     Entry::new("api-assistant-remote-relay-key", id).map_err(|error| error.to_string())
 }
 
+/// Audit records only retain this entry's opaque id.  The actionable relay
+/// snapshot, including its key, stays in the operating system credential store.
+pub(crate) fn remote_relay_rollback_entry(id: &str) -> Result<Entry, String> {
+    Entry::new("api-assistant-remote-relay-rollback", id).map_err(|error| error.to_string())
+}
+
 pub(crate) fn save_secret(id: &str, secret: &Secret) -> Result<(), String> {
-    credential_entry(id)?.set_password(&serde_json::to_string(secret).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
+    credential_entry(id)?
+        .set_password(&serde_json::to_string(secret).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn load_secret(id: &str) -> Result<Secret, String> {
-    serde_json::from_str(&credential_entry(id)?.get_password().map_err(|_| "未找到该站点的安全凭据".to_string())?).map_err(|error| error.to_string())
+    serde_json::from_str(
+        &credential_entry(id)?
+            .get_password()
+            .map_err(|_| "未找到该站点的安全凭据".to_string())?,
+    )
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn clear_secret(id: &str) {
-    if let Ok(entry) = credential_entry(id) { let _ = entry.delete_credential(); }
+    if let Ok(entry) = credential_entry(id) {
+        let _ = entry.delete_credential();
+    }
 }
 
-pub(crate) fn save_login_profile_secret(id: &str, username: &str, password: &str) -> Result<(), String> {
-    login_profile_entry(id)?.set_password(&serde_json::to_string(&LoginProfileSecret { username: username.to_string(), password: password.to_string() }).map_err(|error| error.to_string())?).map_err(|error| error.to_string())
+pub(crate) fn save_login_profile_secret(
+    id: &str,
+    username: &str,
+    password: &str,
+) -> Result<(), String> {
+    login_profile_entry(id)?
+        .set_password(
+            &serde_json::to_string(&LoginProfileSecret {
+                username: username.to_string(),
+                password: password.to_string(),
+            })
+            .map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn load_login_profile_secret(id: &str) -> Result<LoginProfileSecret, String> {
-    serde_json::from_str(&login_profile_entry(id)?.get_password().map_err(|_| "未找到该账号的安全凭据".to_string())?).map_err(|error| error.to_string())
+    serde_json::from_str(
+        &login_profile_entry(id)?
+            .get_password()
+            .map_err(|_| "未找到该账号的安全凭据".to_string())?,
+    )
+    .map_err(|error| error.to_string())
 }
 
 pub(crate) fn clear_login_profile_secret(id: &str) {
-    if let Ok(entry) = login_profile_entry(id) { let _ = entry.delete_credential(); }
+    if let Ok(entry) = login_profile_entry(id) {
+        let _ = entry.delete_credential();
+    }
 }

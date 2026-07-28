@@ -45,11 +45,17 @@ impl StationAdapter {
     }
 
     pub(crate) fn login_path(self) -> &'static str {
-        match self { Self::Sub2Api => "/api/v1/auth/login", Self::NewApi => "/api/user/login" }
+        match self {
+            Self::Sub2Api => "/api/v1/auth/login",
+            Self::NewApi => "/api/user/login",
+        }
     }
 
     pub(crate) fn login_2fa_path(self) -> &'static str {
-        match self { Self::Sub2Api => "/api/v1/auth/login/2fa", Self::NewApi => "/api/user/login/2fa" }
+        match self {
+            Self::Sub2Api => "/api/v1/auth/login/2fa",
+            Self::NewApi => "/api/user/login/2fa",
+        }
     }
 
     pub(crate) fn login_body(self, username: &str, password: &str) -> Value {
@@ -60,24 +66,76 @@ impl StationAdapter {
     }
 
     pub(crate) fn profile_path(self) -> &'static str {
-        match self { Self::Sub2Api => "/api/v1/user/profile", Self::NewApi => "/api/user/self" }
+        match self {
+            Self::Sub2Api => "/api/v1/user/profile",
+            Self::NewApi => "/api/user/self",
+        }
     }
 
     pub(crate) fn paged_path(self, resource: PagedResource, page: i64, page_size: i64) -> String {
         match (self, resource) {
-            (Self::Sub2Api, PagedResource::Keys) => format!("/api/v1/keys?page={page}&page_size={page_size}"),
-            (Self::Sub2Api, PagedResource::Usage) => format!("/api/v1/usage?page={page}&page_size={page_size}"),
+            (Self::Sub2Api, PagedResource::Keys) => {
+                format!("/api/v1/keys?page={page}&page_size={page_size}")
+            }
+            (Self::Sub2Api, PagedResource::Usage) => {
+                format!("/api/v1/usage?page={page}&page_size={page_size}")
+            }
             (Self::NewApi, PagedResource::Keys) => format!("/api/token/?p={page}&size={page_size}"),
-            (Self::NewApi, PagedResource::Usage) => format!("/api/log/self?p={page}&page_size={page_size}"),
+            (Self::NewApi, PagedResource::Usage) => {
+                format!("/api/log/self?p={page}&page_size={page_size}")
+            }
         }
     }
 
-    pub(crate) fn first_page(self) -> i64 { match self { Self::Sub2Api => 1, Self::NewApi => 0 } }
+    pub(crate) fn first_page(self) -> i64 {
+        match self {
+            Self::Sub2Api => 1,
+            Self::NewApi => 0,
+        }
+    }
 
     pub(crate) fn capabilities(self) -> StationCapabilities {
         match self {
-            Self::Sub2Api => StationCapabilities { key_update: "patch_with_put_fallback".into(), supports_custom_key: true, supports_ip_blacklist: true, supports_rate_limits: true, supports_key_reveal: true },
-            Self::NewApi => StationCapabilities { key_update: "full_put_and_status_put".into(), supports_custom_key: false, supports_ip_blacklist: false, supports_rate_limits: false, supports_key_reveal: true },
+            Self::Sub2Api => StationCapabilities {
+                key_update: "patch_with_put_fallback".into(),
+                supports_custom_key: true,
+                supports_ip_blacklist: true,
+                supports_rate_limits: true,
+                supports_key_reveal: true,
+            },
+            Self::NewApi => StationCapabilities {
+                key_update: "full_put_and_status_put".into(),
+                supports_custom_key: false,
+                supports_ip_blacklist: false,
+                supports_rate_limits: false,
+                supports_key_reveal: true,
+            },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PagedResource, StationAdapter};
+
+    #[test]
+    fn builds_source_specific_login_fields() {
+        let sub2 = StationAdapter::Sub2Api.login_body("user@example.com", "secret");
+        let newapi = StationAdapter::NewApi.login_body("KitQQ", "secret");
+        assert_eq!(sub2["email"], "user@example.com");
+        assert!(sub2.get("username").is_none());
+        assert_eq!(newapi["username"], "KitQQ");
+    }
+
+    #[test]
+    fn builds_actual_pagination_paths_for_each_adapter() {
+        assert_eq!(
+            StationAdapter::Sub2Api.paged_path(PagedResource::Keys, 1, 100),
+            "/api/v1/keys?page=1&page_size=100"
+        );
+        assert_eq!(
+            StationAdapter::NewApi.paged_path(PagedResource::Usage, 0, 100),
+            "/api/log/self?p=0&page_size=100"
+        );
     }
 }

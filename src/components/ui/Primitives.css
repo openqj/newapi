@@ -1,0 +1,13 @@
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.page-header h1 { margin: 0; color: var(--ui-text); font-size: 1.5rem; font-weight: 650; }
+.page-header p, .panel-header p { margin: .25rem 0 0; color: var(--ui-muted); font-size: .8125rem; line-height: 1.35rem; }
+.page-header-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.panel { border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-panel); box-shadow: var(--ui-shadow-panel); }
+.panel-header { padding: 1rem 1.1rem; border-bottom: 1px solid #eef0f3; }
+.panel-header h2 { margin: 0; color: var(--ui-text); font-size: .95rem; font-weight: 650; }
+.form-field { display: grid; gap: .4rem; color: #475569; font-size: .8125rem; font-weight: 500; }
+.form-field > span b { color: var(--ui-danger); }
+.form-field small { color: #64748b; font-size: .75rem; font-weight: 400; }
+.empty-state { display: grid; justify-items: center; gap: .45rem; padding: 2.5rem 1rem; color: #64748b; text-align: center; }
+.empty-state strong { color: #334155; font-size: .9rem; }
+.empty-state p { margin: 0; font-size: .8125rem; }

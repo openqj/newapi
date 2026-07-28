@@ -8,7 +8,9 @@ export default defineConfig({
   webServer: {
     command: "pnpm exec vite --host 127.0.0.1 --port 4173",
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: !process.env.CI,
+    // Only opt in to reusing a server. The default makes Playwright own the
+    // Vite child process so it can reliably tear it down on Windows.
+    reuseExistingServer: process.env.PLAYWRIGHT_REUSE_SERVER === "true",
     timeout: 30_000,
   },
 });

@@ -1,0 +1,359 @@
+import type { KeyRow } from "../features/api-keys";
+import type { AccountRow } from "../features/accounts";
+import type { RemoteServer } from "../features/remote";
+import type { LoginProfile } from "../features/profiles";
+import type { RateRow } from "../features/rates";
+import type { Station } from "../features/stations";
+import type { UsageLog, UsageSummary } from "../features/usage";
+import type { AppDemoData, Snapshot } from "./useAppData";
+export const emptySnapshot: Snapshot = {
+  rates: [],
+  apiKeys: [],
+  offers: [],
+  unavailable: [],
+};
+export const emptyUsageSummary: UsageSummary = {};
+export const demoTime = Math.floor(Date.now() / 1000);
+export const demoStations: Station[] = [
+  {
+    id: "demo-alpha",
+    name: "Alpha Gateway",
+    baseUrl: "https://alpha.example.com",
+    kind: "newapi",
+    status: "online",
+    lastSyncedAt: demoTime - 90,
+  },
+  {
+    id: "demo-orbit",
+    name: "Orbit API",
+    baseUrl: "https://orbit.example.com",
+    kind: "sub2api",
+    status: "online",
+    lastSyncedAt: demoTime - 260,
+  },
+  {
+    id: "demo-nova",
+    name: "Nova Relay",
+    baseUrl: "https://nova.example.com",
+    kind: "newapi",
+    status: "partial",
+    lastSyncedAt: demoTime - 780,
+    lastError: "优惠公告接口未公开",
+  },
+];
+export const demoUsageSummary: UsageSummary = {
+  todayInputTokens: 1_300_000,
+  todayOutputTokens: 539_600,
+  todayRequests: 264,
+  totalRequests: 570,
+  todaySpent: 1.1064,
+  todayLimit: 14.7522,
+  totalSpent: 1.9554,
+  totalLimit: 25.241,
+};
+export const demoLoginProfiles: LoginProfile[] = [
+  { id: "demo-profile", name: "常用中转站账号", username: "relay@example.com" },
+];
+export const demoUsageLogs: UsageLog[] = [
+  {
+    id: "usage-1",
+    stationId: "demo-alpha",
+    stationName: "Alpha Gateway",
+    stationUrl: "https://alpha.example.com",
+    apiKeyName: "alpha-team",
+    groupName: "default",
+    endpoint: "/v1/chat/completions",
+    ipAddress: "198.51.100.24",
+    reasoningEffort: "medium",
+    billingType: "按量",
+    billingMode: "standard",
+    model: "gpt-4o",
+    inputTokens: 12480,
+    outputTokens: 2340,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    actualCost: 0.0314,
+    requestType: "stream",
+    durationMs: 1840,
+    createdAt: demoTime - 720,
+  },
+  {
+    id: "usage-2",
+    stationId: "demo-orbit",
+    stationName: "Orbit API",
+    stationUrl: "https://orbit.example.com",
+    apiKeyName: "orbit-research",
+    groupName: "codex | 快速通道",
+    endpoint: "/v1/responses",
+    ipAddress: "203.0.113.18",
+    reasoningEffort: "high",
+    billingType: "按量",
+    billingMode: "standard",
+    model: "claude-3-7-sonnet",
+    inputTokens: 8060,
+    outputTokens: 1620,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 1024,
+    actualCost: 0.0218,
+    requestType: "sync",
+    durationMs: 1240,
+    createdAt: demoTime - 2140,
+  },
+  {
+    id: "usage-3",
+    stationId: "demo-alpha",
+    stationName: "Alpha Gateway",
+    stationUrl: "https://alpha.example.com",
+    apiKeyName: "alpha-team",
+    groupName: "default",
+    endpoint: "/v1/chat/completions",
+    ipAddress: "198.51.100.24",
+    reasoningEffort: "low",
+    billingType: "按量",
+    billingMode: "standard",
+    model: "gemini-2.5-pro",
+    inputTokens: 32400,
+    outputTokens: 4890,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    actualCost: 0.0942,
+    requestType: "stream",
+    durationMs: 3150,
+    createdAt: demoTime - 5100,
+  },
+];
+export const demoRemoteServers: RemoteServer[] = [
+  {
+    id: "remote-1",
+    name: "新加坡中转机",
+    host: "203.0.113.18",
+    port: 22,
+    username: "root",
+    authType: "key",
+    privateKeyPath: "C:\\Users\\me\\.ssh\\relayhub",
+    codexVersion: "codex 0.93.0",
+    codexLatestVersion: "0.93.0",
+    codexUpdateAvailable: false,
+    relayUrl: "https://alpha.example.com/v1",
+    relayKeySource: "Alpha Gateway / alpha-key-1",
+    relayKeyMasked: "sk-...a8Qw",
+    updatedAt: demoTime - 300,
+  },
+];
+export const demoSnapshots: Record<string, Snapshot> = {
+  "demo-alpha": {
+    stationBalance: 14.7522,
+    rates: [
+      {
+        group: "default",
+        model: "gpt-4o",
+        multiplier: 1,
+        inputMultiplier: 1,
+        outputMultiplier: 1,
+      },
+      {
+        group: "default",
+        model: "claude-3-7-sonnet",
+        multiplier: 1.08,
+        inputMultiplier: 1.05,
+        outputMultiplier: 1.12,
+      },
+      {
+        group: "vip",
+        model: "gpt-4.1",
+        multiplier: 0.92,
+        inputMultiplier: 0.92,
+        outputMultiplier: 0.96,
+      },
+      {
+        group: "vip",
+        model: "gemini-2.5-pro",
+        multiplier: 1.15,
+        inputMultiplier: 1.1,
+        outputMultiplier: 1.2,
+      },
+    ],
+    apiKeys: [
+      {
+        id: "alpha-key-1",
+        name: "开发环境",
+        maskedKey: "sk-...a8Qw",
+        group: "default",
+        status: "有效",
+        remainingQuota: 12.8,
+        currentConcurrency: 2,
+        usedQuota: 1.1064,
+        todaySpent: 0.1383,
+        last30DaysSpent: 0.4637,
+        expiresAt: demoTime + 86_400 * 28,
+        createdAt: demoTime - 86_400 * 14,
+      },
+      {
+        id: "alpha-key-2",
+        name: "Codex",
+        maskedKey: "sk-...M3xP",
+        group: "vip",
+        status: "有效",
+        remainingQuota: 8.42,
+        currentConcurrency: 1,
+        usedQuota: 0.849,
+        expiresAt: demoTime + 86_400 * 8,
+        createdAt: demoTime - 86_400 * 3,
+      },
+    ],
+    offers: [
+      {
+        id: "alpha-offer",
+        title: "Claude 系列本周倍率优惠",
+        summary: "Claude Sonnet 在 VIP 分组享受限时倍率调整，活动截至本周日。",
+        sourceUrl: "https://alpha.example.com",
+        publishedAt: demoTime - 86_400,
+      },
+      {
+        id: "alpha-price",
+        title: "新套餐：专业版月付",
+        summary: "新增专业版套餐，包含更多高并发额度与优先模型通道。",
+        sourceUrl: "https://alpha.example.com",
+        publishedAt: demoTime - 86_400 * 3,
+      },
+    ],
+    unavailable: [],
+    usage: {
+      todayInputTokens: 820_000,
+      todayOutputTokens: 312_400,
+      todayRequests: 161,
+      totalRequests: 360,
+      todaySpent: 0.7024,
+      todayLimit: 9.7522,
+      totalSpent: 1.211,
+      totalLimit: 16.0,
+    },
+  },
+  "demo-orbit": {
+    stationBalance: 8.19,
+    rates: [
+      {
+        group: "standard",
+        model: "gpt-4o-mini",
+        multiplier: 0.65,
+        inputMultiplier: 0.65,
+        outputMultiplier: 0.7,
+      },
+      {
+        group: "standard",
+        model: "deepseek-v3",
+        multiplier: 0.72,
+        inputMultiplier: 0.72,
+        outputMultiplier: 0.72,
+      },
+    ],
+    apiKeys: [
+      {
+        id: "orbit-key-1",
+        name: "自动化",
+        maskedKey: "sk-...7Lx2",
+        group: "standard",
+        status: "有效",
+        remainingQuota: 6.7,
+        currentConcurrency: 3,
+        usedQuota: 0.404,
+        expiresAt: demoTime + 86_400 * 17,
+        createdAt: demoTime - 86_400 * 20,
+      },
+    ],
+    offers: [
+      {
+        id: "orbit-offer",
+        title: "Gemini 2.5 模型上新",
+        summary: "标准分组现已开放 Gemini 2.5 Flash，按最新价格计划结算。",
+        sourceUrl: "https://orbit.example.com",
+        publishedAt: demoTime - 86_400 * 2,
+      },
+    ],
+    unavailable: [],
+    usage: {
+      todayInputTokens: 480_000,
+      todayOutputTokens: 227_200,
+      todayRequests: 103,
+      totalRequests: 210,
+      todaySpent: 0.404,
+      todayLimit: 5.0,
+      totalSpent: 0.7444,
+      totalLimit: 9.241,
+    },
+  },
+  "demo-nova": {
+    stationBalance: 2.1,
+    rates: [],
+    apiKeys: [],
+    offers: [],
+    unavailable: ["分组倍率未公开或当前账户无权限", "优惠公告不可获取"],
+    usage: {
+      todayInputTokens: 0,
+      todayOutputTokens: 0,
+      todayRequests: 0,
+      totalRequests: 0,
+    },
+  },
+};
+export const demoKeyRows: KeyRow[] = demoStations.flatMap((station) =>
+  (demoSnapshots[station.id]?.apiKeys ?? []).map((key) => ({
+    stationId: station.id,
+    stationName: station.name,
+    stationUrl: station.baseUrl,
+    stationBalance: demoSnapshots[station.id]?.stationBalance,
+    groups: Array.from(
+      new Map(
+        (demoSnapshots[station.id]?.rates ?? []).map((rate) => [
+          rate.group,
+          { name: rate.group, multiplier: rate.multiplier },
+        ]),
+      ).values(),
+    ),
+    models: [
+      ...new Set(
+        (demoSnapshots[station.id]?.rates ?? []).map((rate) => rate.model),
+      ),
+    ],
+    key,
+  })),
+);
+export const demoRateRows: RateRow[] = demoStations.flatMap((station) =>
+  (demoSnapshots[station.id]?.rates ?? []).map((rate) => ({
+    stationId: station.id,
+    stationName: station.name,
+    stationUrl: station.baseUrl,
+    lastSyncedAt: station.lastSyncedAt,
+    syncStatus: station.status,
+    rate,
+  })),
+);
+export const demoAccountRows: AccountRow[] = demoStations.map((station, index) => ({
+  stationId: station.id,
+  stationName: station.name,
+  stationUrl: station.baseUrl,
+  kind: station.kind,
+  syncStatus: station.status,
+  lastSyncedAt: station.lastSyncedAt,
+  account: {
+    id: String(index + 1),
+    username: ["alpha", "orbit", "nova"][index] ?? "account",
+    displayName: ["Alpha 团队", "Orbit 团队", "Nova 团队"][index] ?? "账户",
+    email: ["alpha@example.com", "orbit@example.com", "nova@example.com"][index],
+    group: index === 1 ? "standard" : "default",
+    role: "user",
+    status: "active",
+    balance: demoSnapshots[station.id]?.stationBalance,
+  },
+  usage: demoSnapshots[station.id]?.usage ?? emptyUsageSummary,
+}));
+export const appDemo: AppDemoData = {
+  stations: demoStations,
+  snapshots: demoSnapshots,
+  keyRows: demoKeyRows,
+  rateRows: demoRateRows,
+  accountRows: demoAccountRows,
+  usageSummary: demoUsageSummary,
+  usageLogs: demoUsageLogs,
+  remoteServers: demoRemoteServers,
+};

@@ -1,0 +1,12 @@
+:root {
+  color-scheme: light;
+  --ui-text: #292524;
+  --ui-muted: #78716c;
+  --ui-border: #e7edf4;
+  --ui-panel: #fff;
+  --ui-radius-panel: 14px;
+  --ui-shadow-panel: 0 1px 3px rgba(15, 23, 42, .03);
+  --ui-danger: #be123c;
+  --ui-success: #166534;
+  --ui-info: #1d4ed8;
+}

@@ -1,12 +1,14 @@
-import { PageHeader, Panel } from "../../components/ui";
-import { UpdateSettings } from "./UpdateSettings";
+import { PageHeader, Panel } from "../../../components/ui";
+import { UpdateSettings } from "../UpdateSettings";
+import { AlertSettings } from "../../alerts";
 
 export function SettingsPage({ onManageProfiles }: { onManageProfiles: () => void }) {
   return <>
     <PageHeader title="设置" description="本地应用设置" />
     <Panel className="settings-panel">
       <SettingRow title="后台刷新" description="应用打开期间每 30 分钟自动刷新所有站点。" value="30 分钟" />
-      <SettingRow title="桌面通知" description="仅在倍率、密钥状态或优惠内容发生变化时提醒。" value="已开启" />
+      <SettingRow title="桌面通知" description="倍率、密钥状态或优惠内容发生变化时提醒。" value="已开启" />
+      <AlertSettings />
       <SettingRow title="凭据存储" description="账号密码和登录态使用 Windows Credential Manager 保存。" value="系统凭据库" />
       <UpdateSettings />
       <SettingRow title="常用登录" description="管理用于快速填写中转站登录信息的本地凭据。" action={<button type="button" className="button-secondary" onClick={onManageProfiles}>管理</button>} />

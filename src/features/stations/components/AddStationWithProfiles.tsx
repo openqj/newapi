@@ -1,25 +1,26 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronDown, Settings } from "lucide-react";
-import { FormDialog } from "../../../components/ui";
+import { FormDialog, useToast } from "../../../components/ui";
+import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
 import type { LoginProfile } from "../../profiles";
 import { stationApi } from "../api";
 import type { StationConnectionResult, StationSaveResult } from "../types";
+import "./AddStationWithProfiles.css";
 
 export function AddStationWithProfiles({
   onClose,
   onManageProfiles,
   onAdded,
-  setError,
   demoProfiles,
 }: {
   onClose: () => void;
   onManageProfiles: () => void;
   onAdded: (keepOpen: boolean) => Promise<void>;
-  setError: (message: string) => void;
   demoProfiles: LoginProfile[];
 }) {
+  const { notify } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [profiles, setProfiles] = useState<LoginProfile[]>([]);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -40,9 +41,7 @@ export function AddStationWithProfiles({
     }
     try {
       setProfiles(await profileApi.list<LoginProfile[]>());
-    } catch (reason) {
-      setError(String(reason));
-    }
+    } catch (reason) { notify(errorMessage(reason, "加载登录配置失败，请稍后重试。"), "error"); }
   };
   useEffect(() => {
     void loadProfiles();
@@ -75,9 +74,7 @@ export function AddStationWithProfiles({
       setUsername(credential.username);
       setPassword(credential.password);
       setShowProfileMenu(false);
-    } catch (reason) {
-      setError(String(reason));
-    }
+    } catch (reason) { notify(errorMessage(reason, "读取登录配置失败，请稍后重试。"), "error"); }
   };
   const probe = async () => {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
@@ -103,7 +100,7 @@ export function AddStationWithProfiles({
       if (result.kind) setKind(result.kind);
       setFieldErrors((current) => ({ ...current, baseUrl: "" }));
     } catch (reason) {
-      setFieldErrors((current) => ({ ...current, baseUrl: String(reason) }));
+      setFieldErrors((current) => ({ ...current, baseUrl: errorMessage(reason, "无法识别该站点，请检查地址。") }));
     }
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -136,7 +133,7 @@ export function AddStationWithProfiles({
         await onAdded(keepOpen);
       }
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason, "添加站点失败，请检查登录信息后重试。"), "error");
     } finally {
       setSubmitting(false);
     }
@@ -151,11 +148,11 @@ export function AddStationWithProfiles({
       contentClassName="space-y-4"
       footer={
         <>
-          <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
-            取消
-          </button>
           <button className="button-secondary form-dialog-submit" name="submitAction" value="continue" disabled={submitting}>
             {submitting ? "正在连接" : "添加并继续"}
+          </button>
+          <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
+            取消
           </button>
           <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting}>
             {submitting ? "正在连接" : "保存"}

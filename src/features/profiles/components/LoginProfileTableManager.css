@@ -1,0 +1,13 @@
+.profile-manager-modal { width: min(100%, 52rem); }
+.profile-manager-panel { width: min(100%, 52rem); margin-top: 1.25rem; }
+.profile-editor-table { border-color: #e7dfdc; border-radius: 8px; }
+.profile-editor-table table { min-width: 42rem; table-layout: fixed; }
+.profile-editor-table th { padding: .6rem .75rem; }
+.profile-editor-table td { padding: .5rem .6rem; }
+.profile-editor-table .input { min-width: 0; padding: .45rem .55rem; font-size: .8125rem; }
+.profile-cell-display { display: block; width: 100%; min-height: 2rem; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; padding: .45rem .55rem; color: #334155; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.profile-cell-display:hover, .profile-cell-display:focus-visible { border-color: #d8d0ce; background: #faf7f8; outline: 0; }
+.profile-cell-input { min-height: 2rem; }
+.profile-delete-heading, .profile-delete-cell { width: 3rem; padding-right: .4rem !important; padding-left: .4rem !important; text-align: center; }
+.profile-delete-cell .icon-button { color: #a37a7a; }
+.profile-delete-cell .icon-button:hover { background: #fff1f2; color: #be123c; }

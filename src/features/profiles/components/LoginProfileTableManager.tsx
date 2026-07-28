@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Trash2, X } from "lucide-react";
-import { DataTable } from "../../../components/ui";
+import { DataTable, useToast } from "../../../components/ui";
+import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../api";
 import type { LoginProfile } from "../types";
+import "./LoginProfileTableManager.css";
 
 type LoginProfileRow = {
   id?: string;
@@ -18,7 +20,6 @@ type LoginProfileTableManagerProps = {
   profiles: LoginProfile[];
   onClose?: () => void;
   onChanged: () => Promise<void>;
-  setError: (message: string) => void;
   embedded?: boolean;
 };
 
@@ -26,10 +27,12 @@ export function LoginProfileTableManager({
   profiles,
   onClose,
   onChanged,
-  setError,
   embedded = false,
 }: LoginProfileTableManagerProps) {
-  const [rows, setRows] = useState<LoginProfileRow[]>([]);
+  const { notify } = useToast();
+  const [rows, setRows] = useState<LoginProfileRow[]>([
+    { name: "", username: "", password: "" },
+  ]);
   const [editingCell, setEditingCell] = useState<{
     index: number;
     field: LoginProfileField;
@@ -49,7 +52,7 @@ export function LoginProfileTableManager({
       );
       setRows([...savedRows, { name: "", username: "", password: "" }]);
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason), "error");
     }
   };
 
@@ -78,7 +81,7 @@ export function LoginProfileTableManager({
       }
       await onChanged();
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason), "error");
     }
   };
 
@@ -98,9 +101,9 @@ export function LoginProfileTableManager({
           autoComplete={field === "username" ? "username" : "new-password"}
           placeholder={
             field === "username"
-              ? "\u8bf7\u8f93\u5165\u767b\u5f55\u8d26\u53f7"
+              ? "请输入登录账号"
               : field === "password"
-                ? "\u8bf7\u8f93\u5165\u767b\u5f55\u5bc6\u7801"
+                ? "请输入登录密码"
                 : ""
           }
           onBlur={(event) => {
@@ -118,15 +121,15 @@ export function LoginProfileTableManager({
 
     const value = field === "password" && row.password ? "••••••••" : row[field];
     const labels: Record<LoginProfileField, string> = {
-      name: "\u8d26\u53f7\u540d\u79f0",
-      username: "\u767b\u5f55\u8d26\u53f7",
-      password: "\u767b\u5f55\u5bc6\u7801",
+      name: "账号名称",
+      username: "登录账号",
+      password: "登录密码",
     };
     return (
       <button
         type="button"
         className="profile-cell-display"
-        aria-label={`\u7f16\u8f91${labels[field]}`}
+        aria-label={`编辑${labels[field]}`}
         onClick={() => setEditingCell({ index, field })}
       >
         {value}
@@ -148,7 +151,7 @@ export function LoginProfileTableManager({
           : [...next, { name: "", username: "", password: "" }];
       });
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason), "error");
     }
   };
 
@@ -159,54 +162,58 @@ export function LoginProfileTableManager({
     >
       <section
         className={embedded ? "profile-editor-panel" : "modal profile-manager-modal"}
-        aria-label="\u5e38\u7528\u767b\u5f55"
+        aria-label="常用登录"
       >
         {!embedded && (
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <h2 className="font-semibold">\u5e38\u7528\u767b\u5f55</h2>
+            <h2 className="font-semibold">常用登录</h2>
             <button type="button" className="icon-button" onClick={onClose}>
               <X size={17} />
             </button>
           </div>
         )}
         <div className={embedded ? "" : "p-5"}>
-          <DataTable className="profile-editor-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>\u8d26\u53f7\u540d\u79f0</th>
-                  <th>\u767b\u5f55\u8d26\u53f7</th>
-                  <th>\u767b\u5f55\u5bc6\u7801</th>
-                  <th className="profile-delete-heading">\u7ba1\u7406</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={row.id ?? `new-${index}`}>
-                    <td>{renderCell(row, index, "name")}</td>
-                    <td>{renderCell(row, index, "username")}</td>
-                    <td>{renderCell(row, index, "password")}</td>
-                    <td className="profile-delete-cell">
-                      <button
-                        type="button"
-                        className="icon-button"
-                        aria-label="\u5220\u9664\u8d26\u53f7"
-                        title="\u5220\u9664\u8d26\u53f7"
-                        onClick={() => void deleteRow(index)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
+          <DataTable
+            className="profile-editor-table"
+            ariaLabel="常用登录配置"
+            desktop={
+              <table>
+                <thead>
+                  <tr>
+                    <th>账号名称</th>
+                    <th>登录账号</th>
+                    <th>登录密码</th>
+                    <th className="profile-delete-heading">管理</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </DataTable>
+                </thead>
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={row.id ?? `new-${index}`}>
+                      <td>{renderCell(row, index, "name")}</td>
+                      <td>{renderCell(row, index, "username")}</td>
+                      <td>{renderCell(row, index, "password")}</td>
+                      <td className="profile-delete-cell">
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label="删除账号"
+                          title="删除账号"
+                          onClick={() => void deleteRow(index)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            }
+          />
         </div>
         {!embedded && (
           <div className="flex justify-end border-t border-slate-200 px-5 py-4">
             <button type="button" className="button-secondary" onClick={onClose}>
-              \u5173\u95ed
+              关闭
             </button>
           </div>
         )}

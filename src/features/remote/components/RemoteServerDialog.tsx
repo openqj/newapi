@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from "react";
-import { FormDialog } from "../../../components/ui";
+import { FormDialog, useToast } from "../../../components/ui";
+import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { remoteApi } from "../api";
 import { RemoteConnectionStatus } from "../components/RemoteConnectionStatus";
@@ -10,13 +11,12 @@ export function RemoteServerDialog({
   server,
   onClose,
   onSaved,
-  setError,
 }: {
   server?: RemoteServer;
   onClose: () => void;
   onSaved: () => Promise<void>;
-  setError: (message: string) => void;
 }) {
+  const { notify } = useToast();
   const [authType, setAuthType] = useState<"password" | "key">(
     server?.authType === "key" ? "key" : "password",
   );
@@ -33,7 +33,7 @@ export function RemoteServerDialog({
         : "C:\\Users\\me\\.ssh\\id_ed25519";
       if (path) setPrivateKeyPath(path);
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason), "error");
     }
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -76,7 +76,7 @@ export function RemoteServerDialog({
         onClose();
       }
     } catch (reason) {
-      setError(String(reason));
+      notify(errorMessage(reason), "error");
     } finally {
       setSaving(false);
     }

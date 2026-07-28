@@ -6,6 +6,7 @@ import type { KeyRow } from "../../api-keys";
 import type { Station } from "../../stations";
 import type { UsageLog, UsageSummary } from "../../usage";
 import "../../../components/Sub2ApiPages.css";
+import "./DashboardPage.css";
 
 ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip);
 

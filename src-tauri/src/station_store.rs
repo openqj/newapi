@@ -3,8 +3,13 @@ use rusqlite::{params, Row};
 
 fn station(row: &Row<'_>) -> rusqlite::Result<Station> {
     Ok(Station {
-        id: row.get(0)?, name: row.get(1)?, base_url: row.get(2)?, kind: row.get(3)?, status: row.get(4)?,
-        last_synced_at: row.get(5)?, last_error: row.get(6)?,
+        id: row.get(0)?,
+        name: row.get(1)?,
+        base_url: row.get(2)?,
+        kind: row.get(3)?,
+        status: row.get(4)?,
+        last_synced_at: row.get(5)?,
+        last_error: row.get(6)?,
     })
 }
 
@@ -18,7 +23,11 @@ pub(crate) trait StationStore {
 impl StationStore for Store {
     fn list_stations(&self) -> Result<Vec<Station>, String> {
         let mut statement = self.connection.prepare("SELECT id, name, base_url, kind, status, last_synced_at, last_error FROM stations ORDER BY name").map_err(|error| error.to_string())?;
-        let stations = statement.query_map([], station).map_err(|error| error.to_string())?.collect::<Result<Vec<_>, _>>().map_err(|error| error.to_string())?;
+        let stations = statement
+            .query_map([], station)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
         Ok(stations)
     }
 
@@ -32,8 +41,12 @@ impl StationStore for Store {
     }
 
     fn delete_station(&self, id: &str) -> Result<(), String> {
-        self.connection.execute("DELETE FROM stations WHERE id=?1", [id]).map_err(|error| error.to_string())?;
-        self.connection.execute("DELETE FROM snapshots WHERE station_id=?1", [id]).map_err(|error| error.to_string())?;
+        self.connection
+            .execute("DELETE FROM stations WHERE id=?1", [id])
+            .map_err(|error| error.to_string())?;
+        self.connection
+            .execute("DELETE FROM snapshots WHERE station_id=?1", [id])
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 }

@@ -16,6 +16,8 @@ pub(crate) struct ApiKeyInfo {
     pub(crate) used_quota: Option<f64>,
     pub(crate) today_spent: Option<f64>,
     pub(crate) last_30_days_spent: Option<f64>,
+    /// Optional provider-supplied quota reset timestamp (Unix seconds).
+    pub(crate) quota_reset_at: Option<i64>,
     pub(crate) expires_at: Option<i64>,
     pub(crate) created_at: Option<i64>,
 }
@@ -62,9 +64,31 @@ pub(crate) struct AccountRow {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelTestResult {
     pub(crate) model: String,
+    pub(crate) available: bool,
+    pub(crate) protocol: String,
     pub(crate) response: Option<String>,
     pub(crate) error: Option<String>,
     pub(crate) elapsed_ms: u64,
+    pub(crate) first_token_ms: Option<u64>,
+    pub(crate) tokens_per_second: Option<f64>,
+    pub(crate) input_tokens: Option<i64>,
+    pub(crate) output_tokens: Option<i64>,
+    pub(crate) cache_read_tokens: Option<i64>,
+    pub(crate) cost: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ModelDiscoveryResult {
+    pub(crate) models: Vec<String>,
+    pub(crate) elapsed_ms: u64,
+    /// Unix timestamp of the model-list response retained for this station/key.
+    pub(crate) fetched_at: Option<i64>,
+    /// `true` when a fresh local model-list cache avoided a network request.
+    pub(crate) from_cache: bool,
+    /// A model endpoint is optional on compatible relays. Keep this structured so
+    /// callers can retain their current selection instead of treating it as fatal.
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -235,6 +259,30 @@ pub(crate) struct StationProbe {
     pub(crate) kind: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderDoctorCheck {
+    /// Stable identifier for filtering and future UI presentation.
+    pub(crate) id: String,
+    pub(crate) name: String,
+    /// One of: pass, warning, fail, or skipped.
+    pub(crate) status: String,
+    pub(crate) detail: String,
+    pub(crate) remediation: Option<String>,
+    pub(crate) elapsed_ms: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderDoctorReport {
+    pub(crate) station_id: String,
+    pub(crate) station_name: String,
+    pub(crate) adapter: String,
+    pub(crate) healthy: bool,
+    pub(crate) elapsed_ms: u64,
+    pub(crate) checks: Vec<ProviderDoctorCheck>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageLog {
@@ -317,8 +365,41 @@ pub(crate) struct RemoteSyncLog {
     pub(crate) created_at: i64,
 }
 
+/// A redacted, user-facing record of a local configuration mutation.  The
+/// payload is intentionally JSON rather than an arbitrary command request:
+/// secrets never belong in audit history.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AuditEvent {
+    pub(crate) id: i64,
+    pub(crate) station_id: String,
+    pub(crate) action: String,
+    pub(crate) outcome: String,
+    pub(crate) detail: String,
+    pub(crate) payload: Option<serde_json::Value>,
+    pub(crate) created_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoteServerRollbackSnapshot {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) username: String,
+    /// Authentication method is not a credential.  Passwords, key passphrases,
+    /// and private-key paths are deliberately excluded from audit history.
+    pub(crate) auth_type: String,
+    pub(crate) host_key_fingerprint: Option<String>,
+    pub(crate) relay_provider: Option<String>,
+    pub(crate) relay_url: Option<String>,
+}
+
 pub(crate) const DEFAULT_SSH_PORT: u16 = 22;
-pub(crate) fn default_ssh_port() -> u16 { DEFAULT_SSH_PORT }
+pub(crate) fn default_ssh_port() -> u16 {
+    DEFAULT_SSH_PORT
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

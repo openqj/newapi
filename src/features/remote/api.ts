@@ -10,6 +10,8 @@ export const remoteApi = {
   cancelOperation: (id: string) => invokeDesktop<void>("cancel_remote_server_operation", { id }),
   manageCodex: <T>(id: string, action: "install" | "update") => invokeDesktop<T>("install_or_update_remote_codex_command", { id, action }),
   syncLogs: <T>(serverId: string) => invokeDesktop<T>("list_remote_sync_logs", { serverId }),
+  auditEvents: <T>() => invokeDesktop<T>("list_audit_events", { limit: 200 }),
+  rollbackAudit: <T>(eventId: number) => invokeDesktop<T>("rollback_audit_event", { eventId }),
   choosePrivateKey: () => invokeDesktop<string | null>("choose_private_key_file"),
   save: <T>(existingId: string | undefined, request: Record<string, unknown>) => invokeDesktop<T>(existingId ? "update_remote_server" : "add_remote_server", { request }),
 };
