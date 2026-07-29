@@ -1,0 +1,12 @@
+.accounts-page { max-width: none; margin: 0; }
+.account-row-actions { display: flex; align-items: flex-start; gap: .15rem; }
+.account-row-actions button { display: flex; min-width: 2.6rem; flex-direction: column; align-items: center; gap: .16rem; border-radius: 6px; padding: .36rem .28rem; color: #6b7280; font-size: .625rem; line-height: 1.1; }
+.account-row-actions button:hover:not(:disabled) { background: #f3f4f6; color: #2563eb; }
+.account-row-actions .delete:hover:not(:disabled) { background: #fff1f2; color: #e11d48; }
+.account-station-link { width: 100%; padding: 0; text-align: left; }
+.account-station-link:hover strong { color: #2563eb; }
+.account-name { max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-balance { display: inline-flex; border-radius: 4px; background: #ecfdf3; padding: .18rem .42rem; color: #15803d; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.account-balance.missing { background: #f3f4f6; color: #6b7280; }
+.accounts-page .table-page-data-table th:last-child { position: sticky; right: 0; z-index: 3; background: #f9fafb; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
+.accounts-page .table-page-data-table td:last-child { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }

@@ -19,14 +19,14 @@ export function RemoteConnectionStatus({
     <>
       {pendingHostKeyFingerprint && !server && (
         <label className="remote-credential-field text-xs text-slate-600 break-all">
-          SSH \u4e3b\u673a\u6307\u7eb9: {pendingHostKeyFingerprint}
+          SSH 主机指纹: {pendingHostKeyFingerprint}
           <span className="mt-2 flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
               checked={hostKeyConfirmed}
               onChange={(event) => onHostKeyConfirmedChange(event.currentTarget.checked)}
             />
-            \u6211\u5df2\u901a\u8fc7\u53ef\u4fe1\u6e20\u9053\u786e\u8ba4\u8be5\u4e3b\u673a\u6307\u7eb9
+            我已通过可信渠道确认该主机指纹
           </span>
         </label>
       )}
@@ -42,8 +42,8 @@ export function RemoteConnectionStatus({
         <div className={`test-result ${connectionResult.success ? "success" : "error"}`}>
           <span>
             {connectionResult.success
-              ? "SSH \u7aef\u53e3\u8fde\u63a5\u6210\u529f"
-              : `\u8fde\u63a5\u5931\u8d25${connectionResult.code ? ` (\u9519\u8bef\u4ee3\u7801 ${connectionResult.code})` : ""}${connectionResult.reason ? `\uff1a${connectionResult.reason}` : ""}`}
+              ? "SSH 端口连接成功"
+              : `连接失败${connectionResult.code ? ` (错误代码 ${connectionResult.code})` : ""}${connectionResult.reason ? `：${connectionResult.reason}` : ""}`}
           </span>
         </div>
       )}

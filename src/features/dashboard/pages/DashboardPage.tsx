@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Activity, ArrowRight, Clock3, Database, DollarSign, Gauge, KeyRound, LayoutDashboard, RefreshCw, TriangleAlert, Zap } from "lucide-react";
 import { ArcElement, CategoryScale, Chart as ChartJS, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
+import type { AccountRow } from "../../accounts";
 import type { KeyRow } from "../../api-keys";
 import type { Station } from "../../stations";
 import type { UsageLog, UsageSummary } from "../../usage";
@@ -28,11 +29,13 @@ const compactDuration = (value?: number) => value == null ? "-" : value >= 1000 
 function DashboardStatCard({ icon, label, value, detail, tone }: { icon: React.ReactNode; label: string; value: string; detail: string; tone: string }) {
   return <article className={`sub2-dashboard-stat sub2-dashboard-stat-${tone}`}><span className="sub2-dashboard-stat-icon">{icon}</span><div><p>{label}</p><strong>{value}</strong><small>{detail}</small></div></article>;
 }
-export function DashboardPage({ stations, keys, summary, usageRows, onRefresh, onNavigate }: { stations: Station[]; keys: KeyRow[]; summary: DashboardUsageSummary; usageRows: UsageLog[]; onRefresh: () => Promise<void>; onNavigate: (view: DashboardView) => void }) {
+export function DashboardPage({ stations, keys, accountRows, summary, usageRows, onRefresh, onNavigate }: { stations: Station[]; keys: KeyRow[]; accountRows: AccountRow[]; summary: DashboardUsageSummary; usageRows: UsageLog[]; onRefresh: () => Promise<void>; onNavigate: (view: DashboardView) => void }) {
   const [startDate, setStartDate] = useState(todayInput(new Date(Date.now() - 6 * 86_400_000)));
   const [endDate, setEndDate] = useState(todayInput(new Date()));
   const [granularity, setGranularity] = useState<"day" | "hour">("day");
   const online = stations.filter((station) => station.status === "online").length;
+  const balances = accountRows.flatMap((row) => row.account.balance == null ? [] : [row.account.balance]);
+  const totalBalance = balances.reduce((total, balance) => total + balance, 0);
   const latest = [...usageRows].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
   const records = usageRows.filter((row) => row.createdAt >= beginOfDay(startDate) && row.createdAt <= endOfDay(endDate));
   const totalTokens = records.reduce((total, row) => total + row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens, 0);
@@ -58,7 +61,7 @@ export function DashboardPage({ stations, keys, summary, usageRows, onRefresh, o
   const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
   return <div className="sub2-page sub2-dashboard-page">
     <section className="sub2-dashboard-stat-grid">
-      <DashboardStatCard icon={<DollarSign size={18} />} label="余额" value="-" detail="站点未提供可聚合余额" tone="blue" />
+      <DashboardStatCard icon={<DollarSign size={18} />} label="余额" value={balances.length ? formatMoney(totalBalance) : "-"} detail={balances.length ? `已汇总 ${balances.length}/${stations.length} 个站点余额` : "暂无已同步的站点余额"} tone="blue" />
       <DashboardStatCard icon={<KeyRound size={18} />} label="API 密钥" value={String(keys.length)} detail={`${stations.length} 个已连接站点`} tone="emerald" />
       <DashboardStatCard icon={<Activity size={18} />} label="今日请求" value={formatNumber(summary.todayRequests)} detail={`累计 ${formatNumber(summary.totalRequests)} 次`} tone="amber" />
       <DashboardStatCard icon={<LayoutDashboard size={18} />} label="今日站点额度" value={formatMoney(summary.todaySpent)} detail={summary.costsAreIsolated ? "不同站点额度单位不汇总" : `累计 ${formatMoney(summary.totalSpent)}`} tone="purple" />

@@ -1,0 +1,4 @@
+project_id = "vvqzkkyfwmuwmntyvbgz"
+
+[functions.login-with-audit]
+verify_jwt = false

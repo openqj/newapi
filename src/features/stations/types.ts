@@ -19,6 +19,14 @@ export type StationSaveResult = {
   connection: StationConnectionResult;
 };
 
+export type StationAccountDraft = {
+  id: string;
+  name: string;
+  baseUrl: string;
+  kind: string;
+  username?: string;
+};
+
 /**
  * The server snapshot deliberately lives with the stations feature: it is the
  * result of synchronising one station and is consumed by the other read-only

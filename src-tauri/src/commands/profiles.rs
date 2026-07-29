@@ -1,4 +1,5 @@
 use tauri::State;
+
 use uuid::Uuid;
 
 use crate::{
@@ -11,7 +12,9 @@ use crate::{
 };
 
 #[tauri::command]
-pub(crate) fn list_login_profiles(state: State<'_, AppState>) -> Result<Vec<LoginProfile>, String> {
+pub(crate) async fn list_login_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<LoginProfile>, String> {
     state
         .store
         .lock()
@@ -20,7 +23,7 @@ pub(crate) fn list_login_profiles(state: State<'_, AppState>) -> Result<Vec<Logi
 }
 
 #[tauri::command]
-pub(crate) fn get_login_profile(
+pub(crate) async fn get_login_profile(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<LoginProfileSecret, String> {
@@ -36,7 +39,7 @@ pub(crate) fn get_login_profile(
 }
 
 #[tauri::command]
-pub(crate) fn save_login_profile(
+pub(crate) async fn save_login_profile(
     state: State<'_, AppState>,
     request: LoginProfileRequest,
 ) -> Result<LoginProfile, String> {
@@ -64,7 +67,10 @@ pub(crate) fn save_login_profile(
 }
 
 #[tauri::command]
-pub(crate) fn delete_login_profile(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub(crate) async fn delete_login_profile(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     state
         .store
         .lock()

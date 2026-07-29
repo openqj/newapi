@@ -69,6 +69,15 @@ pub(crate) async fn reveal_key(
 }
 
 #[tauri::command]
+pub(crate) async fn apply_api_key_to_codex(
+    state: State<'_, AppState>,
+    station_id: String,
+    key_id: String,
+) -> Result<crate::CodexIntegrationStatus, String> {
+    crate::services::codex_config::apply_api_key(&state, station_id, key_id).await
+}
+
+#[tauri::command]
 pub(crate) async fn delete_api_key(
     state: State<'_, AppState>,
     station_id: String,

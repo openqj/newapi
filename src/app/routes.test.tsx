@@ -6,10 +6,10 @@ describe("application route registry", () => {
     const navigation = getPrimaryNavigation();
 
     expect(Object.keys(appRoutes)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "personalCenter", "settings", "alertHistory",
     ]);
     expect(navigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
     ]);
     navigation.forEach(({ view }) => expect(appRoutes[view].createPage).toBeTypeOf("function"));
   });

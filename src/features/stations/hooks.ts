@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "../../components/ui";
 import { errorMessage } from "../../lib/errors";
 import { isTauri } from "../../lib/platform";
@@ -33,6 +33,7 @@ export function useStations<Snapshot extends StationSnapshot>({
   const [snapshot, setSnapshot] = useState<Snapshot>(() => isTauri() ? emptySnapshot : (demo?.snapshots[demo.stations[0]?.id ?? ""] ?? emptySnapshot));
   const [busy, setBusy] = useState(false);
   const [syncProgress, setSyncProgress] = useState<StationSyncProgress | null>(null);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
   const loadStations = useCallback(async () => {
     if (!isTauri()) {
@@ -64,9 +65,12 @@ export function useStations<Snapshot extends StationSnapshot>({
     }
   }, [demo, emptySnapshot, notify, selectedId]);
 
-  const refreshAll = useCallback(async () => {
-    if (!isTauri()) return;
-    setBusy(true);
+  const refreshAll = useCallback(() => {
+    if (!isTauri()) return Promise.resolve();
+    if (refreshInFlight.current) return refreshInFlight.current;
+
+    const refresh = (async () => {
+      setBusy(true);
     try {
       await stationApi.refreshAll<StationSyncResult<Snapshot>[]>();
       await loadStations();
@@ -78,6 +82,12 @@ export function useStations<Snapshot extends StationSnapshot>({
       setBusy(false);
       setSyncProgress(null);
     }
+    })();
+    refreshInFlight.current = refresh;
+    void refresh.finally(() => {
+      if (refreshInFlight.current === refresh) refreshInFlight.current = null;
+    });
+    return refresh;
   }, [loadSnapshot, loadStations, notify, onSyncComplete, selectedId]);
 
   const cancelRefresh = useCallback(async () => {

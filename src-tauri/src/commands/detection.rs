@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use tauri::State;
+
 use url::Url;
 
 use crate::services::detection::{

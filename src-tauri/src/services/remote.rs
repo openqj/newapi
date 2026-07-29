@@ -105,11 +105,17 @@ pub(crate) fn add_server(
     if !matches!(request.auth_type.as_str(), "password" | "key") {
         return Err("不支持的登录方式".into());
     }
-    if request.auth_type == "password" && request.password.as_deref().unwrap_or_default().is_empty() {
+    if request.auth_type == "password" && request.password.as_deref().unwrap_or_default().is_empty()
+    {
         return Err("请输入服务器密码".into());
     }
     if request.auth_type == "key"
-        && request.private_key_path.as_deref().unwrap_or_default().trim().is_empty()
+        && request
+            .private_key_path
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
     {
         return Err("请输入或选择 SSH密匙".into());
     }
@@ -133,13 +139,19 @@ pub(crate) fn add_server(
         port: request.port,
         username: request.username.trim().to_string(),
         auth_type: request.auth_type,
-        private_key_path: request.private_key_path.filter(|value| !value.trim().is_empty()),
+        private_key_path: request
+            .private_key_path
+            .filter(|value| !value.trim().is_empty()),
         codex_version: None,
         codex_latest_version: None,
         codex_update_available: false,
-        host_key_fingerprint: request.host_key_fingerprint.filter(|value| !value.trim().is_empty()),
+        host_key_fingerprint: request
+            .host_key_fingerprint
+            .filter(|value| !value.trim().is_empty()),
         relay_url: None,
-        relay_provider: request.relay_provider.filter(|value| !value.trim().is_empty()),
+        relay_provider: request
+            .relay_provider
+            .filter(|value| !value.trim().is_empty()),
         relay_key_source: None,
         relay_key_masked: None,
         relay_config_fingerprint: None,
@@ -171,7 +183,10 @@ pub(crate) fn add_server(
             .map_err(|error| error.to_string())?;
     }
     if server.auth_type == "key" {
-        if let Some(passphrase) = request.private_key_passphrase.filter(|value| !value.is_empty()) {
+        if let Some(passphrase) = request
+            .private_key_passphrase
+            .filter(|value| !value.is_empty())
+        {
             remote_key_passphrase_entry(&server.id)?
                 .set_password(&passphrase)
                 .map_err(|error| error.to_string())?;
@@ -179,10 +194,13 @@ pub(crate) fn add_server(
     }
     let (connection, relay) = test_and_read_server(&server, None);
     server.connection_status = connection.status.clone();
-    server.connection_error = connection.reason.clone().map(|reason| match connection.code {
-        Some(code) => format!("错误代码 {code}: {reason}"),
-        None => reason,
-    });
+    server.connection_error = connection
+        .reason
+        .clone()
+        .map(|reason| match connection.code {
+            Some(code) => format!("错误代码 {code}: {reason}"),
+            None => reason,
+        });
     if !connection.success {
         if server.auth_type == "password" {
             if let Ok(entry) = remote_server_entry(&server.id) {
@@ -257,7 +275,10 @@ pub(crate) fn update_server(
         let _ = remote_server_entry(&server.id)?.delete_credential();
     }
     if request.auth_type == "key" {
-        if let Some(passphrase) = request.private_key_passphrase.filter(|value| !value.is_empty()) {
+        if let Some(passphrase) = request
+            .private_key_passphrase
+            .filter(|value| !value.is_empty())
+        {
             remote_key_passphrase_entry(&server.id)?
                 .set_password(&passphrase)
                 .map_err(|error| error.to_string())?;
@@ -274,14 +295,23 @@ pub(crate) fn update_server(
     server.port = request.port;
     server.username = request.username.trim().to_string();
     server.auth_type = request.auth_type;
-    server.private_key_path = if server.auth_type == "key" { Some(private_key_path) } else { None };
-    server.relay_provider = request.relay_provider.filter(|value| !value.trim().is_empty());
+    server.private_key_path = if server.auth_type == "key" {
+        Some(private_key_path)
+    } else {
+        None
+    };
+    server.relay_provider = request
+        .relay_provider
+        .filter(|value| !value.trim().is_empty());
     let (connection, relay) = test_and_read_server(&server, Some(&operation));
     server.connection_status = connection.status.clone();
-    server.connection_error = connection.reason.clone().map(|reason| match connection.code {
-        Some(code) => format!("错误代码 {code}: {reason}"),
-        None => reason,
-    });
+    server.connection_error = connection
+        .reason
+        .clone()
+        .map(|reason| match connection.code {
+            Some(code) => format!("错误代码 {code}: {reason}"),
+            None => reason,
+        });
     if let Some(snapshot) = relay {
         apply_snapshot(&mut server, snapshot)?;
     }
@@ -294,12 +324,19 @@ pub(crate) fn update_server(
     add_sync_log(
         state,
         &server,
-        if connection.success { "success" } else { "error" },
+        if connection.success {
+            "success"
+        } else {
+            "error"
+        },
         "update",
         if connection.success {
             "服务器配置已更新并完成读取"
         } else {
-            server.connection_error.as_deref().unwrap_or("服务器连接失败")
+            server
+                .connection_error
+                .as_deref()
+                .unwrap_or("服务器连接失败")
         },
     );
     Ok(RemoteServerUpdate {
@@ -335,14 +372,15 @@ pub(crate) fn write_server_relay(
     if let Some(fingerprint) = original_config_fingerprint {
         write_server.relay_config_fingerprint = Some(fingerprint.to_string());
     }
-    let snapshot = match write_codex_relay_config(&write_server, relay_url, relay_key, Some(operation)) {
-        Ok(snapshot) => snapshot,
-        Err(error) => {
-            restore_relay_key(&server.id, previous_key.as_deref());
-            record_failure(state, server, action, &error);
-            return Err(error);
-        }
-    };
+    let snapshot =
+        match write_codex_relay_config(&write_server, relay_url, relay_key, Some(operation)) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                restore_relay_key(&server.id, previous_key.as_deref());
+                record_failure(state, server, action, &error);
+                return Err(error);
+            }
+        };
     server.relay_url = Some(relay_url.to_string());
     server.relay_key_source = relay_key_source;
     server.relay_key_masked = Some(mask_secret(relay_key));
@@ -444,10 +482,13 @@ pub(crate) fn test_server(state: &AppState, id: &str) -> Result<RemoteConnection
         .get_remote_server(id)?;
     let (connection, relay) = test_and_read_server(&server, Some(&operation));
     server.connection_status = connection.status.clone();
-    server.connection_error = connection.reason.clone().map(|reason| match connection.code {
-        Some(code) => format!("错误代码 {code}: {reason}"),
-        None => reason,
-    });
+    server.connection_error = connection
+        .reason
+        .clone()
+        .map(|reason| match connection.code {
+            Some(code) => format!("错误代码 {code}: {reason}"),
+            None => reason,
+        });
     if let Some(snapshot) = relay {
         apply_snapshot(&mut server, snapshot)?;
     }
@@ -460,7 +501,11 @@ pub(crate) fn test_server(state: &AppState, id: &str) -> Result<RemoteConnection
     add_sync_log(
         state,
         &server,
-        if connection.success { "success" } else { "error" },
+        if connection.success {
+            "success"
+        } else {
+            "error"
+        },
         "test",
         if connection.success {
             "SSH 连接和 Codex 配置读取成功"
@@ -486,7 +531,11 @@ pub(crate) fn verify_server_codex_session(
     server.connection_status = result.status.clone();
     server.connection_error = result.reason.clone();
     server.last_synced_at = Some(now());
-    server.last_sync_status = Some(if result.success { "verified".into() } else { "error".into() });
+    server.last_sync_status = Some(if result.success {
+        "verified".into()
+    } else {
+        "error".into()
+    });
     server.last_sync_error = result.reason.clone();
     server.updated_at = now();
     state
@@ -653,7 +702,10 @@ fn system_ssh(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| format!("无法启动 Windows OpenSSH：{error}"))?;
-    let mut stdin = child.stdin.take().ok_or("无法打开 Windows OpenSSH 标准输入")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or("无法打开 Windows OpenSSH 标准输入")?;
     stdin
         .write_all(script.as_bytes())
         .map_err(|error| format!("无法发送远程 SSH 命令：{error}"))?;
@@ -952,7 +1004,9 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
     let RemoteSession::Libssh(session) = session else {
         unreachable!("all RemoteSession variants are handled above");
     };
-    let mut channel = session.channel_session().map_err(|error| error.to_string())?;
+    let mut channel = session
+        .channel_session()
+        .map_err(|error| error.to_string())?;
     channel
         .exec(&format!(
             "mkdir -p -- {directory} && chmod 700 -- {directory}",
@@ -1016,7 +1070,10 @@ pub(crate) fn restore_file(
     }
 }
 
-fn codex_config_state(session: &RemoteSession, home: &str) -> Result<RemoteCodexConfigState, String> {
+fn codex_config_state(
+    session: &RemoteSession,
+    home: &str,
+) -> Result<RemoteCodexConfigState, String> {
     let config = read_file(session, &format!("{home}/.codex/config.toml"))?;
     let auth = read_file(session, &format!("{home}/.codex/auth.json"))?;
     let relay_env = read_file(session, &format!("{home}/.codex/relayhub.env"))?;
@@ -1769,7 +1826,11 @@ experimental_bearer_token = "sk-relay-config-token"
         }
         let server = e2e_server(
             "relayhub-e2e",
-            if password.is_some() { "password" } else { "key" },
+            if password.is_some() {
+                "password"
+            } else {
+                "key"
+            },
             private_key_path,
         );
         if let Some(password) = password {
@@ -1779,16 +1840,21 @@ experimental_bearer_token = "sk-relay-config-token"
                 .unwrap();
         }
 
-        let session = super::session(&server, None).expect("password SSH authentication should succeed");
+        let session =
+            super::session(&server, None).expect("password SSH authentication should succeed");
         let home = super::home(&session).expect("remote home should be available");
         let config_path = format!("{home}/.codex/config.toml");
         let auth_path = format!("{home}/.codex/auth.json");
         let env_path = format!("{home}/.codex/relayhub.env");
         let bashrc_path = format!("{home}/.bashrc");
-        let original_config = super::read_file(&session, &config_path).expect("config should be readable");
-        let original_auth = super::read_file(&session, &auth_path).expect("auth should be readable");
-        let original_env = super::read_file(&session, &env_path).expect("relay environment should be readable");
-        let original_bashrc = super::read_file(&session, &bashrc_path).expect("bashrc should be readable");
+        let original_config =
+            super::read_file(&session, &config_path).expect("config should be readable");
+        let original_auth =
+            super::read_file(&session, &auth_path).expect("auth should be readable");
+        let original_env =
+            super::read_file(&session, &env_path).expect("relay environment should be readable");
+        let original_bashrc =
+            super::read_file(&session, &bashrc_path).expect("bashrc should be readable");
         drop(session);
 
         let relay_url = format!("https://relayhub-e2e-{}.example/v1", Uuid::new_v4());
@@ -1809,13 +1875,19 @@ experimental_bearer_token = "sk-relay-config-token"
             match original_config.as_deref() {
                 Some(config) => super::write_file(&session, &config_path, config)?,
                 None => {
-                    super::command(&session, &format!("rm -f -- {}", super::shell_quote(&config_path)))?;
+                    super::command(
+                        &session,
+                        &format!("rm -f -- {}", super::shell_quote(&config_path)),
+                    )?;
                 }
             }
             match original_auth.as_deref() {
                 Some(auth) => super::write_file(&session, &auth_path, auth)?,
                 None => {
-                    super::command(&session, &format!("rm -f -- {}", super::shell_quote(&auth_path)))?;
+                    super::command(
+                        &session,
+                        &format!("rm -f -- {}", super::shell_quote(&auth_path)),
+                    )?;
                 }
             }
             super::restore_file(&session, &env_path, original_env.as_deref())?;
@@ -1848,13 +1920,20 @@ experimental_bearer_token = "sk-relay-config-token"
         }
         let server = e2e_server(
             "relayhub-session",
-            if password.is_some() { "password" } else { "key" },
+            if password.is_some() {
+                "password"
+            } else {
+                "key"
+            },
             private_key_path,
         );
         let relay_url = std::env::var("RELAYHUB_E2E_RELAY_URL").expect("missing relay URL");
         let relay_key = std::env::var("RELAYHUB_E2E_RELAY_KEY").expect("missing relay key");
         if let Some(password) = &password {
-            remote_server_entry(&server.id).unwrap().set_password(password).unwrap();
+            remote_server_entry(&server.id)
+                .unwrap()
+                .set_password(password)
+                .unwrap();
         }
         let session = super::session(&server, None).expect("SSH authentication should succeed");
         let home = super::home(&session).expect("remote home should be available");
@@ -1862,10 +1941,14 @@ experimental_bearer_token = "sk-relay-config-token"
         let auth_path = format!("{home}/.codex/auth.json");
         let env_path = format!("{home}/.codex/relayhub.env");
         let bashrc_path = format!("{home}/.bashrc");
-        let original_config = super::read_file(&session, &config_path).expect("config should be readable");
-        let original_auth = super::read_file(&session, &auth_path).expect("auth should be readable");
-        let original_env = super::read_file(&session, &env_path).expect("relay environment should be readable");
-        let original_bashrc = super::read_file(&session, &bashrc_path).expect("bashrc should be readable");
+        let original_config =
+            super::read_file(&session, &config_path).expect("config should be readable");
+        let original_auth =
+            super::read_file(&session, &auth_path).expect("auth should be readable");
+        let original_env =
+            super::read_file(&session, &env_path).expect("relay environment should be readable");
+        let original_bashrc =
+            super::read_file(&session, &bashrc_path).expect("bashrc should be readable");
         drop(session);
 
         let result = (|| -> Result<(), String> {
@@ -1876,8 +1959,11 @@ experimental_bearer_token = "sk-relay-config-token"
             }
 
             let session = super::session(&server, None)?;
-            let config = super::read_file(&session, &config_path)?.ok_or("远端 config.toml 未创建")?;
-            let config = config.parse::<toml::Value>().map_err(|_| "远端 config.toml 写入后格式无效")?;
+            let config =
+                super::read_file(&session, &config_path)?.ok_or("远端 config.toml 未创建")?;
+            let config = config
+                .parse::<toml::Value>()
+                .map_err(|_| "远端 config.toml 写入后格式无效")?;
             let provider = config
                 .get("model_providers")
                 .and_then(toml::Value::as_table)
@@ -1886,25 +1972,37 @@ experimental_bearer_token = "sk-relay-config-token"
                 .ok_or("远端 config.toml 未写入 custom Provider")?;
             if config.get("model_provider").and_then(toml::Value::as_str) != Some("custom")
                 || provider.get("wire_api").and_then(toml::Value::as_str) != Some("responses")
-                || provider.get("requires_openai_auth").and_then(toml::Value::as_bool) != Some(true)
-                || provider.get("experimental_bearer_token").and_then(toml::Value::as_str) != Some(relay_key.as_str())
+                || provider
+                    .get("requires_openai_auth")
+                    .and_then(toml::Value::as_bool)
+                    != Some(true)
+                || provider
+                    .get("experimental_bearer_token")
+                    .and_then(toml::Value::as_str)
+                    != Some(relay_key.as_str())
             {
                 return Err("远端 config.toml 与本地 Codex 中转格式不一致".into());
             }
             let auth = super::read_file(&session, &auth_path)?.ok_or("远端 auth.json 未创建")?;
-            let auth = serde_json::from_str::<Value>(&auth).map_err(|_| "远端 auth.json 写入后格式无效")?;
+            let auth = serde_json::from_str::<Value>(&auth)
+                .map_err(|_| "远端 auth.json 写入后格式无效")?;
             if auth.get("OPENAI_API_KEY").and_then(Value::as_str) != Some(relay_key.as_str()) {
                 return Err("远端 auth.json 未同步 OPENAI_API_KEY".into());
             }
             if super::read_file(&session, &env_path)?.is_some() {
                 return Err("远端 relayhub.env 未清理".into());
             }
-            if super::read_file(&session, &bashrc_path)?.as_deref().is_some_and(|bashrc| bashrc.contains("# >>> RelayHub Codex >>>")) {
+            if super::read_file(&session, &bashrc_path)?
+                .as_deref()
+                .is_some_and(|bashrc| bashrc.contains("# >>> RelayHub Codex >>>"))
+            {
                 return Err("远端 .bashrc RelayHub 注入未清理".into());
             }
             let session_result = super::verify_codex_session(&server, None);
             if !session_result.success {
-                return Err(session_result.reason.unwrap_or_else(|| "Codex CLI 会话验证失败".into()));
+                return Err(session_result
+                    .reason
+                    .unwrap_or_else(|| "Codex CLI 会话验证失败".into()));
             }
             Ok(())
         })();
@@ -1935,8 +2033,12 @@ experimental_bearer_token = "sk-relay-config-token"
             "key",
             Some(std::env::var("RELAYHUB_E2E_SSH_KEY_PATH").expect("missing SSH key path")),
         );
-        let session = super::session(&server, None).expect("ED25519 private-key SSH authentication should succeed");
-        assert!(!super::home(&session).expect("remote home should be available").trim().is_empty());
+        let session = super::session(&server, None)
+            .expect("ED25519 private-key SSH authentication should succeed");
+        assert!(!super::home(&session)
+            .expect("remote home should be available")
+            .trim()
+            .is_empty());
     }
 
     #[test]
@@ -2027,11 +2129,9 @@ experimental_bearer_token = "sk-relay-config-token"
     }
 
     fn delete_e2e_credentials(server_id: &str) {
-        let _ = remote_relay_key_entry(server_id).and_then(|entry| {
-            entry.delete_credential().map_err(|error| error.to_string())
-        });
-        let _ = remote_server_entry(server_id).and_then(|entry| {
-            entry.delete_credential().map_err(|error| error.to_string())
-        });
+        let _ = remote_relay_key_entry(server_id)
+            .and_then(|entry| entry.delete_credential().map_err(|error| error.to_string()));
+        let _ = remote_server_entry(server_id)
+            .and_then(|entry| entry.delete_credential().map_err(|error| error.to_string()));
     }
 }

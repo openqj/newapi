@@ -62,10 +62,12 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
   });
 
   const refreshFeatureRows = useCallback(async () => {
-    await loadKeyRows();
-    await loadAccountRows();
-    await loadRateRows();
-    await loadUsageSummary();
+    await Promise.all([
+      loadKeyRows(),
+      loadAccountRows(),
+      loadRateRows(),
+      loadUsageSummary(),
+    ]);
   }, [loadAccountRows, loadKeyRows, loadRateRows, loadUsageSummary]);
 
   const stationDemo = useMemo(
@@ -106,7 +108,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
   useEffect(() => {
     if (view === "keys" || view === "overview" || view === "apiDetection") void loadKeyRows();
   }, [loadKeyRows, view]);
-  useEffect(() => { if (view === "accounts") void loadAccountRows(); }, [loadAccountRows, view]);
+  useEffect(() => { if (view === "accounts" || view === "overview") void loadAccountRows(); }, [loadAccountRows, view]);
   useEffect(() => { if (view === "rates") void loadRateRows(); }, [loadRateRows, view]);
   useEffect(() => { if (view === "usage" || view === "overview") void loadUsageLogs(); }, [loadUsageLogs, view]);
   useEffect(() => {

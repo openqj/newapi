@@ -21,8 +21,10 @@ describe("stationApi command contract", () => {
   it("keeps add and probe request shapes stable", async () => {
     await stationApi.probe("https://relay.example.com");
     await stationApi.add({ name: "Relay", baseUrl: "https://relay.example.com" });
+    await stationApi.update({ id: "station-1", name: "Relay", baseUrl: "https://relay.example.com" });
 
     expect(invokeDesktop).toHaveBeenNthCalledWith(1, "probe_station", { baseUrl: "https://relay.example.com" });
     expect(invokeDesktop).toHaveBeenNthCalledWith(2, "add_station", { request: { name: "Relay", baseUrl: "https://relay.example.com" } });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(3, "update_station", { request: { id: "station-1", name: "Relay", baseUrl: "https://relay.example.com" } });
   });
 });

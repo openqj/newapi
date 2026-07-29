@@ -6,21 +6,26 @@ use std::{
     time::Duration,
 };
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
+use tokio::task::JoinSet;
 use url::Url;
 
 use crate::{
     commands::alerts::notify as notify_alerts,
     keyring_store::{clear_secret, load_secret, save_secret, Secret},
-    services::stations::{authenticate, detect_kind, refresh_session, sync_one, title_from_html},
+    services::stations::{
+        authenticate, detect_kind, refresh_session, sync_one, sync_one_authorized, title_from_html,
+    },
     station_adapter::Station,
     station_store::StationStore,
     support::station_base,
     AddStationRequest, AppState, StationConnectionResult, StationProbe, StationSaveResult,
-    SyncProgress, SyncResult,
+    SyncProgress, SyncResult, UpdateStationRequest,
 };
 use uuid::Uuid;
+
+const MAX_CONCURRENT_STATION_SYNCS: usize = 6;
 
 #[tauri::command]
 pub(crate) async fn probe_station(
@@ -126,6 +131,7 @@ pub(crate) async fn add_station(
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
         .save_station(&station)?;
+    let station = sync_one_authorized(&state, &station.id).await?.station;
     Ok(StationSaveResult {
         station,
         connection,
@@ -133,7 +139,84 @@ pub(crate) async fn add_station(
 }
 
 #[tauri::command]
-pub(crate) fn list_stations(state: State<'_, AppState>) -> Result<Vec<Station>, String> {
+pub(crate) async fn update_station(
+    state: State<'_, AppState>,
+    request: UpdateStationRequest,
+) -> Result<StationSaveResult, String> {
+    let parsed = Url::parse(&request.base_url).map_err(|_| "请输入有效站点地址")?;
+    if parsed.scheme() != "https" {
+        return Err("仅允许 HTTPS 站点地址".into());
+    }
+    let mut station = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .get_station(&request.id)?;
+    let kind = if request.kind == "auto" {
+        detect_kind(&state.client, &station_base(&request.base_url)).await?
+    } else {
+        request.kind
+    };
+    if kind != "newapi" && kind != "sub2api" {
+        return Err("仅支持 New API 和 Sub2API".into());
+    }
+    station.name = if request.name.trim().is_empty() {
+        parsed.host_str().unwrap_or("未命名站点").to_string()
+    } else {
+        request.name.trim().to_string()
+    };
+    station.base_url = station_base(&request.base_url);
+    station.kind = kind;
+    let mut secret = load_secret(&station.id)?;
+    if let Some(username) = request.username.filter(|value| !value.trim().is_empty()) {
+        secret.username = username.trim().to_string();
+    }
+    if let Some(password) = request.password.filter(|value| !value.is_empty()) {
+        secret.password = password;
+    }
+    secret.access_token = None;
+    secret.refresh_token = None;
+    secret.newapi_user_id = None;
+    secret.newapi_session = None;
+    let connection = match authenticate(
+        &state.client,
+        &station,
+        &mut secret,
+        request.totp.as_deref(),
+    )
+    .await
+    {
+        Ok(()) => StationConnectionResult {
+            success: true,
+            status: "online".into(),
+            reason: None,
+        },
+        Err(reason) => {
+            return Ok(StationSaveResult {
+                station,
+                connection: StationConnectionResult {
+                    success: false,
+                    status: "error".into(),
+                    reason: Some(reason),
+                },
+            });
+        }
+    };
+    save_secret(&station.id, &secret)?;
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_station(&station)?;
+    let station = sync_one_authorized(&state, &station.id).await?.station;
+    Ok(StationSaveResult {
+        station,
+        connection,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn list_stations(state: State<'_, AppState>) -> Result<Vec<Station>, String> {
     state
         .store
         .lock()
@@ -142,7 +225,10 @@ pub(crate) fn list_stations(state: State<'_, AppState>) -> Result<Vec<Station>, 
 }
 
 #[tauri::command]
-pub(crate) fn clear_station_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub(crate) async fn clear_station_session(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     let mut secret = load_secret(&id)?;
     secret.newapi_session = None;
     secret.newapi_user_id = None;
@@ -156,7 +242,7 @@ pub(crate) fn clear_station_session(state: State<'_, AppState>, id: String) -> R
 }
 
 #[tauri::command]
-pub(crate) fn delete_station(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub(crate) async fn delete_station(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
         .store
         .lock()
@@ -202,7 +288,7 @@ pub(crate) async fn reauthenticate_station(
 }
 
 #[tauri::command]
-pub(crate) fn get_sync_progress(
+pub(crate) async fn get_sync_progress(
     state: State<'_, AppState>,
 ) -> Result<Option<SyncProgress>, String> {
     Ok(state
@@ -214,7 +300,7 @@ pub(crate) fn get_sync_progress(
 }
 
 #[tauri::command]
-pub(crate) fn cancel_sync(state: State<'_, AppState>) -> Result<(), String> {
+pub(crate) async fn cancel_sync(state: State<'_, AppState>) -> Result<(), String> {
     let operations = state
         .sync_operations
         .lock()
@@ -256,17 +342,34 @@ pub(crate) async fn refresh_all(
                 status: "running".into(),
             },
         );
+    let mut queued_stations = stations.into_iter().enumerate();
+    let mut workers = JoinSet::new();
     let mut results = Vec::new();
-    for station in stations {
-        if cancelled.load(Ordering::Relaxed) {
-            break;
-        }
-        if let Ok(mut progress) = state.sync_progress.lock() {
-            if let Some(progress) = progress.get_mut("all") {
-                progress.current_station = Some(station.name.clone());
+    loop {
+        while workers.len() < MAX_CONCURRENT_STATION_SYNCS && !cancelled.load(Ordering::Relaxed) {
+            let Some((position, station)) = queued_stations.next() else {
+                break;
+            };
+            if let Ok(mut progress) = state.sync_progress.lock() {
+                if let Some(progress) = progress.get_mut("all") {
+                    progress.current_station = Some(station.name.clone());
+                }
             }
+            let task_app = app.clone();
+            workers.spawn(async move {
+                let state = task_app.state::<AppState>();
+                let result = sync_one(&state, &station.id).await;
+                (position, station, result)
+            });
         }
-        match sync_one(&state, &station.id).await {
+
+        let Some(joined) = workers.join_next().await else {
+            break;
+        };
+        let Ok((position, station, result)) = joined else {
+            continue;
+        };
+        match result {
             Ok(result) => {
                 if result.changed {
                     let _ = app
@@ -276,10 +379,10 @@ pub(crate) async fn refresh_all(
                         .body(result.change_summary.join("，"))
                         .show();
                 }
-                results.push(result);
+                results.push((position, result));
             }
             Err(error) => {
-                let mut failed = station.clone();
+                let mut failed = station;
                 failed.status = "error".into();
                 failed.last_error = Some(error);
                 let _ = state
@@ -309,5 +412,6 @@ pub(crate) async fn refresh_all(
         operations.remove("all");
     }
     let _ = notify_alerts(&app, &state);
-    Ok(results)
+    results.sort_by_key(|(position, _)| *position);
+    Ok(results.into_iter().map(|(_, result)| result).collect())
 }

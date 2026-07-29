@@ -1,4 +1,7 @@
 pub(crate) mod api_keys;
+pub(crate) mod authorization;
+pub(crate) mod cloud_backup;
+pub(crate) mod codex_config;
 pub(crate) mod detection;
 pub(crate) mod gateway;
 pub(crate) mod provider_doctor;

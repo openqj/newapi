@@ -7,6 +7,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "probe_station",
     "diagnose_station",
     "add_station",
+    "update_station",
     "list_stations",
     "list_login_profiles",
     "get_login_profile",
@@ -45,6 +46,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "update_api_key",
     "delete_api_key",
     "reveal_key",
+    "apply_api_key_to_codex",
     "get_gateway_status",
     "set_routing_mode",
     "set_gateway_port",
@@ -59,10 +61,33 @@ pub const COMMAND_NAMES: &[&str] = &[
     "detect_model_authenticity",
     "delete_station",
     "backup_database",
+    "get_cloud_auth_status",
+    "cloud_sign_up",
+    "cloud_sign_in",
+    "cloud_request_password_reset",
+    "cloud_sign_out",
+    "list_cloud_backups",
+    "create_cloud_backup",
+    "delete_cloud_backup",
+    "preview_cloud_backup",
+    "restore_cloud_backup",
+    "get_codex_integration",
+    "set_codex_preserve_official_login",
     "get_alert_policy",
     "save_alert_policy",
     "evaluate_alerts",
     "list_alert_history",
+    "get_personal_center_notification_preferences",
+    "save_personal_center_notification_preferences",
+    "list_personal_center_memberships",
+    "save_personal_center_membership",
+    "delete_personal_center_membership",
+    "list_personal_center_audit_history",
+    "list_personal_center_notifications",
+    "publish_personal_center_notification",
+    "mark_personal_center_notification",
+    "get_personal_center_realtime_session",
+    "list_personal_center_login_events",
 ];
 
 #[cfg(test)]
@@ -71,12 +96,16 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 59);
+        assert_eq!(COMMAND_NAMES.len(), 84);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
         assert!(COMMAND_NAMES.contains(&"diagnose_station"));
         assert!(COMMAND_NAMES.contains(&"backup_database"));
+        assert!(COMMAND_NAMES.contains(&"create_cloud_backup"));
+        assert!(COMMAND_NAMES.contains(&"delete_cloud_backup"));
+        assert!(COMMAND_NAMES.contains(&"restore_cloud_backup"));
         assert!(COMMAND_NAMES.contains(&"list_audit_events"));
         assert!(COMMAND_NAMES.contains(&"rollback_audit_event"));
+        assert!(COMMAND_NAMES.contains(&"list_personal_center_memberships"));
     }
 }

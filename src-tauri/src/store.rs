@@ -39,6 +39,19 @@ impl Store {
              CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY, value TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS personal_center_memberships (
+                station_id TEXT NOT NULL, account_id TEXT NOT NULL,
+                user_email TEXT NOT NULL DEFAULT '',
+                plan TEXT NOT NULL, access_level TEXT NOT NULL, enabled INTEGER NOT NULL,
+                expires_at INTEGER, privileges TEXT NOT NULL, updated_at INTEGER NOT NULL,
+                PRIMARY KEY (station_id, account_id)
+             );
+             CREATE TABLE IF NOT EXISTS personal_center_audit_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, subject TEXT NOT NULL,
+                detail TEXT NOT NULL, created_at INTEGER NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_personal_center_audit_events_created_at
+                ON personal_center_audit_events(created_at DESC);
              CREATE TABLE IF NOT EXISTS alert_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 alert_id TEXT NOT NULL, station_id TEXT NOT NULL, station_name TEXT NOT NULL,
@@ -108,6 +121,7 @@ impl Store {
             [],
         );
         let _ = connection.execute("ALTER TABLE audit_events ADD COLUMN payload TEXT", []);
+        let _ = connection.execute("ALTER TABLE personal_center_memberships ADD COLUMN user_email TEXT NOT NULL DEFAULT ''", []);
         Ok(Self { connection, path })
     }
 
@@ -123,7 +137,10 @@ mod tests {
     use rusqlite::Connection;
 
     use super::Store;
-    use crate::remote_sync_logs::RemoteSyncLogStore;
+    use crate::{
+        personal_center_store::{MembershipAccess, PersonalCenterStore},
+        remote_sync_logs::RemoteSyncLogStore,
+    };
 
     #[test]
     fn migrates_existing_remote_server_storage_and_preserves_sync_logs() {
@@ -172,5 +189,38 @@ mod tests {
             .expect("sync logs should list");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].config_fingerprint.as_deref(), Some("sha256:test"));
+    }
+
+    #[test]
+    fn creates_personal_center_storage_for_existing_databases() {
+        let database =
+            tempfile::NamedTempFile::new().expect("temporary database should be created");
+        let connection = Connection::open(database.path()).expect("temporary database should open");
+        connection
+            .execute_batch("CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+            .expect("old schema should be created");
+        drop(connection);
+
+        let store = Store::open(database.path().to_path_buf()).expect("database should migrate");
+        store
+            .save_membership(&MembershipAccess {
+                station_id: "station-1".into(),
+                account_id: "account-1".into(),
+                user_email: "user@example.com".into(),
+                plan: "pro".into(),
+                access_level: "member".into(),
+                enabled: true,
+                expires_at: None,
+                privileges: vec!["usage".into()],
+                updated_at: 1,
+            })
+            .expect("membership should persist");
+        assert_eq!(
+            store
+                .list_memberships()
+                .expect("memberships should list")
+                .len(),
+            1
+        );
     }
 }

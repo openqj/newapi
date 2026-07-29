@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ConfirmationProvider, ToastProvider, useConfirm, useToast } from "./Feedback";
@@ -46,5 +46,15 @@ describe("shared feedback", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭提示" }));
 
     expect(screen.queryByText("Save failed")).not.toBeInTheDocument();
+  });
+
+  it("shows an active error toast only once", () => {
+    const { container } = render(<ToastProvider><ToastProbe /></ToastProvider>);
+
+    const button = within(container).getByRole("button", { name: "Save" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(screen.getAllByText("Save failed")).toHaveLength(1);
   });
 });

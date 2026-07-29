@@ -1,4 +1,5 @@
 .account-input-actions { position: relative; }
+.add-station-continue { margin-right: auto; }
 .account-input-actions .input { padding-right: 4.5rem; }
 .account-profile-picker, .account-profile-chevron { display: none; }
 .account-profile-trigger { position: absolute; top: 0; right: 2rem; display: inline-grid; height: 100%; width: 2rem; place-items: center; border: 0; background: transparent; color: #7c7370; }

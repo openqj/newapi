@@ -1,5 +1,6 @@
-import { Ban, Check, Clipboard, Copy, Pencil, Terminal, Trash2, Upload } from "lucide-react";
+import { Clipboard, Copy, Pencil, Trash2, Upload } from "lucide-react";
 import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
+import { GroupRateSelect } from "./GroupRateSelect";
 import type { KeyRow } from "../types";
 
 type ApiKeyTableProps = {
@@ -9,7 +10,7 @@ type ApiKeyTableProps = {
   onReveal: (row: KeyRow) => void;
   onGroupChange: (row: KeyRow, group: string) => void;
   onImport: (row: KeyRow) => void;
-  onToggleStatus: (row: KeyRow) => void;
+  onApplyToCodex: (row: KeyRow) => void;
   onEdit: (row: KeyRow) => void;
   onDelete: (row: KeyRow) => void;
 };
@@ -28,7 +29,7 @@ export function ApiKeyTable({
   onReveal,
   onGroupChange,
   onImport,
-  onToggleStatus,
+  onApplyToCodex,
   onEdit,
   onDelete,
 }: ApiKeyTableProps) {
@@ -50,12 +51,13 @@ export function ApiKeyTable({
             {rows.map((row) => {
               const totalQuota = row.key.totalQuota ?? ((row.key.remainingQuota ?? 0) + (row.key.usedQuota ?? 0));
               const active = isActive(row.key.status);
+              const busy = saving === rowId(row) || saving === `codex:${rowId(row)}`;
               return (
                 <tr key={`${row.stationId}:${row.key.id}`}>
                   <td className="table-page-station"><strong>{row.stationName}</strong><small>{row.stationUrl}</small></td>
                   <td><strong>{row.key.name || "未命名密钥"}</strong></td>
                   <td><div className="sub2-key-code"><code>{row.key.maskedKey || "已隐藏"}</code><button type="button" title="复制 API 密钥" className="sub2-copy-key" onClick={() => onReveal(row)}><Copy size={15} /></button></div></td>
-                  <td><select className="sub2-group-select sub2-key-group-select" value={row.key.group ?? "default"} disabled={saving === rowId(row)} onChange={(event) => onGroupChange(row, event.target.value)}>{(row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]).map((group) => <option key={group.name}>{group.name}</option>)}</select></td>
+                  <td><GroupRateSelect className="sub2-key-group-rate-select" value={row.key.group ?? "default"} groups={row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]} disabled={busy} onChange={(group) => onGroupChange(row, group)} /></td>
                   <td><span className={`sub2-concurrency ${row.key.currentConcurrency ? "active" : ""}`}>{row.key.currentConcurrency ?? 0}</span></td>
                   <td>
                     <div className="sub2-key-usage">
@@ -69,9 +71,8 @@ export function ApiKeyTable({
                   <td>{formatTime(row.key.createdAt)}</td>
                   <td>
                     <div className="sub2-key-row-actions">
-                      <button type="button" className="use" title="使用密钥" onClick={() => onReveal(row)}><Terminal size={15} /><span>使用</span></button>
+                      <button type="button" className="enable" title="启用到 Codex" onClick={() => onApplyToCodex(row)} disabled={busy}>启用</button>
                       <button type="button" className="import" title="导入 CC Switch" onClick={() => onImport(row)}><Upload size={15} /><span>导入</span></button>
-                      <button type="button" className="toggle" title={active ? "停用密钥" : "启用密钥"} onClick={() => onToggleStatus(row)} disabled={saving === rowId(row)}>{active ? <Ban size={15} /> : <Check size={15} />}<span>{active ? "停用" : "启用"}</span></button>
                       <button type="button" className="edit" title="编辑密钥" onClick={() => onEdit(row)}><Pencil size={15} /><span>编辑</span></button>
                       <button type="button" className="delete" title="删除密钥" onClick={() => onDelete(row)}><Trash2 size={15} /><span>删除</span></button>
                     </div>

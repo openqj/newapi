@@ -4,13 +4,15 @@ import { FormDialog } from "../../../components/FormDialog";
 import { isTauri } from "../../../lib/platform";
 import type { Station } from "../../stations";
 import { apiKeyApi } from "../api";
+import { GroupRateSelect } from "./GroupRateSelect";
 import { useApiKeyEditorSubmit } from "../hooks";
-import type { KeyRow } from "../types";
+import type { GroupOption, KeyRow } from "../types";
 
 type ApiKeyEditorProps = {
   row?: KeyRow;
   rows: KeyRow[];
   stations: Station[];
+  onRefreshStation?: (stationId: string) => Promise<void>;
   onClose: () => void;
   onSaved: () => Promise<void>;
   onError: (reason: unknown) => void;
@@ -18,7 +20,7 @@ type ApiKeyEditorProps = {
 
 const formatMoney = (value?: number) => value == null ? "-" : `${value.toFixed(4)} 额度`;
 
-export function ApiKeyEditor({ row, rows, stations, onClose, onSaved, onError }: ApiKeyEditorProps) {
+export function ApiKeyEditor({ row, rows, stations, onRefreshStation, onClose, onSaved, onError }: ApiKeyEditorProps) {
   const [stationId, setStationId] = useState(row?.stationId ?? stations[0]?.id ?? "");
   const [name, setName] = useState(row?.key.name ?? "");
   const [group, setGroup] = useState(row?.key.group ?? "");
@@ -38,7 +40,7 @@ export function ApiKeyEditor({ row, rows, stations, onClose, onSaved, onError }:
   const [enableExpiration, setEnableExpiration] = useState(Boolean(row?.key.expiresAt));
   const isNewApi = stations.find((station) => station.id === stationId)?.kind === "newapi";
   const stationRows = rows.filter((item) => item.stationId === stationId);
-  const fallbackGroups = Array.from(new Set(stationRows.flatMap((item) => item.groups.map((entry) => entry.name))));
+  const fallbackGroups = Array.from(new Map(stationRows.flatMap((item) => item.groups.map((entry) => [entry.name, entry]))).values());
   const [groups, setGroups] = useState(fallbackGroups);
   const { saving, submit: saveApiKey } = useApiKeyEditorSubmit({ row, onSaved, onError });
 
@@ -46,11 +48,17 @@ export function ApiKeyEditor({ row, rows, stations, onClose, onSaved, onError }:
     let active = true;
     setGroups(fallbackGroups);
     if (!stationId || !isTauri()) return () => { active = false; };
-    void apiKeyApi.groups<{ name: string }[]>(stationId)
-      .then((result) => { if (active) setGroups(result.map((entry) => entry.name)); })
-      .catch((reason) => { if (active) onError(reason); });
+    void (async () => {
+      try {
+        await onRefreshStation?.(stationId);
+        const result = await apiKeyApi.groups<GroupOption[]>(stationId);
+        if (active) setGroups(result);
+      } catch (reason) {
+        if (active) onError(reason);
+      }
+    })();
     return () => { active = false; };
-  }, [stationId, rows, onError]);
+  }, [stationId, rows, onError, onRefreshStation]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -75,7 +83,7 @@ export function ApiKeyEditor({ row, rows, stations, onClose, onSaved, onError }:
     >
       {!row && <label>来源站点<select value={stationId} disabled={saving} onChange={(event) => { setStationId(event.target.value); setGroup(""); }}>{stations.map((station) => <option value={station.id} key={station.id}>{station.name} / {station.baseUrl}</option>)}</select></label>}
       <label>密钥名称<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入密钥名称" /></label>
-      <label>分组<select value={group} onChange={(event) => setGroup(event.target.value)}><option value="">请选择分组</option>{groups.map((entry) => <option key={entry}>{entry}</option>)}</select></label>
+      <label>分组<GroupRateSelect className="sub2-editor-group-rate-select" value={group} groups={groups} onChange={setGroup} disabled={saving} allowEmpty /></label>
       {!row && !isNewApi && <section className="sub2-editor-section"><ToggleRow label="自定义密钥" checked={useCustomKey} onChange={setUseCustomKey} />{useCustomKey && <><input value={customKey} onChange={(event) => setCustomKey(event.target.value)} className="sub2-mono-input" placeholder="请输入自定义密钥" /><small>至少 8 个字符，仅允许字母、数字、连字符和下划线。</small></>}</section>}
       {row && <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">启用</option><option value="inactive">停用</option></select></label>}
       <section className="sub2-editor-section"><ToggleRow label="IP 限制" checked={enableIpRestriction} onChange={setEnableIpRestriction} />{enableIpRestriction && <div className="sub2-editor-stack"><label>IP 白名单<textarea value={whitelist} onChange={(event) => setWhitelist(event.target.value)} placeholder="每行一个 IP 地址" /></label>{!isNewApi && <label>IP 黑名单<textarea value={blacklist} onChange={(event) => setBlacklist(event.target.value)} placeholder="每行一个 IP 地址" /></label>}{isNewApi && <small>该 NewAPI 站点仅支持 IP 白名单。</small>}</div>}</section>

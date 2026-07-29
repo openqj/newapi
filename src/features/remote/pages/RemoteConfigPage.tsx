@@ -47,6 +47,7 @@ export function RemoteConfigPage({
     setTestingServer,
     testServer,
     verifyingSession,
+    setVerifyingSession,
     verifyCodexSession,
     cancelServerOperation,
     codexAction,
@@ -60,14 +61,13 @@ export function RemoteConfigPage({
   } = useRemoteServerActions({ keyRows, onChanged, onCredentialsRequired: setEditingServer });
   const {
     selectedServerIds,
-    selection: bulkSelection,
-    setSelection: setBulkSelection,
     action: bulkAction,
     selectedServers,
     toggleServer: toggleServerSelection,
     toggleAllServers,
     switchSelectedServers,
     testSelectedServers,
+    verifySelectedCodexSessions,
     deleteSelectedServers,
   } = useRemoteBulkActions({
     servers,
@@ -75,6 +75,7 @@ export function RemoteConfigPage({
     onChanged,
     onSavingChange: setSaving,
     onTestingChange: setTestingServer,
+    onVerifyingSessionChange: setVerifyingSession,
     onResult: setTestResult,
     onKeyAssigned: (serverId, keyValue) => setSelection((current) => ({ ...current, [serverId]: keyValue })),
   });
@@ -98,11 +99,10 @@ export function RemoteConfigPage({
       <RemoteBulkActions
         count={selectedServers.length}
         keyRows={keyRows}
-        selection={bulkSelection}
         action={bulkAction}
-        onSelectionChange={setBulkSelection}
-        onSwitch={() => void switchSelectedServers()}
+        onSwitch={(value) => void switchSelectedServers(value)}
         onTest={() => void testSelectedServers()}
+        onVerifySession={() => void verifySelectedCodexSessions()}
         onDelete={() => void deleteSelectedServers()}
       />
       <RemoteServerTable

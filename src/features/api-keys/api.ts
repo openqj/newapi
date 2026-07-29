@@ -3,6 +3,7 @@ import { invokeDesktop } from "../../lib/tauri";
 export const apiKeyApi = {
   rows: <T>() => invokeDesktop<T>("list_key_rows"),
   reveal: (stationId: string, keyId: string) => invokeDesktop<string>("reveal_key", { stationId, keyId }),
+  applyToCodex: (stationId: string, keyId: string) => invokeDesktop<void>("apply_api_key_to_codex", { stationId, keyId }),
   remove: <T>(stationId: string, keyId: string) => invokeDesktop<T>("delete_api_key", { stationId, keyId }),
   importToCcSwitch: (stationId: string, keyId: string, targetApp: string) => invokeDesktop<void>("import_to_cc_switch", { stationId, keyId, targetApp }),
   updateGroup: <T>(stationId: string, keyId: string, group: string) => invokeDesktop<T>("update_key_group", { stationId, keyId, group }),

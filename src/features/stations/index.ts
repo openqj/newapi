@@ -2,4 +2,4 @@ export { stationApi } from "./api";
 export { useStations } from "./hooks";
 export { EmptyWorkspace } from "./EmptyWorkspace";
 export { AddStationWithProfiles } from "./components/AddStationWithProfiles";
-export type { Station, StationConnectionResult, StationSaveResult, StationSnapshot, StationSyncProgress, StationSyncResult } from "./types";
+export type { Station, StationAccountDraft, StationConnectionResult, StationSaveResult, StationSnapshot, StationSyncProgress, StationSyncResult } from "./types";

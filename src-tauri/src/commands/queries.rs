@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[tauri::command]
-pub(crate) fn get_snapshot(
+pub(crate) async fn get_snapshot(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Option<StationSnapshot>, String> {
@@ -22,7 +22,10 @@ pub(crate) fn get_snapshot(
 }
 
 #[tauri::command]
-pub(crate) fn get_history(state: State<'_, AppState>, id: String) -> Result<Vec<Value>, String> {
+pub(crate) async fn get_history(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<Value>, String> {
     state
         .store
         .lock()
@@ -31,7 +34,7 @@ pub(crate) fn get_history(state: State<'_, AppState>, id: String) -> Result<Vec<
 }
 
 #[tauri::command]
-pub(crate) fn get_usage_summary(state: State<'_, AppState>) -> Result<UsageSummary, String> {
+pub(crate) async fn get_usage_summary(state: State<'_, AppState>) -> Result<UsageSummary, String> {
     let store = state
         .store
         .lock()
@@ -92,7 +95,7 @@ pub(crate) fn get_usage_summary(state: State<'_, AppState>) -> Result<UsageSumma
 }
 
 #[tauri::command]
-pub(crate) fn list_key_rows(state: State<'_, AppState>) -> Result<Vec<KeyRow>, String> {
+pub(crate) async fn list_key_rows(state: State<'_, AppState>) -> Result<Vec<KeyRow>, String> {
     let store = state
         .store
         .lock()
@@ -152,7 +155,9 @@ pub(crate) fn list_key_rows(state: State<'_, AppState>) -> Result<Vec<KeyRow>, S
 }
 
 #[tauri::command]
-pub(crate) fn list_account_rows(state: State<'_, AppState>) -> Result<Vec<AccountRow>, String> {
+pub(crate) async fn list_account_rows(
+    state: State<'_, AppState>,
+) -> Result<Vec<AccountRow>, String> {
     let store = state
         .store
         .lock()
@@ -176,7 +181,7 @@ pub(crate) fn list_account_rows(state: State<'_, AppState>) -> Result<Vec<Accoun
 }
 
 #[tauri::command]
-pub(crate) fn list_rate_rows(state: State<'_, AppState>) -> Result<Vec<RateRow>, String> {
+pub(crate) async fn list_rate_rows(state: State<'_, AppState>) -> Result<Vec<RateRow>, String> {
     let store = state
         .store
         .lock()
@@ -200,7 +205,7 @@ pub(crate) fn list_rate_rows(state: State<'_, AppState>) -> Result<Vec<RateRow>,
 }
 
 #[tauri::command]
-pub(crate) fn list_station_groups(
+pub(crate) async fn list_station_groups(
     state: State<'_, AppState>,
     station_id: String,
 ) -> Result<Vec<GroupOption>, String> {

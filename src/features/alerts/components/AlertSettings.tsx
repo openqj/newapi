@@ -18,21 +18,21 @@ function formatTime(timestamp: number) {
   return new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(new Date(timestamp * 1000));
 }
 
-function HistoryPanel({ entries, loading, onRefresh }: { entries: AlertHistoryItem[]; loading: boolean; onRefresh: () => void }) {
+function HistoryPanel({ entries, loading, onRefresh, onViewMore }: { entries: AlertHistoryItem[]; loading: boolean; onRefresh: () => void; onViewMore?: () => void }) {
   const summary = useMemo(() => entries.reduce((result, item) => {
     if (item.status === "resolved") result.resolved += 1;
     else result.active += 1;
     return result;
   }, { active: 0, resolved: 0 }), [entries]);
   return <div className="mt-3 border-t border-slate-100 pt-3">
-    <div className="flex items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-sm font-medium"><History size={16} />告警历史与趋势</p><p className="mt-1 text-xs text-slate-500">最近 {entries.length} 条评估：{summary.active} 条触发，{summary.resolved} 条已恢复。</p></div><button type="button" className="button-secondary" onClick={onRefresh} disabled={loading || !isTauri()}><RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新</button></div>
+    <div className="flex items-center justify-between gap-3"><div><p className="flex items-center gap-2 text-sm font-medium"><History size={16} />告警历史与趋势</p><p className="mt-1 text-xs text-slate-500">最近 {entries.length} 条评估：{summary.active} 条触发，{summary.resolved} 条已恢复。</p></div><div className="flex shrink-0 gap-2"><button type="button" className="button-secondary" onClick={onRefresh} disabled={loading || !isTauri()}><RefreshCw size={15} className={loading ? "animate-spin" : ""} />刷新</button>{onViewMore && <button type="button" className="button-secondary" onClick={onViewMore}>查看更多</button>}</div></div>
     <div className="mt-3 max-h-56 overflow-auto rounded-md border border-slate-200">
       {entries.length ? <table className="w-full text-left text-xs"><thead className="sticky top-0 bg-slate-50 text-slate-500"><tr><th className="px-3 py-2 font-medium">时间</th><th className="px-3 py-2 font-medium">事件</th><th className="px-3 py-2 font-medium">站点</th><th className="px-3 py-2 font-medium">状态</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id} className="border-t border-slate-100"><td className="whitespace-nowrap px-3 py-2 text-slate-500">{formatTime(entry.occurredAt)}</td><td className="px-3 py-2"><span className={entry.severity === "critical" ? "text-rose-700" : entry.severity === "warning" ? "text-amber-700" : "text-sky-700"}>{entry.title}</span><small className="mt-0.5 block text-slate-500">{entry.detail}</small></td><td className="px-3 py-2">{entry.stationName}</td><td className="px-3 py-2">{entry.status === "resolved" ? <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 size={13} />已恢复</span> : <span className="inline-flex items-center gap-1 text-amber-700"><AlertCircle size={13} />触发</span>}</td></tr>)}</tbody></table> : <p className="p-4 text-center text-xs text-slate-500">尚无告警评估记录。同步站点或点击“立即评估”后将显示趋势。</p>}
     </div>
   </div>;
 }
 
-export function AlertSettings() {
+export function AlertSettings({ onViewHistory }: { onViewHistory?: () => void }) {
   const { notify } = useToast();
   const [policy, setPolicy] = useState<AlertPolicy>(defaults);
   const [history, setHistory] = useState<AlertHistoryItem[]>([]);
@@ -73,6 +73,6 @@ export function AlertSettings() {
       <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={policy.notifyStationFailures} disabled={!policy.enabled} onChange={(event) => setPolicy((current) => ({ ...current, notifyStationFailures: event.target.checked }))} />站点同步失败</label>
     </div>
     <div className="flex gap-2"><button type="button" className="button-primary" onClick={() => void save()} disabled={saving || !isTauri()}>{saving ? "保存中" : "保存告警策略"}</button><button type="button" className="button-secondary" onClick={() => void evaluate()} disabled={loadingHistory || !isTauri()}>立即评估</button></div>
-    <HistoryPanel entries={history} loading={loadingHistory} onRefresh={() => void loadHistory()} />
+    <HistoryPanel entries={history} loading={loadingHistory} onRefresh={() => void loadHistory()} onViewMore={onViewHistory} />
   </div>;
 }

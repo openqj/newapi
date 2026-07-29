@@ -6,30 +6,44 @@ import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
 import type { LoginProfile } from "../../profiles";
 import { stationApi } from "../api";
-import type { StationConnectionResult, StationSaveResult } from "../types";
+import type { StationAccountDraft, StationConnectionResult, StationSaveResult } from "../types";
 import "./AddStationWithProfiles.css";
+
+export function normalizeStationBaseUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(candidate);
+    return url.host ? `${url.origin}/` : candidate;
+  } catch {
+    return candidate;
+  }
+}
 
 export function AddStationWithProfiles({
   onClose,
   onManageProfiles,
   onAdded,
   demoProfiles,
+  initial,
 }: {
   onClose: () => void;
   onManageProfiles: () => void;
   onAdded: (keepOpen: boolean) => Promise<void>;
   demoProfiles: LoginProfile[];
+  initial?: StationAccountDraft;
 }) {
   const { notify } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [profiles, setProfiles] = useState<LoginProfile[]>([]);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const accountProfileRef = useRef<HTMLDivElement>(null);
-  const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [username, setUsername] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? ""));
+  const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
-  const [kind, setKind] = useState("auto");
+  const [kind, setKind] = useState(initial?.kind ?? "auto");
   const [totp, setTotp] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [connectionResult, setConnectionResult] =
@@ -56,12 +70,6 @@ export function AddStationWithProfiles({
     window.addEventListener("pointerdown", closeProfileMenu);
     return () => window.removeEventListener("pointerdown", closeProfileMenu);
   }, [showProfileMenu]);
-  const normalizeBaseUrl = (value: string) => {
-    const trimmed = value.trim();
-    return trimmed && !/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
-      ? `https://${trimmed}`
-      : trimmed;
-  };
   const selectProfile = async (id: string) => {
     if (!id) return;
     try {
@@ -77,7 +85,7 @@ export function AddStationWithProfiles({
     } catch (reason) { notify(errorMessage(reason, "读取登录配置失败，请稍后重试。"), "error"); }
   };
   const probe = async () => {
-    const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+    const normalizedBaseUrl = normalizeStationBaseUrl(baseUrl);
     if (!normalizedBaseUrl) return;
     if (normalizedBaseUrl !== baseUrl) setBaseUrl(normalizedBaseUrl);
     if (!isTauri()) {
@@ -108,11 +116,11 @@ export function AddStationWithProfiles({
     const keepOpen =
       ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)
         ?.value === "continue";
-    const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+    const normalizedBaseUrl = normalizeStationBaseUrl(baseUrl);
     const nextErrors = {
       baseUrl: normalizedBaseUrl ? "" : "请输入站点地址",
-      username: username.trim() ? "" : "请输入登录账号",
-      password: password ? "" : "请输入登录密码",
+      username: initial || username.trim() ? "" : "请输入登录账号",
+      password: initial || password ? "" : "请输入登录密码",
     };
     setFieldErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
@@ -120,14 +128,17 @@ export function AddStationWithProfiles({
     setSubmitting(true);
     setConnectionResult(null);
     try {
-      const result = await stationApi.add<StationSaveResult>({
+      const request = {
           name,
           baseUrl: normalizedBaseUrl,
-          username,
-          password,
+          username: initial ? username.trim() || null : username,
+          password: initial ? password || null : password,
           kind,
           totp: totp || null,
-        });
+        };
+      const result = initial
+        ? await stationApi.update<StationSaveResult>({ ...request, id: initial.id })
+        : await stationApi.add<StationSaveResult>(request);
       setConnectionResult(result.connection);
       if (result.connection.success) {
         await onAdded(keepOpen);
@@ -140,16 +151,16 @@ export function AddStationWithProfiles({
   };
   return (
     <FormDialog
-      title="添加中转站"
-      ariaLabel="添加中转站"
+      title={initial ? "编辑站点账号" : "添加中转站"}
+      ariaLabel={initial ? "编辑站点账号" : "添加中转站"}
       onClose={onClose}
       onSubmit={submit}
       noValidate
       contentClassName="space-y-4"
       footer={
         <>
-          <button className="button-secondary form-dialog-submit" name="submitAction" value="continue" disabled={submitting}>
-            {submitting ? "正在连接" : "添加并继续"}
+          <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting}>
+            {submitting ? "正在连接" : initial ? "保存并继续" : "添加并继续"}
           </button>
           <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
             取消
@@ -197,7 +208,7 @@ export function AddStationWithProfiles({
                   }}
                   aria-invalid={Boolean(fieldErrors.username)}
                   autoComplete="username"
-                  placeholder="请输入站点登录账号"
+                placeholder={initial ? "留空则保留已保存的账号" : "请输入站点登录账号"}
                 />
                 <button
                   type="button"
@@ -275,7 +286,7 @@ export function AddStationWithProfiles({
                 aria-invalid={Boolean(fieldErrors.password)}
                 type="password"
                 autoComplete="current-password"
-                placeholder="请输入站点登录密码"
+                placeholder={initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
               />
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </label>

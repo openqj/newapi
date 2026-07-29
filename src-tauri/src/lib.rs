@@ -9,6 +9,7 @@ mod keyring_store;
 mod login_profiles;
 mod model_discovery_store;
 mod models;
+mod personal_center_store;
 mod remote_store;
 mod remote_sync_logs;
 mod services;
@@ -23,13 +24,22 @@ mod usage_store;
 pub(crate) use app::{AppState, AuthBackoff, RemoteOperationGuard};
 use commands::alerts::{evaluate_alerts, get_alert_policy, list_alert_history, save_alert_policy};
 use commands::api_keys::{
-    create_api_key, delete_api_key, reveal_key, update_api_key, update_key_group,
+    apply_api_key_to_codex, create_api_key, delete_api_key, reveal_key, update_api_key,
+    update_key_group,
 };
 use commands::audit::{list_audit_events, rollback_audit_event};
 use commands::detection::{detect_model_authenticity, discover_api_models, test_api_models};
 use commands::gateway::{
     get_gateway_credentials, get_gateway_status, import_to_cc_switch, rotate_gateway_token,
     set_active_gateway_route, set_gateway_port, set_routing_mode, start_gateway, stop_gateway,
+};
+use commands::personal_center::{
+    delete_personal_center_membership, get_personal_center_notification_preferences,
+    get_personal_center_realtime_session, list_personal_center_audit_history,
+    list_personal_center_login_events, list_personal_center_memberships,
+    list_personal_center_notifications, mark_personal_center_notification,
+    publish_personal_center_notification, save_personal_center_membership,
+    save_personal_center_notification_preferences,
 };
 use commands::profiles::{
     delete_login_profile, get_login_profile, list_login_profiles, save_login_profile,
@@ -45,10 +55,16 @@ use commands::remote::{
     list_remote_servers, list_remote_sync_logs, test_remote_server, update_remote_relay,
     update_remote_server, verify_remote_codex_session_command,
 };
-use commands::settings::backup_database;
+use commands::settings::{
+    backup_database, cloud_request_password_reset, cloud_sign_in, cloud_sign_out, cloud_sign_up,
+    create_cloud_backup, delete_cloud_backup, get_active_codex_relay_name, get_cloud_auth_status,
+    get_codex_integration, list_cloud_backups, preview_cloud_backup, restore_cloud_backup,
+    set_codex_preserve_official_login,
+};
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_sync_progress,
     list_stations, probe_station, reauthenticate_station, refresh_all, refresh_station,
+    update_station,
 };
 use commands::usage::list_usage_logs;
 use models::*;
@@ -64,11 +80,23 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         evaluate_alerts,
         list_alert_history,
         add_station,
+        update_station,
         list_stations,
         list_login_profiles,
         get_login_profile,
         save_login_profile,
         delete_login_profile,
+        get_personal_center_notification_preferences,
+        save_personal_center_notification_preferences,
+        list_personal_center_memberships,
+        save_personal_center_membership,
+        delete_personal_center_membership,
+        list_personal_center_audit_history,
+        list_personal_center_notifications,
+        publish_personal_center_notification,
+        mark_personal_center_notification,
+        get_personal_center_realtime_session,
+        list_personal_center_login_events,
         list_remote_servers,
         list_remote_sync_logs,
         cancel_remote_server_operation,
@@ -102,6 +130,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         update_api_key,
         delete_api_key,
         reveal_key,
+        apply_api_key_to_codex,
         get_gateway_status,
         set_routing_mode,
         set_gateway_port,
@@ -116,6 +145,19 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         detect_model_authenticity,
         delete_station,
         backup_database,
+        get_cloud_auth_status,
+        cloud_sign_up,
+        cloud_sign_in,
+        cloud_request_password_reset,
+        cloud_sign_out,
+        list_cloud_backups,
+        create_cloud_backup,
+        delete_cloud_backup,
+        preview_cloud_backup,
+        restore_cloud_backup,
+        get_active_codex_relay_name,
+        get_codex_integration,
+        set_codex_preserve_official_login,
     ])
 }
 

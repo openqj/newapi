@@ -41,7 +41,7 @@ export function useRemoteServers({ demoServers = [], loadOnMount = true }: UseRe
   return { servers, setServers, loading, loadRemoteServers };
 }
 
-type RemoteBulkAction = "switch" | "test" | "delete" | null;
+type RemoteBulkAction = "switch" | "test" | "session" | "delete" | null;
 
 type UseRemoteBulkActionsOptions = {
   servers: RemoteServer[];
@@ -49,13 +49,14 @@ type UseRemoteBulkActionsOptions = {
   onChanged: () => Promise<void>;
   onSavingChange: (id: string | null) => void;
   onTestingChange: (id: string | null) => void;
+  onVerifyingSessionChange: (id: string | null) => void;
   onResult: (result: { success: boolean; message: string }) => void;
   onKeyAssigned: (serverId: string, keyValue: string) => void;
 };
 
 /** Owns the selection and progress state for the remote-server bulk actions. */
 export function useRemoteBulkActions({
-  servers, keyRows, onChanged, onSavingChange, onTestingChange, onResult, onKeyAssigned,
+  servers, keyRows, onChanged, onSavingChange, onTestingChange, onVerifyingSessionChange, onResult, onKeyAssigned,
 }: UseRemoteBulkActionsOptions) {
   const confirm = useConfirm();
   const [selectedServerIds, setSelectedServerIds] = useState<string[]>([]);
@@ -69,8 +70,8 @@ export function useRemoteBulkActions({
   const toggleAllServers = () => {
     setSelectedServerIds((current) => current.length === servers.length ? [] : servers.map((server) => server.id));
   };
-  const switchSelectedServers = async () => {
-    const key = keyRows.find((row) => `${row.stationId}:${row.key.id}` === selection);
+  const switchSelectedServers = async (keyValue = selection) => {
+    const key = keyRows.find((row) => `${row.stationId}:${row.key.id}` === keyValue);
     if (!key || selectedServers.length === 0) return;
     setAction("switch");
     const failures: string[] = [];
@@ -79,7 +80,7 @@ export function useRemoteBulkActions({
         try {
           onSavingChange(server.id);
           if (isTauri()) await remoteApi.assignRelayKey(server.id, key.stationId, key.key.id);
-          onKeyAssigned(server.id, selection);
+          onKeyAssigned(server.id, keyValue);
         } catch {
           failures.push(server.name);
         } finally {
@@ -114,6 +115,28 @@ export function useRemoteBulkActions({
       setAction(null);
     }
   };
+  const verifySelectedCodexSessions = async () => {
+    if (selectedServers.length === 0) return;
+    setAction("session");
+    const failures: string[] = [];
+    try {
+      for (const server of selectedServers) {
+        try {
+          onVerifyingSessionChange(server.id);
+          const result = isTauri() ? await remoteApi.verifyCodexSession<RemoteConnectionResult>(server.id) : { success: true };
+          if (!result.success) failures.push(server.name);
+        } catch {
+          failures.push(server.name);
+        } finally {
+          onVerifyingSessionChange(null);
+        }
+      }
+      await onChanged();
+      onResult({ success: failures.length === 0, message: failures.length === 0 ? `${selectedServers.length} 台服务器 Codex CLI 会话验证成功` : `${failures.length} 台服务器 Codex CLI 会话验证失败：${failures.join("、")}` });
+    } finally {
+      setAction(null);
+    }
+  };
   const deleteSelectedServers = async () => {
     if (selectedServers.length === 0 || !(await confirm({ title: "删除远程服务器", description: `确认删除选中的 ${selectedServers.length} 台服务器吗？`, confirmLabel: "删除", destructive: true }))) return;
     setAction("delete");
@@ -134,7 +157,7 @@ export function useRemoteBulkActions({
     }
   };
 
-  return { selectedServerIds, selection, setSelection, action, selectedServers, toggleServer, toggleAllServers, switchSelectedServers, testSelectedServers, deleteSelectedServers };
+  return { selectedServerIds, selection, setSelection, action, selectedServers, toggleServer, toggleAllServers, switchSelectedServers, testSelectedServers, verifySelectedCodexSessions, deleteSelectedServers };
 }
 
 type RelayDraft = { url: string; key: string };
@@ -333,6 +356,7 @@ export function useRemoteServerActions({
     setTestingServer,
     testServer,
     verifyingSession,
+    setVerifyingSession,
     verifyCodexSession,
     cancelServerOperation,
     codexAction,

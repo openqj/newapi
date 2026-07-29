@@ -54,6 +54,10 @@ pub(crate) fn describe_changes(
 }
 
 pub(crate) async fn sync_one(state: &AppState, id: &str) -> Result<SyncResult, String> {
+    sync_one_authorized(state, id).await
+}
+
+pub(crate) async fn sync_one_authorized(state: &AppState, id: &str) -> Result<SyncResult, String> {
     let mut station = state
         .store
         .lock()
@@ -327,11 +331,24 @@ pub(crate) fn usage_from_logs(value: &Value, since: i64) -> UsageStats {
 }
 
 pub(crate) fn normalized_group(item: &Value) -> Option<String> {
-    optional_scalar_string(item, &["group", "group_name"]).or_else(|| {
-        item.get("group").and_then(|group| {
-            optional_scalar_string(group, &["name", "group_name", "group_id", "id"])
+    optional_scalar_string(item, &["group", "group_name", "groupName"])
+        .or_else(|| {
+            item.get("group").and_then(|group| {
+                optional_scalar_string(
+                    group,
+                    &["name", "group_name", "groupName", "group_id", "id"],
+                )
+            })
         })
-    })
+        .or_else(|| {
+            item.get("groups")
+                .and_then(Value::as_array)
+                .and_then(|groups| {
+                    groups.first().and_then(|group| {
+                        optional_scalar_string(group, &["name", "group_name", "groupName", "id"])
+                    })
+                })
+        })
 }
 
 pub(crate) fn parse_usage_logs(value: &Value, station: &Station) -> Vec<UsageLog> {
@@ -421,6 +438,71 @@ pub(crate) fn map_rates(value: &Value) -> Vec<GroupRate> {
         }
     }
     output
+}
+
+pub(crate) fn pricing_group_ratio(value: &Value) -> Option<&Value> {
+    value
+        .get("group_ratio")
+        .or_else(|| data(value).get("group_ratio"))
+}
+
+pub(crate) fn map_sub2_group_rates(groups: &Value, overrides: &Value) -> Vec<GroupRate> {
+    let override_root = data(overrides);
+    let override_rates = override_root
+        .get("rates")
+        .or_else(|| override_root.get("group_rates"))
+        .and_then(Value::as_object)
+        .or_else(|| override_root.as_object());
+    let group_root = data(groups);
+    group_root
+        .as_array()
+        .or_else(|| {
+            group_root
+                .get("items")
+                .or_else(|| group_root.get("groups"))
+                .or_else(|| group_root.get("records"))
+                .and_then(Value::as_array)
+        })
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    let id = scalar_string(item, &["id"]);
+                    let group = item.as_str().map(str::to_string).unwrap_or_else(|| {
+                        scalar_string(item, &["name", "group_name", "groupName"])
+                    });
+                    if group.is_empty() {
+                        return None;
+                    }
+                    let multiplier = override_rates
+                        .and_then(|rates| rates.get(&id).or_else(|| rates.get(&group)))
+                        .and_then(rate_multiplier)
+                        .or_else(|| rate_multiplier(item))
+                        .unwrap_or(1.0);
+                    Some(GroupRate {
+                        group,
+                        model: "全部模型".into(),
+                        multiplier,
+                        input_multiplier: None,
+                        output_multiplier: None,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn rate_multiplier(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+        .or_else(|| {
+            value
+                .get("rate_multiplier")
+                .or_else(|| value.get("rateMultiplier"))
+                .or_else(|| value.get("multiplier"))
+                .and_then(rate_multiplier)
+        })
 }
 
 pub(crate) fn normalize_key_status(adapter: StationAdapter, item: &Value) -> String {
@@ -522,17 +604,45 @@ pub(crate) fn parse_keys(value: &Value, adapter: StationAdapter) -> Vec<ApiKeyIn
                             timestamp
                         }
                     }),
-                expires_at: item
-                    .get("expired_time")
-                    .or_else(|| item.get("expires_at"))
-                    .and_then(Value::as_i64),
-                created_at: item
-                    .get("created_time")
-                    .or_else(|| item.get("created_at"))
-                    .and_then(Value::as_i64),
+                expires_at: key_timestamp(
+                    &item,
+                    &[
+                        "expired_time",
+                        "expires_at",
+                        "expired_at",
+                        "expiresAt",
+                        "expiredAt",
+                        "expire_time",
+                        "expire_at",
+                    ],
+                ),
+                created_at: key_timestamp(
+                    &item,
+                    &[
+                        "created_time",
+                        "created_at",
+                        "createdAt",
+                        "create_time",
+                        "createTime",
+                    ],
+                ),
             }
         })
         .collect()
+}
+
+fn key_timestamp(item: &Value, names: &[&str]) -> Option<i64> {
+    names
+        .iter()
+        .find_map(|name| item.get(*name))
+        .and_then(|value| value.as_i64().or_else(|| value.as_str()?.parse().ok()))
+        .map(|timestamp| {
+            if timestamp > 10_000_000_000 {
+                timestamp / 1000
+            } else {
+                timestamp
+            }
+        })
 }
 
 pub(crate) fn mask_api_key(value: &str) -> String {
@@ -553,6 +663,36 @@ pub(crate) fn parse_balance(value: &Value) -> Option<f64> {
         data(value),
         &["quota", "balance", "remain_quota", "remaining_quota"],
     )
+}
+
+pub(crate) fn newapi_display_balance(profile: &Value, status: Option<&Value>) -> Option<f64> {
+    let quota = parse_balance(profile)?;
+    let Some(status) = status else {
+        return Some(quota / 500_000.0);
+    };
+    let settings = data(status);
+    if settings.get("display_in_currency").and_then(Value::as_bool) == Some(false) {
+        return Some(quota);
+    }
+    let quota_per_unit = number(settings, &["quota_per_unit", "quotaPerUnit"])
+        .filter(|value| *value > 0.0)
+        .unwrap_or(500_000.0);
+    let exchange_rate = match string(settings, &["quota_display_type", "quotaDisplayType"])
+        .to_uppercase()
+        .as_str()
+    {
+        "CNY" => number(settings, &["usd_exchange_rate", "usdExchangeRate"]).unwrap_or(7.0),
+        "CUSTOM" => number(
+            settings,
+            &[
+                "custom_currency_exchange_rate",
+                "customCurrencyExchangeRate",
+            ],
+        )
+        .unwrap_or(1.0),
+        _ => 1.0,
+    };
+    Some(quota / quota_per_unit * exchange_rate)
 }
 
 pub(crate) fn parse_account(value: &Value) -> AccountInfo {
@@ -995,7 +1135,16 @@ pub(crate) async fn fetch_snapshot(
         {
             snapshot.usage = merge_usage(snapshot.usage, usage_from_logs(&value, start_of_today()));
         }
-        let groups = station_request(
+        let available_groups = station_request(
+            state,
+            station,
+            secret,
+            Method::GET,
+            "/api/v1/groups/available",
+            None,
+        )
+        .await;
+        let group_overrides = station_request(
             state,
             station,
             secret,
@@ -1004,9 +1153,18 @@ pub(crate) async fn fetch_snapshot(
             None,
         )
         .await;
-        match groups {
-            Ok(value) => snapshot.rates = map_rates(data(&value)),
-            Err(_) => snapshot
+        match (available_groups, group_overrides) {
+            (Ok(groups), Ok(overrides)) => {
+                snapshot.rates = map_sub2_group_rates(&groups, &overrides);
+                if snapshot.rates.is_empty() {
+                    snapshot.rates = map_rates(data(&overrides));
+                }
+            }
+            (Ok(groups), Err(_)) => {
+                snapshot.rates = map_sub2_group_rates(&groups, &Value::Null);
+            }
+            (Err(_), Ok(overrides)) => snapshot.rates = map_rates(data(&overrides)),
+            (Err(_), Err(_)) => snapshot
                 .unavailable
                 .push("分组倍率未公开或当前账户无权限".into()),
         }
@@ -1037,8 +1195,11 @@ pub(crate) async fn fetch_snapshot(
             None,
         )
         .await?;
-        snapshot.station_balance = parse_balance(&value);
+        let status =
+            station_request(state, station, secret, Method::GET, "/api/status", None).await;
+        snapshot.station_balance = newapi_display_balance(&value, status.as_ref().ok());
         snapshot.account = parse_account(&value);
+        snapshot.account.balance = snapshot.station_balance;
         snapshot.usage = usage_from_profile(&value);
         if let Ok(value) =
             fetch_all_pages(state, station, secret, adapter, PagedResource::Usage).await
@@ -1048,7 +1209,11 @@ pub(crate) async fn fetch_snapshot(
         let pricing =
             station_request(state, station, secret, Method::GET, "/api/pricing", None).await;
         match pricing {
-            Ok(value) => snapshot.rates = map_rates(&data(&value)["group_ratio"]),
+            Ok(value) => {
+                snapshot.rates = pricing_group_ratio(&value)
+                    .map(map_rates)
+                    .unwrap_or_default()
+            }
             Err(_) => snapshot
                 .unavailable
                 .push("分组倍率未公开或当前账户无权限".into()),
@@ -1074,7 +1239,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        describe_changes, is_unauthorized, mask_api_key, model_response_text, parse_keys,
+        describe_changes, is_unauthorized, map_rates, map_sub2_group_rates, mask_api_key,
+        model_response_text, newapi_display_balance, parse_keys, pricing_group_ratio,
         session_cookie, usage_from_logs,
     };
     use crate::{
@@ -1094,6 +1260,81 @@ mod tests {
     }
 
     #[test]
+    fn converts_newapi_balance_using_public_currency_settings() {
+        let profile = json!({"data": {"quota": 14_533.0}});
+        let status = json!({"data": {
+            "quota_per_unit": 500_000.0,
+            "display_in_currency": true,
+            "quota_display_type": "CNY",
+            "usd_exchange_rate": 7.0
+        }});
+
+        let balance = newapi_display_balance(&profile, Some(&status)).unwrap();
+
+        assert!((balance - 0.203462).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn preserves_newapi_quota_when_currency_display_is_disabled() {
+        let profile = json!({"data": {"quota": 14_533.0}});
+        let status = json!({"data": {"display_in_currency": false}});
+
+        assert_eq!(
+            newapi_display_balance(&profile, Some(&status)),
+            Some(14_533.0)
+        );
+    }
+
+    #[test]
+    fn merges_sub2_available_groups_with_user_rate_overrides() {
+        let groups = json!({"data": [
+            {"id": 1, "name": "standard", "rate_multiplier": 1.0},
+            {"id": 2, "name": "vip", "rate_multiplier": 0.8}
+        ]});
+        let overrides = json!({"data": {"2": 0.5}});
+
+        let rates = map_sub2_group_rates(&groups, &overrides);
+
+        assert_eq!(rates.len(), 2);
+        assert_eq!(rates[0].group, "standard");
+        assert_eq!(rates[0].multiplier, 1.0);
+        assert_eq!(rates[1].group, "vip");
+        assert_eq!(rates[1].multiplier, 0.5);
+    }
+
+    #[test]
+    fn accepts_wrapped_sub2_groups_and_string_multipliers() {
+        let groups = json!({"data": {"groups": [
+            {"id": "standard", "name": "standard", "rateMultiplier": "1.25"},
+            "vip"
+        ]}});
+        let overrides = json!({"data": {"rates": {"vip": {"multiplier": "0.5"}}}});
+
+        let rates = map_sub2_group_rates(&groups, &overrides);
+
+        assert_eq!(rates.len(), 2);
+        assert_eq!(rates[0].multiplier, 1.25);
+        assert_eq!(rates[1].group, "vip");
+        assert_eq!(rates[1].multiplier, 0.5);
+    }
+
+    #[test]
+    fn reads_newapi_group_ratios_from_root_or_data() {
+        let root = json!({"data": [], "group_ratio": {"default": 1.0, "pro": 0.7}});
+        let nested = json!({"data": {"group_ratio": {"standard": 1.2}}});
+
+        let root_rates = map_rates(pricing_group_ratio(&root).unwrap());
+        let nested_rates = map_rates(pricing_group_ratio(&nested).unwrap());
+
+        assert_eq!(root_rates.len(), 2);
+        assert_eq!(root_rates[1].group, "pro");
+        assert_eq!(root_rates[1].multiplier, 0.7);
+        assert_eq!(nested_rates.len(), 1);
+        assert_eq!(nested_rates[0].group, "standard");
+        assert_eq!(nested_rates[0].multiplier, 1.2);
+    }
+
+    #[test]
     fn normalizes_sub2api_group_object_and_quota() {
         let value = json!({"items": [{"id": "k1", "status": "active", "quota": 100.0, "quota_used": 25.0, "group": {"name": "vip", "group_id": "g2"}}]});
         let key = parse_keys(&value, StationAdapter::Sub2Api).pop().unwrap();
@@ -1101,6 +1342,20 @@ mod tests {
         assert_eq!(key.remaining_quota, Some(75.0));
         assert_eq!(key.total_quota, Some(100.0));
         assert_eq!(key.used_quota, Some(25.0));
+    }
+
+    #[test]
+    fn parses_compatible_key_group_and_timestamps() {
+        let value = json!({"data": [{
+            "id": "k1",
+            "groupName": "premium",
+            "expiredAt": "1800000000000",
+            "createdAt": 1_700_000_000_000_i64
+        }]});
+        let key = parse_keys(&value, StationAdapter::Sub2Api).pop().unwrap();
+        assert_eq!(key.group.as_deref(), Some("premium"));
+        assert_eq!(key.expires_at, Some(1_800_000_000));
+        assert_eq!(key.created_at, Some(1_700_000_000));
     }
 
     #[test]

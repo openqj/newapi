@@ -61,7 +61,12 @@ pub(crate) fn run() {
             fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
             let store = Store::open(directory.join("api-assistant.sqlite"))?;
             let client = Client::builder()
-                .user_agent("RelayHub/0.1")
+                .user_agent(format!(
+                    "RelayHub/{} ({}; {})",
+                    env!("CARGO_PKG_VERSION"),
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ))
                 .build()
                 .map_err(|e| e.to_string())?;
             let (mode, port) = load_gateway_settings(&store)?;

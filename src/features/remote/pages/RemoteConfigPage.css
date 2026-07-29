@@ -36,9 +36,16 @@
 .relay-switch-options button { display: block; width: 100%; padding: .5rem .65rem; color: #334155; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .relay-switch-options button:hover { background: #f3f4f6; }
 .relay-switch-empty { padding: .65rem; color: #94a3b8; font-size: .75rem; }
-.remote-bulk-actions { display: flex; align-items: center; justify-content: flex-end; gap: .5rem; }
-.remote-bulk-actions > span { margin-right: auto; color: #64748b; font-size: .8125rem; }
-.remote-bulk-key-select { width: 13rem; min-width: 0; padding-top: .45rem; padding-bottom: .45rem; }
+.remote-bulk-action-group { display: flex; flex-wrap: nowrap; align-items: center; gap: .5rem; }
+.remote-bulk-action-group > * { flex: 0 0 auto; }
+.remote-bulk-switch-menu { position: relative; }
+.remote-bulk-switch-menu summary { list-style: none; cursor: pointer; }
+.remote-bulk-switch-menu summary::-webkit-details-marker { display: none; }
+.remote-bulk-switch-menu[open] summary { border-color: #94a3b8; background: #e5e7eb; }
+.remote-bulk-switch-options { position: absolute; z-index: 30; top: calc(100% + .25rem); left: 0; width: max-content; min-width: 14rem; max-width: 22rem; overflow: hidden; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; box-shadow: 0 8px 16px rgba(15,23,42,.12); }
+.remote-bulk-switch-options button { display: block; width: 100%; padding: .5rem .65rem; color: #334155; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.remote-bulk-switch-options button:hover { background: #f3f4f6; }
+.remote-bulk-switch-options p { padding: .65rem; color: #94a3b8; font-size: .75rem; }
 .remote-test-notice { display: flex; align-items: center; justify-content: space-between; margin-top: .75rem; }
 .remote-test-notice .icon-button { flex: 0 0 auto; color: currentColor; }
 .remote-log-dialog { width: min(100%, 38rem); }

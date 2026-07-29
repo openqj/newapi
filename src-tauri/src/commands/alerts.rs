@@ -216,12 +216,12 @@ pub(crate) fn notify(app: &AppHandle, state: &AppState) -> Result<Vec<StationAle
 }
 
 #[tauri::command]
-pub(crate) fn get_alert_policy(state: State<'_, AppState>) -> Result<AlertPolicy, String> {
+pub(crate) async fn get_alert_policy(state: State<'_, AppState>) -> Result<AlertPolicy, String> {
     load_policy(&state)
 }
 
 #[tauri::command]
-pub(crate) fn save_alert_policy(
+pub(crate) async fn save_alert_policy(
     state: State<'_, AppState>,
     policy: AlertPolicy,
 ) -> Result<AlertPolicy, String> {
@@ -249,7 +249,7 @@ pub(crate) fn save_alert_policy(
 }
 
 #[tauri::command]
-pub(crate) fn evaluate_alerts(
+pub(crate) async fn evaluate_alerts(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Vec<StationAlert>, String> {
@@ -257,7 +257,7 @@ pub(crate) fn evaluate_alerts(
 }
 
 #[tauri::command]
-pub(crate) fn list_alert_history(
+pub(crate) async fn list_alert_history(
     state: State<'_, AppState>,
     limit: Option<usize>,
 ) -> Result<Vec<AlertHistoryItem>, String> {

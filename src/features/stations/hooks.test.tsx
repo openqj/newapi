@@ -1,0 +1,45 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { ToastProvider } from "../../components/ui";
+import { useStations } from "./hooks";
+import type { StationSnapshot } from "./types";
+
+const { cancelSync, list, refreshAll, snapshot, syncProgress } = vi.hoisted(() => ({
+  cancelSync: vi.fn(),
+  list: vi.fn(),
+  refreshAll: vi.fn(),
+  snapshot: vi.fn(),
+  syncProgress: vi.fn(),
+}));
+
+vi.mock("../../lib/platform", () => ({ isTauri: () => true }));
+vi.mock("./api", () => ({ stationApi: { cancelSync, list, refreshAll, snapshot, syncProgress } }));
+
+const emptySnapshot: StationSnapshot = { rates: [], apiKeys: [], offers: [], unavailable: [] };
+
+function RefreshProbe() {
+  const { refreshAll: refresh } = useStations({ emptySnapshot });
+  return <button type="button" onClick={() => { void refresh(); void refresh(); }}>刷新</button>;
+}
+
+describe("useStations", () => {
+  it("shares one in-flight full refresh and permits a later refresh", async () => {
+    let resolveFirstRefresh: () => void = () => undefined;
+    const firstRefresh = new Promise<void>((resolve) => { resolveFirstRefresh = resolve; });
+    list.mockResolvedValue([]);
+    refreshAll.mockReturnValueOnce(firstRefresh).mockResolvedValueOnce([]);
+    syncProgress.mockResolvedValue(null);
+
+    render(<ToastProvider><RefreshProbe /></ToastProvider>);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(refreshAll).toHaveBeenCalledTimes(1);
+
+    resolveFirstRefresh();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+    expect(refreshAll).toHaveBeenCalledTimes(2);
+  });
+});

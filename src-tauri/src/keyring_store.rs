@@ -20,6 +20,17 @@ pub(crate) struct LoginProfileSecret {
     pub(crate) password: String,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct CloudSession {
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: String,
+    pub(crate) user_id: String,
+    pub(crate) email: String,
+    pub(crate) expires_at: i64,
+    #[serde(default)]
+    pub(crate) is_admin: bool,
+}
+
 pub(crate) fn credential_entry(id: &str) -> Result<Entry, String> {
     Entry::new("api-assistant", id).map_err(|error| error.to_string())
 }
@@ -44,6 +55,31 @@ pub(crate) fn remote_relay_key_entry(id: &str) -> Result<Entry, String> {
 /// snapshot, including its key, stays in the operating system credential store.
 pub(crate) fn remote_relay_rollback_entry(id: &str) -> Result<Entry, String> {
     Entry::new("api-assistant-remote-relay-rollback", id).map_err(|error| error.to_string())
+}
+
+pub(crate) fn cloud_session_entry() -> Result<Entry, String> {
+    Entry::new("api-assistant-cloud-session", "current").map_err(|error| error.to_string())
+}
+
+pub(crate) fn save_cloud_session(session: &CloudSession) -> Result<(), String> {
+    cloud_session_entry()?
+        .set_password(&serde_json::to_string(session).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn load_cloud_session() -> Result<CloudSession, String> {
+    serde_json::from_str(
+        &cloud_session_entry()?
+            .get_password()
+            .map_err(|_| "未登录云端账户".to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn clear_cloud_session() {
+    if let Ok(entry) = cloud_session_entry() {
+        let _ = entry.delete_credential();
+    }
 }
 
 pub(crate) fn save_secret(id: &str, secret: &Secret) -> Result<(), String> {

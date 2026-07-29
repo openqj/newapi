@@ -219,6 +219,18 @@ pub(crate) struct AddStationRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct UpdateStationRequest {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) username: Option<String>,
+    pub(crate) password: Option<String>,
+    pub(crate) kind: String,
+    pub(crate) totp: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ApiKeyMutationRequest {
     pub(crate) station_id: String,
     pub(crate) key_id: Option<String>,
@@ -459,4 +471,36 @@ pub(crate) struct SyncProgress {
     pub(crate) total: usize,
     pub(crate) current_station: Option<String>,
     pub(crate) status: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CodexIntegrationStatus {
+    pub(crate) preserve_official_login: bool,
+    pub(crate) config_directory: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudAuthStatus {
+    pub(crate) configured: bool,
+    pub(crate) email: Option<String>,
+    pub(crate) is_admin: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudBackupSummary {
+    pub(crate) id: String,
+    pub(crate) created_at: String,
+    pub(crate) byte_size: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CloudBackupPreview {
+    pub(crate) id: String,
+    pub(crate) station_count: usize,
+    pub(crate) login_profile_count: usize,
+    pub(crate) remote_server_count: usize,
 }

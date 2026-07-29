@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::State;
+
 use uuid::Uuid;
 
 use crate::{
@@ -24,6 +25,19 @@ struct RemoteRelayRollbackSnapshot {
     server_id: String,
     original: RemoteCodexConfigState,
     expected_current_state_fingerprint: Option<String>,
+}
+
+/// Windows Credential Manager limits an individual password value to 2,560
+/// UTF-16 code units. Keep a margin for platform-specific representation.
+const REMOTE_RELAY_ROLLBACK_CHUNK_MAX_UTF16_UNITS: usize = 2_000;
+const REMOTE_RELAY_ROLLBACK_MANIFEST_VERSION: u8 = 1;
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteRelayRollbackManifest {
+    version: u8,
+    generation: String,
+    chunk_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -84,10 +98,7 @@ pub(crate) fn save_remote_relay_rollback_snapshot(
         original: original.clone(),
         expected_current_state_fingerprint: None,
     };
-    let serialized = serde_json::to_string(&snapshot).map_err(|error| error.to_string())?;
-    remote_relay_rollback_entry(&reference.id)?
-        .set_password(&serialized)
-        .map_err(|error| format!("Unable to save the secure rollback snapshot: {error}"))?;
+    save_secure_remote_relay_snapshot(&reference.id, &snapshot, "save")?;
     Ok(reference)
 }
 
@@ -95,22 +106,152 @@ pub(crate) fn finalize_remote_relay_rollback_snapshot(
     reference: RemoteRelayRollbackReference,
     current: &RemoteCodexConfigState,
 ) -> Result<RemoteRelayRollbackReference, String> {
-    let entry = remote_relay_rollback_entry(&reference.id)?;
-    let serialized = entry
-        .get_password()
-        .map_err(|_| "The secure rollback snapshot is no longer available locally".to_string())?;
-    let mut snapshot: RemoteRelayRollbackSnapshot = serde_json::from_str(&serialized)
-        .map_err(|_| "The secure rollback snapshot is invalid and cannot be used".to_string())?;
+    let mut snapshot = load_secure_remote_relay_snapshot(&reference.id)?;
     if snapshot.original.host_key_fingerprint != current.host_key_fingerprint {
         return Err(
             "The remote SSH host key changed while applying the relay configuration".into(),
         );
     }
     snapshot.expected_current_state_fingerprint = Some(current.state_fingerprint.clone());
-    entry
-        .set_password(&serde_json::to_string(&snapshot).map_err(|error| error.to_string())?)
-        .map_err(|error| format!("Unable to finalize the secure rollback snapshot: {error}"))?;
+    save_secure_remote_relay_snapshot(&reference.id, &snapshot, "finalize")?;
     Ok(reference)
+}
+
+fn remote_relay_rollback_chunk_entry(
+    reference_id: &str,
+    generation: &str,
+    index: usize,
+) -> Result<keyring::Entry, String> {
+    remote_relay_rollback_entry(&format!("{reference_id}:{generation}:{index}"))
+}
+
+fn split_remote_relay_rollback_chunks(serialized: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_units = 0;
+
+    for character in serialized.chars() {
+        let character_units = character.len_utf16();
+        if current_units + character_units > REMOTE_RELAY_ROLLBACK_CHUNK_MAX_UTF16_UNITS {
+            chunks.push(current);
+            current = String::new();
+            current_units = 0;
+        }
+        current.push(character);
+        current_units += character_units;
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
+fn valid_remote_relay_rollback_manifest(
+    manifest: &RemoteRelayRollbackManifest,
+) -> Result<(), String> {
+    if manifest.version != REMOTE_RELAY_ROLLBACK_MANIFEST_VERSION
+        || manifest.generation.is_empty()
+        || manifest.chunk_count == 0
+        || manifest.chunk_count > 16_384
+    {
+        return Err("The secure rollback snapshot is invalid and cannot be used".into());
+    }
+    Ok(())
+}
+
+fn manifest_from_serialized_snapshot(value: &str) -> Option<RemoteRelayRollbackManifest> {
+    serde_json::from_str(value)
+        .ok()
+        .filter(|manifest: &RemoteRelayRollbackManifest| {
+            valid_remote_relay_rollback_manifest(manifest).is_ok()
+        })
+}
+
+fn delete_remote_relay_rollback_chunks(reference_id: &str, manifest: &RemoteRelayRollbackManifest) {
+    for index in 0..manifest.chunk_count {
+        if let Ok(entry) =
+            remote_relay_rollback_chunk_entry(reference_id, &manifest.generation, index)
+        {
+            let _ = entry.delete_credential();
+        }
+    }
+}
+
+fn save_secure_remote_relay_snapshot(
+    reference_id: &str,
+    snapshot: &RemoteRelayRollbackSnapshot,
+    operation: &str,
+) -> Result<(), String> {
+    let serialized = serde_json::to_string(snapshot).map_err(|error| error.to_string())?;
+    let chunks = split_remote_relay_rollback_chunks(&serialized);
+    let manifest = RemoteRelayRollbackManifest {
+        version: REMOTE_RELAY_ROLLBACK_MANIFEST_VERSION,
+        generation: Uuid::new_v4().to_string(),
+        chunk_count: chunks.len(),
+    };
+    let entry = remote_relay_rollback_entry(reference_id)?;
+    let previous_manifest = entry
+        .get_password()
+        .ok()
+        .and_then(|value| manifest_from_serialized_snapshot(&value));
+
+    for (index, chunk) in chunks.iter().enumerate() {
+        if let Err(error) =
+            remote_relay_rollback_chunk_entry(reference_id, &manifest.generation, index).and_then(
+                |chunk_entry| {
+                    chunk_entry
+                        .set_password(chunk)
+                        .map_err(|error| error.to_string())
+                },
+            )
+        {
+            delete_remote_relay_rollback_chunks(reference_id, &manifest);
+            return Err(format!(
+                "Unable to {operation} the secure rollback snapshot: {error}"
+            ));
+        }
+    }
+
+    let manifest_json = serde_json::to_string(&manifest).map_err(|error| error.to_string())?;
+    if let Err(error) = entry.set_password(&manifest_json) {
+        delete_remote_relay_rollback_chunks(reference_id, &manifest);
+        return Err(format!(
+            "Unable to {operation} the secure rollback snapshot: {error}"
+        ));
+    }
+    if let Some(previous_manifest) = previous_manifest {
+        delete_remote_relay_rollback_chunks(reference_id, &previous_manifest);
+    }
+    Ok(())
+}
+
+fn load_secure_remote_relay_snapshot(
+    reference_id: &str,
+) -> Result<RemoteRelayRollbackSnapshot, String> {
+    let serialized = remote_relay_rollback_entry(reference_id)?
+        .get_password()
+        .map_err(|_| "The secure rollback snapshot is no longer available locally".to_string())?;
+
+    let complete_snapshot = match manifest_from_serialized_snapshot(&serialized) {
+        Some(manifest) => {
+            let mut chunks = String::new();
+            for index in 0..manifest.chunk_count {
+                let chunk =
+                    remote_relay_rollback_chunk_entry(reference_id, &manifest.generation, index)?
+                        .get_password()
+                        .map_err(|_| {
+                            "The secure rollback snapshot is incomplete and cannot be used"
+                                .to_string()
+                        })?;
+                chunks.push_str(&chunk);
+            }
+            chunks
+        }
+        // Snapshots stored before chunking used the root credential directly.
+        None => serialized,
+    };
+    serde_json::from_str(&complete_snapshot)
+        .map_err(|_| "The secure rollback snapshot is invalid and cannot be used".to_string())
 }
 
 pub(crate) fn record_remote_change(
@@ -161,7 +302,7 @@ pub(crate) fn record_remote_relay_change(
 }
 
 #[tauri::command]
-pub(crate) fn list_audit_events(
+pub(crate) async fn list_audit_events(
     state: State<'_, AppState>,
     scope: Option<String>,
     limit: Option<usize>,
@@ -250,11 +391,13 @@ fn restore_remote_relay(
     event: &AuditEvent,
     reference: &str,
 ) -> Result<RemoteServer, String> {
-    let serialized = remote_relay_rollback_entry(reference)?
-        .get_password()
-        .map_err(|_| "The secure rollback snapshot is no longer available locally. The remote relay cannot be restored safely.")?;
-    let snapshot: RemoteRelayRollbackSnapshot = serde_json::from_str(&serialized)
-        .map_err(|_| "The secure rollback snapshot is invalid and cannot be used")?;
+    let snapshot = load_secure_remote_relay_snapshot(reference).map_err(|error| {
+        if error == "The secure rollback snapshot is no longer available locally" {
+            "The secure rollback snapshot is no longer available locally. The remote relay cannot be restored safely.".to_string()
+        } else {
+            error
+        }
+    })?;
     let before = event
         .payload
         .as_ref()
@@ -311,7 +454,7 @@ fn restore_remote_relay(
 }
 
 #[tauri::command]
-pub(crate) fn rollback_audit_event(
+pub(crate) async fn rollback_audit_event(
     state: State<'_, AppState>,
     event_id: i64,
 ) -> Result<RemoteServer, String> {
@@ -388,5 +531,34 @@ mod tests {
             created_at: 0,
         };
         assert!(relay_rollback_reference(&event).is_err());
+    }
+
+    #[test]
+    fn rollback_snapshot_chunks_stay_under_windows_credential_limit() {
+        let serialized = format!("prefix{}suffix", "a😀中".repeat(1_500));
+        let chunks = split_remote_relay_rollback_chunks(&serialized);
+
+        assert!(chunks.len() > 1);
+        assert_eq!(chunks.concat(), serialized);
+        assert!(chunks.iter().all(|chunk| {
+            chunk.encode_utf16().count() <= REMOTE_RELAY_ROLLBACK_CHUNK_MAX_UTF16_UNITS
+        }));
+    }
+
+    #[test]
+    fn rollback_manifest_requires_supported_non_empty_shape() {
+        let valid = RemoteRelayRollbackManifest {
+            version: REMOTE_RELAY_ROLLBACK_MANIFEST_VERSION,
+            generation: "generation".into(),
+            chunk_count: 1,
+        };
+        assert!(valid_remote_relay_rollback_manifest(&valid).is_ok());
+
+        let invalid = RemoteRelayRollbackManifest {
+            version: 2,
+            generation: "generation".into(),
+            chunk_count: 1,
+        };
+        assert!(valid_remote_relay_rollback_manifest(&invalid).is_err());
     }
 }

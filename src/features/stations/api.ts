@@ -11,4 +11,5 @@ export const stationApi = {
   cancelSync: () => invokeDesktop<void>("cancel_sync"),
   probe: <T>(baseUrl: string) => invokeDesktop<T>("probe_station", { baseUrl }),
   add: <T>(request: Record<string, unknown>) => invokeDesktop<T>("add_station", { request }),
+  update: <T>(request: Record<string, unknown>) => invokeDesktop<T>("update_station", { request }),
 };

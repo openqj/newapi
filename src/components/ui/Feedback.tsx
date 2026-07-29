@@ -20,7 +20,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Notice[]>([]);
   const notify = useCallback((message: string, kind: NoticeKind = "info") => {
     const id = Date.now() + Math.random();
-    setItems((current) => [...current, { id, kind, message }]);
+    setItems((current) => {
+      if (current.some((item) => item.kind === kind && item.message === message)) return current;
+      return [...current, { id, kind, message }];
+    });
     window.setTimeout(() => setItems((current) => current.filter((item) => item.id !== id)), 5000);
   }, []);
 

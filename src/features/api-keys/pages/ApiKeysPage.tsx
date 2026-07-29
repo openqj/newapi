@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
-import type { Station } from "../../stations";
+import { stationApi, type Station } from "../../stations";
 import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
 import { ApiKeyTable } from "../components/ApiKeyTable";
@@ -14,7 +14,7 @@ import "./ApiKeysPage.css";
 
 const isActive = (status: string) => status === "active" || status === "有效";
 
-export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; stations: Station[]; onUpdated: () => Promise<void> }) {
+export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexApplied }: { rows: KeyRow[]; stations: Station[]; onRefresh: () => Promise<void>; onUpdated: () => Promise<void>; onCodexApplied?: () => Promise<void> }) {
   const confirm = useConfirm();
   const { notify } = useToast();
   const showError = (reason: unknown) => notify(errorMessage(reason), "error");
@@ -26,6 +26,11 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
   const [saving, setSaving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editor, setEditor] = useState<{ row?: KeyRow } | null>(null);
+  const refreshStationGroups = useCallback(async (stationId: string) => {
+    if (!isTauri()) return;
+    await stationApi.refresh(stationId);
+    await onUpdated();
+  }, [onUpdated]);
   const filtered = rows.filter((row) => (
     (station === "all" || row.stationId === station)
     && (status === "all" || (status === "active" ? isActive(row.key.status) : !isActive(row.key.status)))
@@ -47,7 +52,7 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
     setSaving(id);
     try {
       if (isTauri()) await apiKeyApi.updateGroup(row.stationId, row.key.id, group);
-      await onUpdated();
+      await onRefresh();
       notify("分组已更新", "success");
     } catch (reason) {
       showError(reason);
@@ -55,13 +60,13 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
       setSaving(null);
     }
   };
-  const toggleStatus = async (row: KeyRow) => {
-    const id = `${row.stationId}:${row.key.id}`;
+  const applyToCodex = async (row: KeyRow) => {
+    const id = `codex:${row.stationId}:${row.key.id}`;
     setSaving(id);
     try {
-      await apiKeyApi.update({ stationId: row.stationId, keyId: row.key.id, status: isActive(row.key.status) ? "inactive" : "active" });
-      await onUpdated();
-      notify("API 密钥状态已更新", "success");
+      await apiKeyApi.applyToCodex(row.stationId, row.key.id);
+      await onCodexApplied?.();
+      notify("API 密钥已启用到 Codex", "success");
     } catch (reason) {
       showError(reason);
     } finally {
@@ -94,14 +99,14 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await onUpdated();
+      await onRefresh();
     } finally {
       setRefreshing(false);
     }
   };
   const hiddenColumns = keyTableColumns.filter(({ key }) => !visible[key]).map(({ key }) => `sub2-key-column-hidden-${key}`).join(" ");
 
-  return <div className="sub2-page sub2-keys-page">
+  return <div className="sub2-page sub2-keys-page sub2-api-keys-page">
     <ApiKeyToolbar
       stations={stations}
       query={query}
@@ -115,6 +120,7 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
       onStatusChange={setStatus}
       onToggleColumn={(key) => setVisible((value) => ({ ...value, [key]: !value[key] }))}
       onToggleColumns={() => setShowColumns((value) => !value)}
+      onCloseColumns={() => setShowColumns(false)}
       onRefresh={() => void refresh()}
       onCreate={() => setEditor({})}
     />
@@ -125,7 +131,7 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
       onImport={(row) => void importToCcSwitch(row)}
-      onToggleStatus={(row) => void toggleStatus(row)}
+      onApplyToCodex={(row) => void applyToCodex(row)}
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}
     />
@@ -133,6 +139,7 @@ export function ApiKeysPage({ rows, stations, onUpdated }: { rows: KeyRow[]; sta
       row={editor.row}
       rows={rows}
       stations={stations}
+      onRefreshStation={refreshStationGroups}
       onClose={() => setEditor(null)}
       onSaved={async () => {
         const wasEditing = Boolean(editor.row);

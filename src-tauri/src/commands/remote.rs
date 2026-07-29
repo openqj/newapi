@@ -2,12 +2,10 @@ use tauri::State;
 use url::Url;
 
 use crate::services::remote::{
-    acquire_operation as acquire_remote_operation,
-    add_server as add_remote_server_service, cancel_operation as cancel_remote_operation,
-    install_or_update_server_codex,
-    test_server as test_remote_server_service,
-    verify_server_codex_session, delete_server as delete_remote_server_service,
-    update_server as update_remote_server_service, write_server_relay,
+    acquire_operation as acquire_remote_operation, add_server as add_remote_server_service,
+    cancel_operation as cancel_remote_operation, delete_server as delete_remote_server_service,
+    install_or_update_server_codex, test_server as test_remote_server_service,
+    update_server as update_remote_server_service, verify_server_codex_session, write_server_relay,
 };
 use crate::{
     commands::audit::{
@@ -22,9 +20,7 @@ use crate::{
     remote_store::RemoteServerStore,
     remote_sync_logs::RemoteSyncLogStore,
     services::api_keys::read_api_key,
-    services::remote::{
-        capture_codex_config_state,
-    },
+    services::remote::capture_codex_config_state,
     support::base,
     AppState,
 };
@@ -69,7 +65,9 @@ fn finalize_relay_rollback(
 }
 
 #[tauri::command]
-pub(crate) fn list_remote_servers(state: State<'_, AppState>) -> Result<Vec<RemoteServer>, String> {
+pub(crate) async fn list_remote_servers(
+    state: State<'_, AppState>,
+) -> Result<Vec<RemoteServer>, String> {
     state
         .store
         .lock()
@@ -78,7 +76,7 @@ pub(crate) fn list_remote_servers(state: State<'_, AppState>) -> Result<Vec<Remo
 }
 
 #[tauri::command]
-pub(crate) fn list_remote_sync_logs(
+pub(crate) async fn list_remote_sync_logs(
     state: State<'_, AppState>,
     server_id: String,
 ) -> Result<Vec<RemoteSyncLog>, String> {
@@ -90,7 +88,7 @@ pub(crate) fn list_remote_sync_logs(
 }
 
 #[tauri::command]
-pub(crate) fn cancel_remote_server_operation(
+pub(crate) async fn cancel_remote_server_operation(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(), String> {
@@ -98,7 +96,7 @@ pub(crate) fn cancel_remote_server_operation(
 }
 
 #[tauri::command]
-pub(crate) fn install_or_update_remote_codex_command(
+pub(crate) async fn install_or_update_remote_codex_command(
     state: State<'_, AppState>,
     id: String,
     action: String,
@@ -107,7 +105,7 @@ pub(crate) fn install_or_update_remote_codex_command(
 }
 
 #[tauri::command]
-pub(crate) fn add_remote_server(
+pub(crate) async fn add_remote_server(
     state: State<'_, AppState>,
     request: AddRemoteServerRequest,
 ) -> Result<RemoteServerSaveResult, String> {
@@ -126,7 +124,7 @@ pub(crate) fn add_remote_server(
 }
 
 #[tauri::command]
-pub(crate) fn update_remote_server(
+pub(crate) async fn update_remote_server(
     state: State<'_, AppState>,
     request: UpdateRemoteServerRequest,
 ) -> Result<RemoteServerSaveResult, String> {
@@ -169,7 +167,9 @@ pub(crate) async fn assign_remote_relay_key(
         &key,
         Some(format!("{} / {}", station.name, key_id)),
         relay_provider,
-        rollback_reference.as_ref().map(|reference| reference.original_config_fingerprint.as_str()),
+        rollback_reference
+            .as_ref()
+            .map(|reference| reference.original_config_fingerprint.as_str()),
         "switch",
         "已将本地中转站密钥写入服务器 Codex CLI",
     )?;
@@ -192,7 +192,7 @@ pub(crate) async fn assign_remote_relay_key(
 }
 
 #[tauri::command]
-pub(crate) fn update_remote_relay(
+pub(crate) async fn update_remote_relay(
     state: State<'_, AppState>,
     request: UpdateRemoteRelayRequest,
 ) -> Result<RemoteServer, String> {
@@ -227,7 +227,9 @@ pub(crate) fn update_remote_relay(
     if relay_url.is_empty() {
         return Err("请输入中转站地址".into());
     }
-    let relay_provider = request.relay_provider.filter(|value| !value.trim().is_empty());
+    let relay_provider = request
+        .relay_provider
+        .filter(|value| !value.trim().is_empty());
     let relay_key = relay_key.ok_or("未保存中转站密钥，请输入新密钥后同步")?;
     write_server_relay(
         &state,
@@ -237,7 +239,9 @@ pub(crate) fn update_remote_relay(
         &relay_key,
         None,
         relay_provider,
-        rollback_reference.as_ref().map(|reference| reference.original_config_fingerprint.as_str()),
+        rollback_reference
+            .as_ref()
+            .map(|reference| reference.original_config_fingerprint.as_str()),
         "manual",
         "已将手动中转配置写入服务器 Codex CLI",
     )?;
@@ -260,7 +264,7 @@ pub(crate) fn update_remote_relay(
 }
 
 #[tauri::command]
-pub(crate) fn test_remote_server(
+pub(crate) async fn test_remote_server(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<RemoteConnectionResult, String> {
@@ -268,7 +272,7 @@ pub(crate) fn test_remote_server(
 }
 
 #[tauri::command]
-pub(crate) fn verify_remote_codex_session_command(
+pub(crate) async fn verify_remote_codex_session_command(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<RemoteConnectionResult, String> {
@@ -276,7 +280,7 @@ pub(crate) fn verify_remote_codex_session_command(
 }
 
 #[tauri::command]
-pub(crate) fn choose_private_key_file() -> Result<Option<String>, String> {
+pub(crate) async fn choose_private_key_file() -> Result<Option<String>, String> {
     Ok(rfd::FileDialog::new()
         .set_title("选择 SSH密匙文件")
         .add_filter("SSH密匙文件", &["pem", "ppk", "key"])
@@ -285,7 +289,10 @@ pub(crate) fn choose_private_key_file() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-pub(crate) fn delete_remote_server(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub(crate) async fn delete_remote_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
     let before = delete_remote_server_service(&state, &id)?;
     record_remote_change(
         &state,

@@ -23,45 +23,45 @@ export function RemoteServerFields({
   return (
     <>
       <label className="remote-name-field">
-        \u663e\u793a\u540d\u79f0
-        <input className="input mt-1" name="name" defaultValue={server?.name} placeholder="\u53ef\u9009" />
+        显示名称
+        <input className="input mt-1" name="name" defaultValue={server?.name} placeholder="可选" />
       </label>
       <label className="remote-host-field">
-        \u4e3b\u673a\u540d
+        主机名
         <input
           className="input mt-1"
           name="host"
           required
           defaultValue={server?.host}
-          placeholder="host.com \u6216 user@host.com"
-          onInvalid={(event) => event.currentTarget.setCustomValidity("\u8bf7\u6dfb\u52a0\u670d\u52a1\u5668 IP")}
+          placeholder="host.com 或 user@host.com"
+          onInvalid={(event) => event.currentTarget.setCustomValidity("请添加服务器 IP")}
           onInput={(event) => event.currentTarget.setCustomValidity("")}
         />
       </label>
       <label className="remote-port-field">
-        SSH \u7aef\u53e3 <span className="remote-optional-label">(\u53ef\u9009)</span>
+        SSH 端口 <span className="remote-optional-label">(可选)</span>
         <input className="input mt-1" name="port" type="number" min="1" max="65535" required defaultValue={server?.port ?? 22} />
       </label>
       <label className="remote-username-field">
-        \u7528\u6237\u540d
+        用户名
         <input
           className="input mt-1"
           name="username"
           required
           defaultValue={server?.username}
           autoComplete="username"
-          onInvalid={(event) => event.currentTarget.setCustomValidity("\u8bf7\u6dfb\u52a0\u7528\u6237\u540d")}
+          onInvalid={(event) => event.currentTarget.setCustomValidity("请添加用户名")}
           onInput={(event) => event.currentTarget.setCustomValidity("")}
         />
       </label>
       <input type="hidden" name="relayProvider" value={server?.relayProvider ?? ""} />
-      <div className="remote-auth-tabs" role="tablist" aria-label="\u8ba4\u8bc1\u65b9\u5f0f">
-        <button className={`test-mode-button ${authType === "password" ? "active" : ""}`} type="button" role="tab" aria-selected={authType === "password"} onClick={() => onAuthTypeChange("password")}>\u5bc6\u7801</button>
-        <button className={`test-mode-button ${authType === "key" ? "active" : ""}`} type="button" role="tab" aria-selected={authType === "key"} onClick={() => onAuthTypeChange("key")}>\u8eab\u4efd\u6587\u4ef6</button>
+      <div className="remote-auth-tabs" role="tablist" aria-label="认证方式">
+        <button className={`test-mode-button ${authType === "password" ? "active" : ""}`} type="button" role="tab" aria-selected={authType === "password"} onClick={() => onAuthTypeChange("password")}>密码</button>
+        <button className={`test-mode-button ${authType === "key" ? "active" : ""}`} type="button" role="tab" aria-selected={authType === "key"} onClick={() => onAuthTypeChange("key")}>身份文件</button>
       </div>
       {authType === "password" ? (
         <label className="remote-credential-field">
-          \u5bc6\u7801
+          密码
           <input
             className="input mt-1"
             value={password}
@@ -69,14 +69,14 @@ export function RemoteServerFields({
             required={!server || server.authType !== authType}
             type="password"
             autoComplete="current-password"
-            placeholder={server ? "\u7559\u7a7a\u4fdd\u7559\u5df2\u4fdd\u5b58\u5bc6\u7801\uff1b\u9700\u66f4\u65b0\u65f6\u91cd\u65b0\u8f93\u5165" : "\u8f93\u5165\u5bc6\u7801"}
-            onInvalid={(event) => event.currentTarget.setCustomValidity("\u8bf7\u6dfb\u52a0\u5bc6\u7801")}
+            placeholder={server ? "留空保留已保存密码；需更新时重新输入" : "输入密码"}
+            onInvalid={(event) => event.currentTarget.setCustomValidity("请添加密码")}
             onInput={(event) => event.currentTarget.setCustomValidity("")}
           />
         </label>
       ) : (
         <label className="remote-credential-field">
-          SSH\u5bc6\u94a5
+          SSH密钥
           <div className="secret-input-wrap mt-1">
             <input
               className="input private-key-input"
@@ -85,11 +85,11 @@ export function RemoteServerFields({
               readOnly
               onClick={onChoosePrivateKey}
               autoComplete="off"
-              placeholder="\u9009\u62e9\u5bc6\u94a5\u6587\u4ef6"
-              onInvalid={(event) => event.currentTarget.setCustomValidity("\u8bf7\u6dfb\u52a0 SSH\u5bc6\u94a5")}
+              placeholder="选择密钥文件"
+              onInvalid={(event) => event.currentTarget.setCustomValidity("请添加 SSH 密钥")}
               onInput={(event) => event.currentTarget.setCustomValidity("")}
             />
-            <button className="secret-file-button" type="button" title="\u9009\u62e9\u7535\u8111\u6587\u4ef6" onClick={onChoosePrivateKey}>
+            <button className="secret-file-button" type="button" title="选择电脑文件" onClick={onChoosePrivateKey}>
               <FolderOpen size={17} />
             </button>
           </div>

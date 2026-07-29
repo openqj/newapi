@@ -1,0 +1,25 @@
+.alert-history-page { display: grid; gap: 1rem; }
+.alert-history-summary { margin: 0; }
+.alert-history-stat-warning .sub2-stat-icon { color: #b45309; background: #fef3c7; }
+.alert-history-stat-success .sub2-stat-icon { color: #15803d; background: #dcfce7; }
+.alert-history-stat-danger .sub2-stat-icon { color: #be123c; background: #ffe4e6; }
+.alert-history-trend, .alert-history-records { margin: 0; }
+.alert-history-chart { height: 17rem; padding: 1rem 1.25rem 1.25rem; }
+.alert-history-table-wrap { max-height: min(38rem, calc(100vh - 23rem)); overflow: auto; }
+.alert-history-table-wrap table { width: 100%; min-width: 48rem; border-collapse: collapse; font-size: .8125rem; }
+.alert-history-table-wrap th { position: sticky; top: 0; z-index: 1; padding: .8rem 1rem; background: #f8fafc; color: #64748b; font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-align: left; text-transform: uppercase; }
+.alert-history-table-wrap td { padding: .9rem 1rem; vertical-align: top; border-top: 1px solid #eef0f3; }
+.alert-history-table-wrap td strong, .alert-history-table-wrap td small { display: block; }
+.alert-history-table-wrap td strong { color: #1e293b; font-weight: 600; }
+.alert-history-table-wrap td small { max-width: 34rem; margin-top: .2rem; color: #64748b; line-height: 1.3rem; }
+.alert-history-time { white-space: nowrap; color: #64748b; }
+.alert-history-badge { display: inline-flex; align-items: center; min-width: 3.25rem; justify-content: center; border-radius: .25rem; padding: .2rem .4rem; font-size: .75rem; font-weight: 600; }
+.alert-history-severity-critical { background: #ffe4e6; color: #be123c; }
+.alert-history-severity-warning { background: #fef3c7; color: #b45309; }
+.alert-history-severity-info { background: #e0f2fe; color: #0369a1; }
+.alert-history-status-active { background: #fef3c7; color: #b45309; }
+.alert-history-status-resolved { background: #dcfce7; color: #15803d; }
+@media (max-width: 640px) {
+  .alert-history-chart { height: 14rem; padding-inline: .6rem; }
+  .alert-history-table-wrap { max-height: 30rem; }
+}

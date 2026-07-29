@@ -1,4 +1,4 @@
 export { MessagesDialog } from "./MessagesDialog";
 export { notificationsApi } from "./api";
-export { useMessagesDialog } from "./hooks";
-export type { NotificationMessage } from "./types";
+export { useMessagesDialog, useNotifications } from "./hooks";
+export type { NotificationMessage, NotificationSource } from "./types";
