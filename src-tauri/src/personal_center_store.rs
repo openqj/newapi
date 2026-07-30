@@ -61,6 +61,7 @@ pub(crate) struct PersonalCenterNotification {
     pub(crate) destination: String,
     pub(crate) published_at: i64,
     pub(crate) expires_at: Option<i64>,
+    pub(crate) revoked_at: Option<i64>,
     pub(crate) delivered_at: Option<i64>,
     pub(crate) read_at: Option<i64>,
 }
@@ -97,6 +98,8 @@ pub(crate) struct PersonalCenterRealtimeSession {
     pub(crate) access_token: String,
     pub(crate) user_id: String,
     pub(crate) is_admin: bool,
+    pub(crate) is_anonymous: bool,
+    pub(crate) expires_at: i64,
 }
 
 #[cfg(test)]

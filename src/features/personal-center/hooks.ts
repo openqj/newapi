@@ -24,6 +24,17 @@ export function useNotificationPreferences({ loadOnMount = true }: LoadOptions =
     }
   }, [notify]);
 
+  const refreshNotificationPreferences = useCallback(async () => {
+    setLoading(true);
+    try {
+      setPreferences(await personalCenterApi.refreshNotificationPreferences());
+    } catch (reason) {
+      notify(errorMessage(reason, "加载云端通知设置失败，请稍后重试。"), "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [notify]);
+
   const saveNotificationPreferences = useCallback(async (next: NotificationPreferences) => {
     setSaving(true);
     try {
@@ -38,7 +49,7 @@ export function useNotificationPreferences({ loadOnMount = true }: LoadOptions =
   }, [notify]);
 
   useEffect(() => { if (loadOnMount) void loadNotificationPreferences(); }, [loadNotificationPreferences, loadOnMount]);
-  return { preferences, setPreferences, loading, saving, loadNotificationPreferences, saveNotificationPreferences };
+  return { preferences, setPreferences, loading, saving, loadNotificationPreferences, refreshNotificationPreferences, saveNotificationPreferences };
 }
 
 /** Owns membership access records and exposes local state only after successful saves. */

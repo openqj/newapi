@@ -18,6 +18,7 @@ describe("settingsApi cloud backup contract", () => {
   it("keeps cloud authentication and backup request shapes stable", async () => {
     await settingsApi.cloudSignIn("user@example.com", "password-123");
     await settingsApi.cloudRequestPasswordReset("user@example.com");
+    await settingsApi.localCloudBackupPreview();
     await settingsApi.createCloudBackup("recovery-password");
     await settingsApi.deleteCloudBackup("backup-1");
     await settingsApi.previewCloudBackup("backup-1", "recovery-password");
@@ -25,9 +26,10 @@ describe("settingsApi cloud backup contract", () => {
 
     expect(invokeDesktop).toHaveBeenNthCalledWith(1, "cloud_sign_in", { email: "user@example.com", password: "password-123" });
     expect(invokeDesktop).toHaveBeenNthCalledWith(2, "cloud_request_password_reset", { email: "user@example.com" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(3, "create_cloud_backup", { recoveryPassword: "recovery-password" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(4, "delete_cloud_backup", { id: "backup-1" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(5, "preview_cloud_backup", { id: "backup-1", recoveryPassword: "recovery-password" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(6, "restore_cloud_backup", { id: "backup-1", recoveryPassword: "recovery-password" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(3, "get_local_cloud_backup_preview");
+    expect(invokeDesktop).toHaveBeenNthCalledWith(4, "create_cloud_backup", { recoveryPassword: "recovery-password" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(5, "delete_cloud_backup", { id: "backup-1" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(6, "preview_cloud_backup", { id: "backup-1", recoveryPassword: "recovery-password" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(7, "restore_cloud_backup", { id: "backup-1", recoveryPassword: "recovery-password" });
   });
 });

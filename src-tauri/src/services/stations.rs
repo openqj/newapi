@@ -1052,11 +1052,10 @@ pub(crate) async fn station_request(
         body.clone(),
     )
     .await;
-    if station.kind == "newapi"
-        && response
-            .as_ref()
-            .err()
-            .is_some_and(|error| is_unauthorized(error))
+    if response
+        .as_ref()
+        .err()
+        .is_some_and(|error| is_unauthorized(error))
     {
         refresh_session(state, station, secret, None, false).await?;
         return request(

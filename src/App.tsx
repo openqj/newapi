@@ -19,6 +19,7 @@ import {
 import { isTauri } from "./lib/platform";
 import { errorMessage } from "./lib/errors";
 import { settingsApi } from "./features/settings/api";
+import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -44,8 +45,8 @@ function App() {
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
     remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadAccountRows,
-    loadUsageSummary, loadUsageLogs, loadRemoteServers, refreshSupportingData,
-    refreshAll, cancelRefresh,
+    loadUsageSummary, loadUsageLogs, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
+    refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
   const loadActiveRelayName = useCallback(async () => {
     if (!isTauri()) {
@@ -62,17 +63,11 @@ function App() {
     syncProgress,
   }), [busy, snapshot.offers, snapshot.unavailable, stations, syncProgress]);
   const localNotifications = useNotifications(notificationSource, personalCenterNotifications.preferences);
-  const cloudNotifications = usePersonalCenterRealtime(personalCenterNotifications.loadNotificationPreferences, personalCenterNotifications.preferences.desktopEnabled);
-  const personalCenterPrivileges = useMemo(() => new Set(cloudNotifications.memberships
-    .filter((membership) => membership.enabled && (!membership.expiresAt || membership.expiresAt * 1000 > Date.now()))
-    .flatMap((membership) => membership.privileges)), [cloudNotifications.memberships]);
-  const personalCenterAccess = useMemo(() => ({
-    authenticated: cloudNotifications.access.authenticated,
-    isAdmin: cloudNotifications.access.isAdmin,
-    privileges: personalCenterPrivileges,
-  }), [cloudNotifications.access, personalCenterPrivileges]);
-  const canAdminister = !personalCenterAccess.authenticated || personalCenterAccess.isAdmin || personalCenterPrivileges.has("admin");
-  const canUseApiKeys = !personalCenterAccess.authenticated || personalCenterAccess.isAdmin || personalCenterPrivileges.has("apiKeys");
+  const cloudNotifications = usePersonalCenterRealtime(
+    personalCenterNotifications.refreshNotificationPreferences,
+    true,
+    personalCenterNotifications.preferences.desktopEnabled,
+  );
   const messages = useMemo(() => [...cloudNotifications.messages, ...localNotifications.messages]
     .sort((left, right) => right.createdAt - left.createdAt), [cloudNotifications.messages, localNotifications.messages]);
   const unreadCount = localNotifications.unreadCount + cloudNotifications.unreadCount;
@@ -87,8 +82,6 @@ function App() {
     remoteServers,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
     onSavePersonalCenterNotificationPreferences: personalCenterNotifications.saveNotificationPreferences,
-    onReloadPersonalCenterNotificationPreferences: personalCenterNotifications.loadNotificationPreferences,
-    personalCenterAccess,
     demoLoginProfiles,
     navigate: setView,
     onAddStation: () => {
@@ -106,7 +99,8 @@ function App() {
       setShowAdd(true);
     },
     onRefreshAll: refreshAll,
-    onRefreshUsageLogs: loadUsageLogs,
+    onRefreshRatesAndKeys: refreshRatesAndKeys,
+    onRefreshUsageLogs: refreshUsageLogs,
     onRefreshRemoteServers: loadRemoteServers,
     onRefreshSupportingData: refreshSupportingData,
     onCodexRelayChanged: loadActiveRelayName,
@@ -119,22 +113,17 @@ function App() {
 
   useEffect(() => { void loadActiveRelayName(); }, [loadActiveRelayName]);
   useEffect(() => {
-    if (view === "overview" || view === "personalCenter") return;
-    if (!navigation.some((item) => item.view === view)) setView("personalCenter");
-  }, [navigation, view]);
-  useEffect(() => {
-    if (!canAdminister) {
-      setShowAdd(false);
-      setEditingStation(null);
-    }
-  }, [canAdminister]);
-
-  useEffect(() => {
     if (!isTauri()) return;
     const appWindow = getCurrentWindow();
     let unlisten: (() => void) | undefined;
+    let maximizedCheckInFlight = false;
     const syncMaximized = () => {
-      void appWindow.isMaximized().then(setIsMaximized).catch(() => undefined);
+      if (maximizedCheckInFlight) return;
+      maximizedCheckInFlight = true;
+      void appWindow.isMaximized()
+        .then((next) => setIsMaximized((current) => current === next ? current : next))
+        .catch(() => undefined)
+        .finally(() => { maximizedCheckInFlight = false; });
     };
 
     syncMaximized();
@@ -150,7 +139,7 @@ function App() {
     try {
       if (action === "minimize") await appWindow.minimize();
       if (action === "maximize") await appWindow.toggleMaximize();
-      if (action === "close") await appWindow.close();
+      if (action === "close") await appWindow.hide();
     } catch (reason) {
       notify(errorMessage(reason, "窗口操作失败，请稍后重试。"), "error");
     }
@@ -174,7 +163,7 @@ function App() {
           onDoubleClick={() => void controlWindow("maximize")}
         />
         <div className="window-titlebar-actions">
-          {activeRelayName && canUseApiKeys && <button
+          {activeRelayName && <button
             type="button"
             className="window-station-button"
             title={activeRelayName}
@@ -223,14 +212,14 @@ function App() {
         </div>
       </header>
       <div className="app-content flex min-h-screen">
-        <AppSidebar view={view} navigation={navigation} usage={usageScope === "current" ? (snapshot.usage ?? emptyUsageSummary) : usageSummary} usageScope={usageScope} canAddStation={canAdminister} onScopeChange={setUsageScope} onNavigate={setView} onAddStation={() => { setEditingStation(null); setShowAdd(true); }} />
+        <AppSidebar view={view} navigation={navigation} usage={usageScope === "current" ? (snapshot.usage ?? emptyUsageSummary) : usageSummary} usageScope={usageScope} onScopeChange={setUsageScope} onNavigate={setView} onAddStation={() => { setEditingStation(null); setShowAdd(true); }} />
         <main className="min-w-0 flex-1">
           <section className="content-surface">
             {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
-            {canAdminister && view === "overview" && stations.length === 0 && (
+            {view === "overview" && stations.length === 0 && (
               <EmptyWorkspace onAdd={() => { setEditingStation(null); setShowAdd(true); }} />
             )}
-            {(view !== "overview" || stations.length > 0 || !canAdminister) && (
+            {(view !== "overview" || stations.length > 0) && (
               <>
                 {activePage}
                 {snapshot.unavailable.length > 0 && (
@@ -283,6 +272,7 @@ function App() {
           }}
         />
       )}
+      <PasswordResetDialog />
     </div>
     </AppRouteProvider>
   );

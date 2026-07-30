@@ -63,7 +63,7 @@ export function ApiKeyTable({
                     <div className="sub2-key-usage">
                       <div><span>今日：</span><strong>{formatMoney(row.key.todaySpent)}</strong></div>
                       <div><span>总计：</span><strong>{formatMoney(row.key.last30DaysSpent ?? row.key.usedQuota)}</strong></div>
-                      {row.key.unlimitedQuota ? <div className="sub2-key-quota"><span>额度：</span><strong>不限额</strong></div> : row.key.remainingQuota != null && <div className="sub2-key-quota"><div><span>额度：</span><strong>{formatMoney(row.key.usedQuota)} / {formatMoney(totalQuota)}</strong></div><i><b style={{ width: `${Math.min(((row.key.usedQuota ?? 0) / Math.max(0.0001, totalQuota)) * 100, 100)}%` }} /></i></div>}
+                      {row.key.unlimitedQuota ? <div className="sub2-key-quota sub2-key-quota-unlimited"><span>额度：</span><strong>不限额</strong></div> : row.key.remainingQuota != null && <div className="sub2-key-quota"><div><span>额度：</span><strong>{formatMoney(row.key.usedQuota)} / {formatMoney(totalQuota)}</strong></div><i><b style={{ width: `${Math.min(((row.key.usedQuota ?? 0) / Math.max(0.0001, totalQuota)) * 100, 100)}%` }} /></i></div>}
                     </div>
                   </td>
                   <td>{row.key.expiresAt ? formatTime(row.key.expiresAt) : "永不过期"}</td>

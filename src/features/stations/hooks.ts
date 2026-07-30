@@ -65,7 +65,7 @@ export function useStations<Snapshot extends StationSnapshot>({
     }
   }, [demo, emptySnapshot, notify, selectedId]);
 
-  const refreshAll = useCallback(() => {
+  const refreshAll = useCallback((onComplete = onSyncComplete) => {
     if (!isTauri()) return Promise.resolve();
     if (refreshInFlight.current) return refreshInFlight.current;
 
@@ -75,7 +75,7 @@ export function useStations<Snapshot extends StationSnapshot>({
       await stationApi.refreshAll<StationSyncResult<Snapshot>[]>();
       await loadStations();
       await loadSnapshot();
-      await onSyncComplete?.(selectedId);
+      await onComplete?.(selectedId);
     } catch (reason) {
       notify(errorMessage(reason, "同步站点失败，请稍后重试。"), "error");
     } finally {

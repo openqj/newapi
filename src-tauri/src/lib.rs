@@ -34,12 +34,14 @@ use commands::gateway::{
     set_active_gateway_route, set_gateway_port, set_routing_mode, start_gateway, stop_gateway,
 };
 use commands::personal_center::{
-    delete_personal_center_membership, get_personal_center_notification_preferences,
-    get_personal_center_realtime_session, list_personal_center_audit_history,
-    list_personal_center_login_events, list_personal_center_memberships,
-    list_personal_center_notifications, mark_personal_center_notification,
-    publish_personal_center_notification, save_personal_center_membership,
-    save_personal_center_notification_preferences,
+    delete_personal_center_membership, delete_personal_center_notification,
+    get_personal_center_notification_preferences, get_personal_center_realtime_session,
+    list_personal_center_audit_history, list_personal_center_login_events,
+    list_personal_center_memberships, list_personal_center_notifications,
+    list_sent_personal_center_notifications, mark_personal_center_notification,
+    publish_personal_center_notification, refresh_personal_center_notification_preferences,
+    revoke_personal_center_notification, save_personal_center_membership,
+    save_personal_center_notification_preferences, update_personal_center_notification,
 };
 use commands::profiles::{
     delete_login_profile, get_login_profile, list_login_profiles, save_login_profile,
@@ -56,9 +58,10 @@ use commands::remote::{
     update_remote_server, verify_remote_codex_session_command,
 };
 use commands::settings::{
-    backup_database, cloud_request_password_reset, cloud_sign_in, cloud_sign_out, cloud_sign_up,
-    create_cloud_backup, delete_cloud_backup, get_active_codex_relay_name, get_cloud_auth_status,
-    get_codex_integration, list_cloud_backups, preview_cloud_backup, restore_cloud_backup,
+    backup_database, cloud_complete_password_reset, cloud_request_password_reset, cloud_sign_in,
+    cloud_sign_out, cloud_sign_up, create_cloud_backup, delete_cloud_backup,
+    get_active_codex_relay_name, get_cloud_auth_status, get_codex_integration,
+    get_local_cloud_backup_preview, list_cloud_backups, preview_cloud_backup, restore_cloud_backup,
     set_codex_preserve_official_login,
 };
 use commands::stations::{
@@ -66,7 +69,7 @@ use commands::stations::{
     list_stations, probe_station, reauthenticate_station, refresh_all, refresh_station,
     update_station,
 };
-use commands::usage::list_usage_logs;
+use commands::usage::{list_usage_logs, refresh_usage_logs};
 use models::*;
 use serde_json::Value;
 use store::Store;
@@ -87,6 +90,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         save_login_profile,
         delete_login_profile,
         get_personal_center_notification_preferences,
+        refresh_personal_center_notification_preferences,
         save_personal_center_notification_preferences,
         list_personal_center_memberships,
         save_personal_center_membership,
@@ -94,6 +98,10 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         list_personal_center_audit_history,
         list_personal_center_notifications,
         publish_personal_center_notification,
+        list_sent_personal_center_notifications,
+        update_personal_center_notification,
+        revoke_personal_center_notification,
+        delete_personal_center_notification,
         mark_personal_center_notification,
         get_personal_center_realtime_session,
         list_personal_center_login_events,
@@ -118,6 +126,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         get_snapshot,
         get_usage_summary,
         list_usage_logs,
+        refresh_usage_logs,
         get_history,
         list_audit_events,
         rollback_audit_event,
@@ -149,8 +158,10 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         cloud_sign_up,
         cloud_sign_in,
         cloud_request_password_reset,
+        cloud_complete_password_reset,
         cloud_sign_out,
         list_cloud_backups,
+        get_local_cloud_backup_preview,
         create_cloud_backup,
         delete_cloud_backup,
         preview_cloud_backup,

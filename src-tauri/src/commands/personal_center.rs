@@ -89,8 +89,8 @@ fn validate_notification(
     {
         return Err("Notification body must contain 1 to 2000 visible characters".into());
     }
-    if !["all", "user"].contains(&request.audience.as_str()) {
-        return Err("Notification audience must be all or user".into());
+    if !["all", "members", "guests", "user"].contains(&request.audience.as_str()) {
+        return Err("Notification audience must be all, members, guests, or user".into());
     }
     if !["info", "warning", "offer"].contains(&request.kind.as_str()) {
         return Err("Notification kind must be info, warning, or offer".into());
@@ -112,6 +112,17 @@ fn validate_notification(
 
 #[tauri::command]
 pub(crate) async fn get_personal_center_notification_preferences(
+    state: State<'_, AppState>,
+) -> Result<NotificationPreferences, String> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "Local database is unavailable".to_string())?
+        .notification_preferences()
+}
+
+#[tauri::command]
+pub(crate) async fn refresh_personal_center_notification_preferences(
     state: State<'_, AppState>,
 ) -> Result<NotificationPreferences, String> {
     match cloud_backup::cloud_notification_preferences(&state).await {
@@ -137,8 +148,6 @@ pub(crate) async fn save_personal_center_notification_preferences(
     state: State<'_, AppState>,
     preferences: NotificationPreferences,
 ) -> Result<NotificationPreferences, String> {
-    let preferences =
-        cloud_backup::save_cloud_notification_preferences(&state, &preferences).await?;
     let store = state
         .store
         .lock()
@@ -223,6 +232,46 @@ pub(crate) async fn publish_personal_center_notification(
 }
 
 #[tauri::command]
+pub(crate) async fn list_sent_personal_center_notifications(
+    state: State<'_, AppState>,
+) -> Result<Vec<PersonalCenterNotification>, String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::cloud_sent_notifications(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn update_personal_center_notification(
+    state: State<'_, AppState>,
+    notification_id: String,
+    request: PublishNotificationRequest,
+) -> Result<PersonalCenterNotification, String> {
+    require_cloud_admin(&state).await?;
+    let notification_id = validate_text(&notification_id, "Notification ID")?;
+    let request = validate_notification(request)?;
+    cloud_backup::update_cloud_notification(&state, &notification_id, &request).await
+}
+
+#[tauri::command]
+pub(crate) async fn revoke_personal_center_notification(
+    state: State<'_, AppState>,
+    notification_id: String,
+) -> Result<PersonalCenterNotification, String> {
+    require_cloud_admin(&state).await?;
+    let notification_id = validate_text(&notification_id, "Notification ID")?;
+    cloud_backup::revoke_cloud_notification(&state, &notification_id).await
+}
+
+#[tauri::command]
+pub(crate) async fn delete_personal_center_notification(
+    state: State<'_, AppState>,
+    notification_id: String,
+) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    let notification_id = validate_text(&notification_id, "Notification ID")?;
+    cloud_backup::delete_cloud_notification(&state, &notification_id).await
+}
+
+#[tauri::command]
 pub(crate) async fn mark_personal_center_notification(
     state: State<'_, AppState>,
     notification_id: String,
@@ -250,7 +299,9 @@ pub(crate) async fn list_personal_center_login_events(
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_membership, MembershipAccess};
+    use super::{
+        validate_membership, validate_notification, MembershipAccess, PublishNotificationRequest,
+    };
 
     fn membership() -> MembershipAccess {
         MembershipAccess {
@@ -286,5 +337,21 @@ mod tests {
                 .privileges,
             vec!["members", "usage"]
         );
+    }
+
+    #[test]
+    fn notification_validation_accepts_member_and_guest_audiences() {
+        for audience in ["members", "guests"] {
+            let request = PublishNotificationRequest {
+                audience: audience.into(),
+                target_email: None,
+                kind: "info".into(),
+                title: "Notice".into(),
+                body: "Body".into(),
+                destination: "personalCenter".into(),
+                expires_at: None,
+            };
+            assert_eq!(validate_notification(request).unwrap().audience, audience);
+        }
     }
 }

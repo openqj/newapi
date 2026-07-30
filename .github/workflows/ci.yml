@@ -7,6 +7,15 @@ on:
   workflow_dispatch:
 
 jobs:
+  supabase-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+      - run: supabase start
+      - run: supabase db reset --local
+      - run: supabase db lint --local
+
   verify:
     runs-on: windows-latest
     steps:
@@ -20,12 +29,21 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod
       - run: pnpm test
       - run: pnpm build
       - run: pnpm exec playwright install chromium
       - run: pnpm test:ui
       - run: cargo test
         working-directory: src-tauri
+
+  rust-dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          working-directory: src-tauri
 
   real-station-e2e:
     if: ${{ github.event_name == 'workflow_dispatch' }}

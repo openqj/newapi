@@ -8,7 +8,24 @@ permissions:
   contents: write
 
 jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+      - name: Apply the backend baseline and deploy the audited login endpoint
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_ID" --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --include-all
+          supabase functions deploy login-with-audit --no-verify-jwt --project-ref "$SUPABASE_PROJECT_ID"
+
   release:
+    needs: deploy-backend
     runs-on: windows-latest
     environment: release
     steps:
@@ -21,13 +38,26 @@ jobs:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+      - name: Require the tag and all package manifests to agree
+        run: node scripts/verify-release-version.mjs $env:GITHUB_REF_NAME
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod
       - run: pnpm test
       - run: pnpm build
       - run: pnpm exec playwright install chromium
       - run: pnpm test:ui
       - run: cargo test
         working-directory: src-tauri
+      - name: Materialize the Authenticode certificate
+        shell: pwsh
+        env:
+          WINDOWS_CODESIGN_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE_BASE64 }}
+          WINDOWS_CODESIGN_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE_PASSWORD }}
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "relayhub-codesign.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_CERTIFICATE_BASE64))
+          "WINDOWS_CERTIFICATE_PATH=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "WINDOWS_CERTIFICATE_PASSWORD=$env:WINDOWS_CODESIGN_CERTIFICATE_PASSWORD" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -36,7 +66,24 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: RelayHub ${{ github.ref_name }}
-          releaseBody: Signed RelayHub desktop release.
-          releaseDraft: false
+          releaseBody: Signed RelayHub desktop release. Publish only after the release checklist has passed.
+          releaseDraft: true
           prerelease: false
-          args: --bundles nsis,msi
+          args: --bundles nsis,msi --config src-tauri/tauri.release.conf.json
+      - name: Verify Authenticode signatures and updater assets in the draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $artifacts = Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi
+          if ($artifacts.Count -lt 2) { throw "Expected signed NSIS and MSI artifacts." }
+          $artifacts | ForEach-Object {
+            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
+            if ($signature.Status -ne "Valid") { throw "Invalid Authenticode signature for $($_.Name): $($signature.Status)" }
+          }
+          $assets = gh release view $env:GITHUB_REF_NAME --json assets,isDraft | ConvertFrom-Json
+          if (-not $assets.isDraft) { throw "The release must remain a draft pending manual approval." }
+          $names = @($assets.assets | ForEach-Object name)
+          if (-not ($names -match '^latest\.json$')) { throw "Draft release is missing latest.json." }
+          if (-not ($names -match '\.sig$')) { throw "Draft release is missing updater signatures." }
+          if (-not ($names -match '\.exe$') -or -not ($names -match '\.msi$')) { throw "Draft release is missing NSIS or MSI assets." }

@@ -1,0 +1,5 @@
+-- The linked production project recorded this migration before this repository
+-- began tracking Supabase migrations. RelayHub's complete schema baseline
+-- starts at 20260729150000, so an empty database remains fully reproducible.
+--
+-- Keep this marker to align local migration history with the existing project.

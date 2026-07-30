@@ -42,6 +42,18 @@ pub(crate) async fn cloud_request_password_reset(
 }
 
 #[tauri::command]
+pub(crate) async fn cloud_complete_password_reset(
+    state: State<'_, AppState>,
+    access_token: String,
+    refresh_token: String,
+    expires_in: i64,
+    password: String,
+) -> Result<CloudAuthStatus, String> {
+    cloud_backup::complete_password_reset(&state, access_token, refresh_token, expires_in, password)
+        .await
+}
+
+#[tauri::command]
 pub(crate) fn cloud_sign_out() {
     cloud_backup::sign_out();
 }
@@ -92,6 +104,13 @@ pub(crate) async fn get_codex_integration(
     state: State<'_, AppState>,
 ) -> Result<CodexIntegrationStatus, String> {
     codex_config::status(&state)
+}
+
+#[tauri::command]
+pub(crate) fn get_local_cloud_backup_preview(
+    state: State<'_, AppState>,
+) -> Result<CloudBackupPreview, String> {
+    cloud_backup::local_backup_preview(&state)
 }
 
 #[tauri::command]

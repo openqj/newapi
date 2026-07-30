@@ -21,7 +21,8 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://vvqzkkyfwmuwmntyvbgz.supabase.co wss://vvqzkkyfwmuwmntyvbgz.supabase.co; media-src 'self'",
+      "devCsp": "default-src 'self' http://localhost:1420; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' http://localhost:1420; style-src 'self' 'unsafe-inline' http://localhost:1420; img-src 'self' data: https: http://localhost:1420; font-src 'self' data:; connect-src 'self' http://localhost:1420 ws://localhost:1420 https://vvqzkkyfwmuwmntyvbgz.supabase.co wss://vvqzkkyfwmuwmntyvbgz.supabase.co; media-src 'self'"
     }
   },
   "bundle": {
@@ -37,6 +38,11 @@
     ]
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["relayhub"]
+      }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDZCM0Y0ODQ5MTU4RDAxOUEKUldTYUFZMFZTVWcvYXhMVERpSmJjbjBqRldrSHZ6THBlcndVS1BZYUs0czVPRUVWNFZsLzBDS0gK",
       "endpoints": [

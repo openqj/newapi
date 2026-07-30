@@ -57,8 +57,23 @@ export function useUsageData({
     }
   }, [demoLogs, notify]);
 
+  const refreshUsageLogs = useCallback(async () => {
+    if (!isTauri()) {
+      setLogs(demoLogs);
+      return;
+    }
+    setLogsLoading(true);
+    try {
+      setLogs(await usageApi.refreshLogs<UsageLog[]>());
+    } catch (reason) {
+      notify(errorMessage(reason, "刷新使用记录失败，请稍后重试。"), "error");
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [demoLogs, notify]);
+
   useEffect(() => { if (loadSummaryOnMount) void loadUsageSummary(); }, [loadSummaryOnMount, loadUsageSummary]);
   useEffect(() => { if (loadLogsOnMount) void loadUsageLogs(); }, [loadLogsOnMount, loadUsageLogs]);
 
-  return { summary, setSummary, logs, setLogs, summaryLoading, logsLoading, loadUsageSummary, loadUsageLogs };
+  return { summary, setSummary, logs, setLogs, summaryLoading, logsLoading, loadUsageSummary, loadUsageLogs, refreshUsageLogs };
 }

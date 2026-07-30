@@ -53,6 +53,11 @@ export const personalCenterApi = {
     return { ...defaultNotificationPreferences, ...readLocal<Partial<NotificationPreferences>>(NOTIFICATION_PREFERENCES_KEY, {}) };
   },
 
+  async refreshNotificationPreferences(): Promise<NotificationPreferences> {
+    if (isTauri()) return invokeDesktop<NotificationPreferences>("refresh_personal_center_notification_preferences");
+    return { ...defaultNotificationPreferences, ...readLocal<Partial<NotificationPreferences>>(NOTIFICATION_PREFERENCES_KEY, {}) };
+  },
+
   async saveNotificationPreferences(preferences: NotificationPreferences): Promise<NotificationPreferences> {
     if (isTauri()) return invokeDesktop<NotificationPreferences>("save_personal_center_notification_preferences", { preferences });
     writeLocal(NOTIFICATION_PREFERENCES_KEY, preferences);
@@ -95,6 +100,17 @@ export const personalCenterApi = {
 
   publishNotification: (request: PublishNotificationRequest) =>
     invokeDesktop<PersonalCenterNotification>("publish_personal_center_notification", { request }),
+
+  sentNotifications: () => invokeDesktop<PersonalCenterNotification[]>("list_sent_personal_center_notifications"),
+
+  updateNotification: (notificationId: string, request: PublishNotificationRequest) =>
+    invokeDesktop<PersonalCenterNotification>("update_personal_center_notification", { notificationId, request }),
+
+  revokeNotification: (notificationId: string) =>
+    invokeDesktop<PersonalCenterNotification>("revoke_personal_center_notification", { notificationId }),
+
+  deleteNotification: (notificationId: string) =>
+    invokeDesktop<void>("delete_personal_center_notification", { notificationId }),
 
   markNotification: (notificationId: string, read: boolean) =>
     invokeDesktop<void>("mark_personal_center_notification", { notificationId, read }),

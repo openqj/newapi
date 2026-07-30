@@ -53,6 +53,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     logs: usageLogs,
     loadUsageSummary,
     loadUsageLogs,
+    refreshUsageLogs,
   } = useUsageData({
     emptySummary: emptyUsageSummary,
     demoSummary: demo.usageSummary,
@@ -89,7 +90,6 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
   } = useStations<Snapshot>({
     emptySnapshot,
     demo: stationDemo,
-    autoRefresh: true,
     onSyncComplete: refreshFeatureRows,
   });
 
@@ -103,6 +103,10 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     await loadSnapshot(stationId);
     await refreshFeatureRows();
   }, [loadSnapshot, loadStations, refreshFeatureRows, selectedId]);
+
+  const refreshRatesAndKeys = useCallback(() => refreshAll(async () => {
+    await Promise.all([loadRateRows(), loadKeyRows()]);
+  }), [loadKeyRows, loadRateRows, refreshAll]);
 
   useEffect(() => { void loadUsageSummary(); }, [loadUsageSummary]);
   useEffect(() => {
@@ -122,6 +126,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     stations, selectedId, setSelectedId, snapshot, keyRows, rateRows, accountRows, usageSummary,
     usageLogs, remoteServers, usageScope, setUsageScope, busy, syncProgress,
     loadStations, loadSnapshot, loadKeyRows, loadRateRows, loadAccountRows, loadUsageSummary,
-    loadUsageLogs, loadRemoteServers, refreshSupportingData, refreshAll, cancelRefresh,
+    loadUsageLogs, refreshUsageLogs, loadRemoteServers, refreshSupportingData, refreshRatesAndKeys,
+    refreshAll, cancelRefresh,
   };
 }

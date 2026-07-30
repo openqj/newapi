@@ -56,7 +56,7 @@ export function AccountsPage({ rows, stations, onRefresh, onUpdated, onOpenStati
   return <div className="sub2-page sub2-keys-page accounts-page">
     <section className="table-page-toolbar">
       <div className="table-page-filters"><label className="sub2-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索站点账户、站点、邮箱或分组" /></label><select aria-label="站点筛选" value={station} onChange={(event) => setStation(event.target.value)}><option value="all">全部站点</option>{stations.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></div>
-      <div className="table-page-actions"><button className="button-secondary" title="刷新站点账户" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} /><span>刷新</span></button><button className="button-primary" onClick={onAdd}><Plus size={16} />添加站点</button></div>
+      <div className="table-page-actions"><button className="button-secondary" title="刷新站点账户" aria-label="刷新站点账户" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} /></button><button className="button-primary" onClick={onAdd}><Plus size={16} />添加站点</button></div>
     </section>
     <DataTable
       className="sub2-panel sub2-table-panel"

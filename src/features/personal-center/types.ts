@@ -30,7 +30,7 @@ export type PersonalCenterAuditEntry = {
 
 export type PersonalCenterNotification = {
   id: string;
-  audience: "all" | "user";
+  audience: "all" | "members" | "guests" | "user";
   targetEmail?: string;
   kind: "info" | "warning" | "offer";
   title: string;
@@ -38,12 +38,13 @@ export type PersonalCenterNotification = {
   destination: "overview" | "offers" | "personalCenter";
   publishedAt: number;
   expiresAt?: number;
+  revokedAt?: number;
   deliveredAt?: number;
   readAt?: number;
 };
 
 export type PublishNotificationRequest = {
-  audience: "all" | "user";
+  audience: "all" | "members" | "guests" | "user";
   targetEmail?: string;
   kind: "info" | "warning" | "offer";
   title: string;
@@ -68,4 +69,6 @@ export type PersonalCenterRealtimeSession = {
   accessToken: string;
   userId: string;
   isAdmin: boolean;
+  isAnonymous: boolean;
+  expiresAt: number;
 };

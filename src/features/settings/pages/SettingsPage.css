@@ -1,5 +1,10 @@
-.codex-enhancement-panel { margin-top: 1rem; }
-.settings-update-panel { margin-top: 1rem; }
+.settings-tabs { display: flex; gap: 1.5rem; margin-bottom: 1rem; overflow-x: auto; border-bottom: 1px solid var(--ui-border); }
+.settings-tab { position: relative; flex: 0 0 auto; padding: .7rem 0; color: var(--ui-muted); font-size: .875rem; font-weight: 600; }
+.settings-tab:hover { color: var(--ui-text); }
+.settings-tab::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: transparent; content: ""; }
+.settings-tab.active { color: var(--ui-text); }
+.settings-tab.active::after { background: #000; }
+.settings-tab:focus-visible { outline: 2px solid #000; outline-offset: -2px; border-radius: .25rem; }
 .settings-repository-link { width: 2.25rem; height: 2.25rem; padding: 0; }
 .settings-repository-link svg { width: 1rem; height: 1rem; }
 .codex-enhancement-header { display: flex; align-items: center; gap: .55rem; padding: 1rem 1.1rem; border-bottom: 1px solid #eef0f3; color: #2563eb; }

@@ -12,13 +12,11 @@ use tauri::{
 };
 
 use crate::{
-    models::GroupRate,
+    models::{GroupRate, StationSnapshot},
     services::gateway::{
         load_gateway_settings, load_or_create_gateway_token, restore_persisted_gateway_route,
         set_gateway_route, set_tray_routing_mode, GatewayController, RoutingMode,
     },
-    settings_store::SettingsStore,
-    station_snapshot_store::StationSnapshotStore,
     station_store::StationStore,
     store::Store,
     AppState,
@@ -50,6 +48,13 @@ fn tray_rate_label(rate: &GroupRate) -> String {
 /// owned by the application shell.
 pub(crate) fn run() {
     crate::application_builder()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
@@ -101,19 +106,13 @@ pub(crate) fn run() {
                     .store
                     .lock()
                     .map_err(|_| "本地数据库不可用".to_string())?;
-                let active_station_id = store.setting("activeGatewayStationId")?;
-                let active_key_id = store.setting("activeGatewayKeyId")?;
-                let stations = store.list_stations()?;
-                let stations = stations
+                let stations = store
+                    .list_stations()?
                     .into_iter()
-                    .map(|station| {
-                        let snapshot = store
-                            .load_snapshot(&station.id)?
-                            .map(|(_, snapshot)| snapshot);
-                        Ok((station, snapshot))
-                    })
-                    .collect::<Result<Vec<_>, String>>()?;
-                (stations, active_station_id, active_key_id)
+                    .take(12)
+                    .map(|station| (station, None::<StationSnapshot>))
+                    .collect::<Vec<_>>();
+                (stations, None::<String>, None::<String>)
             };
             let dashboard = MenuItem::with_id(app, "show", "仪表板", true, None::<&str>)?;
             let stations_menu = Submenu::new(app, "站点", true)?;
@@ -209,7 +208,12 @@ pub(crate) fn run() {
                             }
                         }
                         None => {
-                            let stale = MenuItem::new(app, "站点尚未同步", false, None::<&str>)?;
+                            let stale = MenuItem::new(
+                                app,
+                                "站点详情请在 RelayHub 中查看",
+                                false,
+                                None::<&str>,
+                            )?;
                             groups_menu.append(&stale)?;
                         }
                     }

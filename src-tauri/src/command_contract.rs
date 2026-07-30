@@ -34,6 +34,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "get_snapshot",
     "get_usage_summary",
     "list_usage_logs",
+    "refresh_usage_logs",
     "get_history",
     "list_audit_events",
     "rollback_audit_event",
@@ -65,8 +66,10 @@ pub const COMMAND_NAMES: &[&str] = &[
     "cloud_sign_up",
     "cloud_sign_in",
     "cloud_request_password_reset",
+    "cloud_complete_password_reset",
     "cloud_sign_out",
     "list_cloud_backups",
+    "get_local_cloud_backup_preview",
     "create_cloud_backup",
     "delete_cloud_backup",
     "preview_cloud_backup",
@@ -78,6 +81,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "evaluate_alerts",
     "list_alert_history",
     "get_personal_center_notification_preferences",
+    "refresh_personal_center_notification_preferences",
     "save_personal_center_notification_preferences",
     "list_personal_center_memberships",
     "save_personal_center_membership",
@@ -85,6 +89,10 @@ pub const COMMAND_NAMES: &[&str] = &[
     "list_personal_center_audit_history",
     "list_personal_center_notifications",
     "publish_personal_center_notification",
+    "list_sent_personal_center_notifications",
+    "update_personal_center_notification",
+    "revoke_personal_center_notification",
+    "delete_personal_center_notification",
     "mark_personal_center_notification",
     "get_personal_center_realtime_session",
     "list_personal_center_login_events",
@@ -96,7 +104,7 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 84);
+        assert_eq!(COMMAND_NAMES.len(), 92);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
         assert!(COMMAND_NAMES.contains(&"diagnose_station"));

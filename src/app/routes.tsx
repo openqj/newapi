@@ -67,16 +67,11 @@ export type AppRouteContext = {
   demoLoginProfiles: LoginProfile[];
   personalCenterNotificationPreferences: NotificationPreferences;
   onSavePersonalCenterNotificationPreferences: (preferences: NotificationPreferences) => Promise<boolean>;
-  onReloadPersonalCenterNotificationPreferences: () => Promise<void>;
-  personalCenterAccess: {
-    authenticated: boolean;
-    isAdmin: boolean;
-    privileges: ReadonlySet<string>;
-  };
   navigate: (view: AppView) => void;
   onAddStation: () => void;
   onEditStationAccount: (row: AccountRow) => void;
   onRefreshAll: () => Promise<void>;
+  onRefreshRatesAndKeys: () => Promise<void>;
   onRefreshUsageLogs: () => Promise<void>;
   onRefreshRemoteServers: () => Promise<void>;
   onRefreshSupportingData: () => Promise<void>;
@@ -85,12 +80,6 @@ export type AppRouteContext = {
 };
 
 const RouteContext = createContext<AppRouteContext | null>(null);
-
-function can(context: AppRouteContext, privilege: string) {
-  return !context.personalCenterAccess.authenticated
-    || context.personalCenterAccess.isAdmin
-    || context.personalCenterAccess.privileges.has(privilege);
-}
 
 export function AppRouteProvider({ value, children }: { value: AppRouteContext; children: ReactNode }) {
   return <RouteContext.Provider value={value}>{children}</RouteContext.Provider>;
@@ -107,11 +96,7 @@ export type AppRoute = {
   navigation?: {
     label: string;
     Icon: LucideIcon;
-    /** Allows future feature flags or permissions without changing AppSidebar. */
-    isVisible?: (context: AppRouteContext) => boolean;
   };
-  /** Allows a page to be unavailable while retaining its stable view name. */
-  isPageVisible?: (context: AppRouteContext) => boolean;
   createPage: (context: AppRouteContext) => ReactNode;
 };
 
@@ -139,8 +124,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   },
   accounts: {
     view: "accounts",
-    navigation: { label: "站点账户", Icon: UsersRound, isVisible: (context) => can(context, "usage") },
-    isPageVisible: (context) => can(context, "usage"),
+    navigation: { label: "站点账户", Icon: UsersRound },
     createPage: ({ accountRows, stations, onRefreshAll, onRefreshSupportingData, onOpenStation, onAddStation, onEditStationAccount }) => (
       <AccountsPage
         rows={accountRows}
@@ -155,44 +139,39 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   },
   rates: {
     view: "rates",
-    navigation: { label: "倍率", Icon: RefreshCw, isVisible: (context) => can(context, "billing") },
-    isPageVisible: (context) => can(context, "billing"),
-    createPage: ({ rateRows, stations, onRefreshAll, onOpenStation }) => (
+    navigation: { label: "分组倍率", Icon: RefreshCw },
+    createPage: ({ rateRows, stations, onRefreshRatesAndKeys, onOpenStation }) => (
       <RatesPage
         rows={rateRows}
         stations={stations}
         unavailableStationCount={stations.filter((station) => !rateRows.some((row) => row.stationId === station.id)).length}
-        onRefresh={onRefreshAll}
+        onRefresh={onRefreshRatesAndKeys}
         onOpenStation={onOpenStation}
       />
     ),
   },
   keys: {
     view: "keys",
-    navigation: { label: "API 密钥", Icon: KeyRound, isVisible: (context) => can(context, "apiKeys") },
-    isPageVisible: (context) => can(context, "apiKeys"),
-    createPage: ({ keyRows, stations, onRefreshAll, onRefreshSupportingData, onCodexRelayChanged }) => (
-      <ApiKeysPage rows={keyRows} stations={stations} onRefresh={onRefreshAll} onUpdated={onRefreshSupportingData} onCodexApplied={onCodexRelayChanged} />
+    navigation: { label: "API 密钥", Icon: KeyRound },
+    createPage: ({ keyRows, stations, onRefreshRatesAndKeys, onRefreshSupportingData, onCodexRelayChanged }) => (
+      <ApiKeysPage rows={keyRows} stations={stations} onRefresh={onRefreshRatesAndKeys} onUpdated={onRefreshSupportingData} onCodexApplied={onCodexRelayChanged} />
     ),
   },
   usage: {
     view: "usage",
-    navigation: { label: "使用记录", Icon: Activity, isVisible: (context) => can(context, "usage") },
-    isPageVisible: (context) => can(context, "usage"),
+    navigation: { label: "使用记录", Icon: Activity },
     createPage: ({ usageLogs, stations, onRefreshUsageLogs }) => (
       <UsagePage rows={usageLogs} stations={stations} onRefresh={onRefreshUsageLogs} />
     ),
   },
   apiDetection: {
     view: "apiDetection",
-    navigation: { label: "API鉴定", Icon: ScanSearch, isVisible: (context) => can(context, "apiKeys") },
-    isPageVisible: (context) => can(context, "apiKeys"),
+    navigation: { label: "API鉴定", Icon: ScanSearch },
     createPage: ({ keyRows }) => <ApiDetectionPage keyRows={keyRows} />,
   },
   remote: {
     view: "remote",
-    navigation: { label: "远程配置", Icon: ServerCog, isVisible: (context) => can(context, "admin") },
-    isPageVisible: (context) => can(context, "admin"),
+    navigation: { label: "远程配置", Icon: ServerCog },
     createPage: ({ remoteServers, keyRows, onRefreshRemoteServers }) => (
       <RemoteConfigPage servers={remoteServers} keyRows={keyRows} onChanged={onRefreshRemoteServers} />
     ),
@@ -205,26 +184,23 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   },
   offers: {
     view: "offers",
-    navigation: { label: "优惠中心", Icon: Tags, isVisible: (context) => can(context, "billing") },
-    isPageVisible: (context) => can(context, "billing"),
+    navigation: { label: "优惠中心", Icon: Tags },
     createPage: ({ snapshot }) => <OffersPage offers={snapshot.offers} />,
   },
   personalCenter: {
     view: "personalCenter",
     navigation: { label: "个人中心", Icon: UserRound },
-    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences, onReloadPersonalCenterNotificationPreferences }) => (
+    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences }) => (
       <PersonalCenterPage
         accountRows={accountRows}
         preferences={personalCenterNotificationPreferences}
         onPreferencesChange={onSavePersonalCenterNotificationPreferences}
-        onPreferencesReload={onReloadPersonalCenterNotificationPreferences}
       />
     ),
   },
   settings: {
     view: "settings",
-    navigation: { label: "设置", Icon: Settings, isVisible: (context) => can(context, "admin") },
-    isPageVisible: (context) => can(context, "admin"),
+    navigation: { label: "设置", Icon: Settings },
     createPage: ({ navigate }) => <SettingsPage onManageProfiles={() => navigate("profiles")} onViewAlertHistory={() => navigate("alertHistory")} />,
   },
   alertHistory: {
@@ -235,19 +211,16 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
 
 function RegisteredRoutePage({ view }: { view: AppView }) {
   const context = useAppRouteContext();
-  const route = appRoutes[view];
-  if (route.isPageVisible?.(context) === false) return null;
-  return <Suspense fallback={<div className="min-h-48" role="status" aria-label="Loading page" />}>{route.createPage(context)}</Suspense>;
+  return <Suspense fallback={<div className="min-h-48" role="status" aria-label="Loading page" />}>{appRoutes[view].createPage(context)}</Suspense>;
 }
 
 export function createRoutePage(view: AppView): ReactNode {
   return <RegisteredRoutePage view={view} />;
 }
 
-export function getPrimaryNavigation(context?: AppRouteContext): readonly NavigationItem[] {
+export function getPrimaryNavigation(_context?: AppRouteContext): readonly NavigationItem[] {
   return (Object.values(appRoutes) as AppRoute[])
     .filter((route): route is AppRoute & { navigation: NonNullable<AppRoute["navigation"]> } => Boolean(route.navigation))
-    .filter((route) => !context || route.navigation.isVisible?.(context) !== false)
     .map(({ view, navigation }) => ({ view: view as Exclude<AppView, "profiles">, ...navigation }));
 }
 

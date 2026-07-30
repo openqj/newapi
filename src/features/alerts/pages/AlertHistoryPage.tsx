@@ -74,7 +74,7 @@ export function AlertHistoryPage({ onBack }: { onBack: () => void }) {
     <PageHeader
       title="告警历史与趋势"
       description="集中查看最近 200 条告警记录及近 7 日变化。"
-      actions={<div className="flex gap-2"><button type="button" className="button-secondary" onClick={onBack}><ArrowLeft size={16} />返回设置</button><button type="button" className="button-secondary" onClick={() => void refresh()} disabled={loading || !isTauri()}><RefreshCw size={16} className={loading ? "animate-spin" : ""} />刷新</button></div>}
+      actions={<div className="flex gap-2"><button type="button" className="button-secondary" onClick={onBack}><ArrowLeft size={16} />返回设置</button><button type="button" className="button-secondary" title="刷新" aria-label="刷新" onClick={() => void refresh()} disabled={loading || !isTauri()}><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button></div>}
     />
     <section className="sub2-stat-grid alert-history-summary" aria-label="告警汇总">
       <StatCard icon={<BellRing size={18} />} label="记录总数" value={String(entries.length)} note="最近 200 条记录" />

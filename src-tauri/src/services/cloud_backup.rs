@@ -165,22 +165,9 @@ fn status_from_session(configured: bool) -> CloudAuthStatus {
     }
 }
 
-pub(crate) async fn auth_status(state: &AppState) -> CloudAuthStatus {
-    let Ok(config) = config() else {
-        return status_from_session(false);
-    };
-    match verified_session(state, &config).await {
-        Ok(session) => CloudAuthStatus {
-            configured: true,
-            email: Some(session.email),
-            is_admin: session.is_admin,
-        },
-        Err(_) => {
-            let mut status = status_from_session(true);
-            status.is_admin = false;
-            status
-        }
-    }
+pub(crate) async fn auth_status(_state: &AppState) -> CloudAuthStatus {
+    // Opening the personal center must not create or refresh a cloud session.
+    status_from_session(config().is_ok())
 }
 
 fn auth_headers(config: &CloudConfig) -> Result<header::HeaderMap, String> {
@@ -288,11 +275,58 @@ pub(crate) async fn request_password_reset(state: &AppState, email: String) -> R
         .client
         .post(format!("{}/auth/v1/recover", config.url))
         .headers(auth_headers(&config)?)
-        .json(&serde_json::json!({ "email": email.trim() }))
+        .json(&serde_json::json!({
+            "email": email.trim(),
+            "redirect_to": "relayhub://auth/reset-password"
+        }))
         .send()
         .await
         .map_err(|error| error.to_string())?;
     ensure_success(response).await
+}
+
+pub(crate) async fn complete_password_reset(
+    state: &AppState,
+    access_token: String,
+    refresh_token: String,
+    expires_in: i64,
+    password: String,
+) -> Result<CloudAuthStatus, String> {
+    if access_token.trim().is_empty() || refresh_token.trim().is_empty() {
+        return Err("密码重置链接无效或已过期。".into());
+    }
+    if password.len() < 8 {
+        return Err("新密码至少需要 8 个字符。".into());
+    }
+    let config = config()?;
+    let response = state
+        .client
+        .put(format!("{}/auth/v1/user", config.url))
+        .headers(auth_headers(&config)?)
+        .bearer_auth(&access_token)
+        .json(&serde_json::json!({ "password": password }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let user: AuthUser = response_json(response).await?;
+    let email = user.email.unwrap_or_default();
+    let is_admin = matches!(
+        user.app_metadata.role.as_deref(),
+        Some("admin" | "super_admin")
+    );
+    save_cloud_session(&CloudSession {
+        access_token,
+        refresh_token,
+        user_id: user.id,
+        email: email.clone(),
+        expires_at: Utc::now().timestamp() + expires_in.clamp(60, 86_400),
+        is_admin,
+    })?;
+    Ok(CloudAuthStatus {
+        configured: true,
+        email: Some(email),
+        is_admin,
+    })
 }
 
 pub(crate) fn sign_out() {
@@ -410,6 +444,21 @@ fn postgrest_headers(
     Ok(headers)
 }
 
+fn public_postgrest_headers(config: &CloudConfig) -> Result<header::HeaderMap, String> {
+    let mut headers = auth_headers(config)?;
+    headers.insert(
+        header::AUTHORIZATION,
+        format!("Bearer {}", config.anon_key)
+            .parse::<header::HeaderValue>()
+            .map_err(|error| error.to_string())?,
+    );
+    headers.insert(
+        "Accept",
+        header::HeaderValue::from_static("application/json"),
+    );
+    Ok(headers)
+}
+
 pub(crate) async fn cloud_notification_preferences(
     state: &AppState,
 ) -> Result<NotificationPreferences, String> {
@@ -438,38 +487,6 @@ pub(crate) async fn cloud_notification_preferences(
         .next()
         .map(Into::into)
         .ok_or_else(|| "Cloud notification preferences are not initialized".to_string())
-}
-
-pub(crate) async fn save_cloud_notification_preferences(
-    state: &AppState,
-    preferences: &NotificationPreferences,
-) -> Result<NotificationPreferences, String> {
-    let config = config()?;
-    let current = require_verified_admin(state).await?;
-    let response = state
-        .client
-        .patch(format!(
-            "{}/rest/v1/personal_center_notification_preferences",
-            config.url
-        ))
-        .headers(postgrest_headers(&config, &current)?)
-        .header("Prefer", "return=representation")
-        .query(&[("id", "eq.global")])
-        .json(&serde_json::json!({
-            "desktop_enabled": preferences.desktop_enabled,
-            "sync_enabled": preferences.sync_enabled,
-            "alert_enabled": preferences.alert_enabled,
-            "offer_enabled": preferences.offer_enabled,
-        }))
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
-    response_json::<Vec<CloudNotificationPreferences>>(response)
-        .await?
-        .into_iter()
-        .next()
-        .map(Into::into)
-        .ok_or_else(|| "Cloud notification preferences were not updated".to_string())
 }
 
 pub(crate) async fn cloud_memberships(state: &AppState) -> Result<Vec<MembershipAccess>, String> {
@@ -640,6 +657,7 @@ struct CloudNotification {
     destination: String,
     published_at: i64,
     expires_at: Option<i64>,
+    revoked_at: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -653,8 +671,26 @@ pub(crate) async fn cloud_notifications(
     state: &AppState,
 ) -> Result<Vec<PersonalCenterNotification>, String> {
     let config = config()?;
-    let current = verified_session(state, &config).await?;
-    let headers = postgrest_headers(&config, &current)?;
+    let current = if load_cloud_session().is_ok() {
+        verified_session(state, &config).await.ok()
+    } else {
+        None
+    };
+    let headers = match current.as_ref() {
+        Some(session) => postgrest_headers(&config, session)?,
+        None => public_postgrest_headers(&config)?,
+    };
+    let mut query = vec![
+        (
+                "select",
+            "id,audience,target_email,kind,title,body,destination,published_at,expires_at,revoked_at"
+                .to_string(),
+        ),
+        ("order", "published_at.desc".to_string()),
+    ];
+    if current.is_none() {
+        query.push(("audience", "eq.all".to_string()));
+    }
     let notifications = response_json::<Vec<CloudNotification>>(
         state
             .client
@@ -663,37 +699,30 @@ pub(crate) async fn cloud_notifications(
                 config.url
             ))
             .headers(headers.clone())
-            .query(&[
-                (
-                    "select",
-                    "id,audience,target_email,kind,title,body,destination,published_at,expires_at"
-                        .to_string(),
-                ),
-                (
-                    "or",
-                    format!("(audience.eq.all,target_user_id.eq.{})", current.user_id),
-                ),
-                ("order", "published_at.desc".to_string()),
-            ])
+            .query(&query)
             .send()
             .await
             .map_err(|error| error.to_string())?,
     )
     .await?;
-    let receipts = response_json::<Vec<CloudNotificationReceipt>>(
-        state
-            .client
-            .get(format!("{}/rest/v1/notification_receipts", config.url))
-            .headers(headers)
-            .query(&[
-                ("select", "notification_id,delivered_at,read_at".to_string()),
-                ("user_id", format!("eq.{}", current.user_id)),
-            ])
-            .send()
-            .await
-            .map_err(|error| error.to_string())?,
-    )
-    .await?;
+    let receipts = if let Some(session) = current.as_ref() {
+        response_json::<Vec<CloudNotificationReceipt>>(
+            state
+                .client
+                .get(format!("{}/rest/v1/notification_receipts", config.url))
+                .headers(postgrest_headers(&config, session)?)
+                .query(&[
+                    ("select", "notification_id,delivered_at,read_at".to_string()),
+                    ("user_id", format!("eq.{}", session.user_id)),
+                ])
+                .send()
+                .await
+                .map_err(|error| error.to_string())?,
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
     let receipts = receipts
         .into_iter()
         .map(|receipt| (receipt.notification_id.clone(), receipt))
@@ -712,7 +741,10 @@ pub(crate) async fn cloud_notifications(
                 destination: notification.destination,
                 published_at: notification.published_at,
                 expires_at: notification.expires_at,
-                delivered_at: receipt.and_then(|value| value.delivered_at),
+                revoked_at: notification.revoked_at,
+                delivered_at: receipt
+                    .and_then(|value| value.delivered_at)
+                    .or_else(|| current.is_none().then_some(notification.published_at)),
                 read_at: receipt.and_then(|value| value.read_at),
             }
         })
@@ -760,9 +792,162 @@ pub(crate) async fn publish_cloud_notification(
         destination: notification.destination,
         published_at: notification.published_at,
         expires_at: notification.expires_at,
+        revoked_at: notification.revoked_at,
         delivered_at: None,
         read_at: None,
     })
+}
+
+pub(crate) async fn cloud_sent_notifications(
+    state: &AppState,
+) -> Result<Vec<PersonalCenterNotification>, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let notifications = response_json::<Vec<CloudNotification>>(
+        state
+            .client
+            .get(format!("{}/rest/v1/personal_center_notifications", config.url))
+            .headers(postgrest_headers(&config, &current)?)
+            .query(&[
+                ("select", "id,audience,target_email,kind,title,body,destination,published_at,expires_at,revoked_at"),
+                ("order", "published_at.desc"),
+            ])
+            .send()
+            .await
+            .map_err(|error| error.to_string())?,
+    )
+    .await?;
+    Ok(notifications
+        .into_iter()
+        .map(|notification| PersonalCenterNotification {
+            id: notification.id,
+            audience: notification.audience,
+            target_email: notification.target_email,
+            kind: notification.kind,
+            title: notification.title,
+            body: notification.body,
+            destination: notification.destination,
+            published_at: notification.published_at,
+            expires_at: notification.expires_at,
+            revoked_at: notification.revoked_at,
+            delivered_at: None,
+            read_at: None,
+        })
+        .collect())
+}
+
+pub(crate) async fn update_cloud_notification(
+    state: &AppState,
+    notification_id: &str,
+    request: &PublishNotificationRequest,
+) -> Result<PersonalCenterNotification, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state
+        .client
+        .patch(format!(
+            "{}/rest/v1/personal_center_notifications",
+            config.url
+        ))
+        .headers(postgrest_headers(&config, &current)?)
+        .header("Prefer", "return=representation")
+        .query(&[("id", format!("eq.{notification_id}"))])
+        .json(&serde_json::json!({
+            "audience": request.audience,
+            "target_email": request.target_email,
+            "kind": request.kind,
+            "title": request.title,
+            "body": request.body,
+            "destination": request.destination,
+            "expires_at": request.expires_at,
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let notification = response_json::<Vec<CloudNotification>>(response)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Cloud notification was not found or has been revoked".to_string())?;
+    Ok(PersonalCenterNotification {
+        id: notification.id,
+        audience: notification.audience,
+        target_email: notification.target_email,
+        kind: notification.kind,
+        title: notification.title,
+        body: notification.body,
+        destination: notification.destination,
+        published_at: notification.published_at,
+        expires_at: notification.expires_at,
+        revoked_at: notification.revoked_at,
+        delivered_at: None,
+        read_at: None,
+    })
+}
+
+pub(crate) async fn revoke_cloud_notification(
+    state: &AppState,
+    notification_id: &str,
+) -> Result<PersonalCenterNotification, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state
+        .client
+        .patch(format!(
+            "{}/rest/v1/personal_center_notifications",
+            config.url
+        ))
+        .headers(postgrest_headers(&config, &current)?)
+        .header("Prefer", "return=representation")
+        .query(&[
+            ("id", format!("eq.{notification_id}")),
+            ("revoked_at", "is.null".to_string()),
+        ])
+        .json(&serde_json::json!({ "revoked_at": Utc::now().timestamp() }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    let notification = response_json::<Vec<CloudNotification>>(response)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            "Cloud notification was not found or has already been revoked".to_string()
+        })?;
+    Ok(PersonalCenterNotification {
+        id: notification.id,
+        audience: notification.audience,
+        target_email: notification.target_email,
+        kind: notification.kind,
+        title: notification.title,
+        body: notification.body,
+        destination: notification.destination,
+        published_at: notification.published_at,
+        expires_at: notification.expires_at,
+        revoked_at: notification.revoked_at,
+        delivered_at: None,
+        read_at: None,
+    })
+}
+
+pub(crate) async fn delete_cloud_notification(
+    state: &AppState,
+    notification_id: &str,
+) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state
+        .client
+        .delete(format!(
+            "{}/rest/v1/personal_center_notifications",
+            config.url
+        ))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("id", format!("eq.{notification_id}"))])
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    ensure_success(response).await
 }
 
 pub(crate) async fn mark_cloud_notification(
@@ -771,6 +956,9 @@ pub(crate) async fn mark_cloud_notification(
     read: bool,
 ) -> Result<(), String> {
     let config = config()?;
+    if load_cloud_session().is_err() {
+        return Ok(());
+    }
     let current = verified_session(state, &config).await?;
     let timestamp = Utc::now().timestamp();
     let mut payload = serde_json::json!({
@@ -805,6 +993,8 @@ pub(crate) async fn realtime_session(
         access_token: current.access_token,
         user_id: current.user_id,
         is_admin: current.is_admin,
+        is_anonymous: false,
+        expires_at: current.expires_at,
     })
 }
 
@@ -919,6 +1109,19 @@ pub(crate) async fn list_backups(state: &AppState) -> Result<Vec<CloudBackupSumm
     }
     backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     Ok(backups)
+}
+
+pub(crate) fn local_backup_preview(state: &AppState) -> Result<CloudBackupPreview, String> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| "Local database is unavailable".to_string())?;
+    Ok(CloudBackupPreview {
+        id: "local".into(),
+        station_count: store.list_stations()?.len(),
+        login_profile_count: store.list_login_profiles()?.len(),
+        remote_server_count: store.list_remote_servers()?.len(),
+    })
 }
 
 pub(crate) async fn create_backup(

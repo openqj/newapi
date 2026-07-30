@@ -8,8 +8,34 @@ use crate::{
     AppState, UsageLog,
 };
 
+const MAX_USAGE_LOGS_RESPONSE: usize = 10_000;
+
 #[tauri::command]
 pub(crate) async fn list_usage_logs(state: State<'_, AppState>) -> Result<Vec<UsageLog>, String> {
+    let stations = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .list_stations()?;
+    let mut logs = Vec::new();
+    for station in stations {
+        logs.extend(
+            state
+                .store
+                .lock()
+                .map_err(|_| "本地数据库不可用".to_string())?
+                .cached_usage_logs(&station.id)?,
+        );
+    }
+    logs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    logs.truncate(MAX_USAGE_LOGS_RESPONSE);
+    Ok(logs)
+}
+
+#[tauri::command]
+pub(crate) async fn refresh_usage_logs(
+    state: State<'_, AppState>,
+) -> Result<Vec<UsageLog>, String> {
     let stations = state
         .store
         .lock()
@@ -34,5 +60,6 @@ pub(crate) async fn list_usage_logs(state: State<'_, AppState>) -> Result<Vec<Us
         }
     }
     logs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    logs.truncate(MAX_USAGE_LOGS_RESPONSE);
     Ok(logs)
 }

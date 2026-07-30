@@ -12,8 +12,11 @@ export const settingsApi = {
   cloudSignUp: (email: string, password: string) => invokeDesktop<CloudAuthStatus>("cloud_sign_up", { email, password }),
   cloudSignIn: (email: string, password: string) => invokeDesktop<CloudAuthStatus>("cloud_sign_in", { email, password }),
   cloudRequestPasswordReset: (email: string) => invokeDesktop<void>("cloud_request_password_reset", { email }),
+  cloudCompletePasswordReset: (accessToken: string, refreshToken: string, expiresIn: number, password: string) =>
+    invokeDesktop<CloudAuthStatus>("cloud_complete_password_reset", { accessToken, refreshToken, expiresIn, password }),
   cloudSignOut: () => invokeDesktop<void>("cloud_sign_out"),
   cloudBackups: () => invokeDesktop<CloudBackupSummary[]>("list_cloud_backups"),
+  localCloudBackupPreview: () => invokeDesktop<CloudBackupPreview>("get_local_cloud_backup_preview"),
   createCloudBackup: (recoveryPassword: string) => invokeDesktop<CloudBackupSummary>("create_cloud_backup", { recoveryPassword }),
   deleteCloudBackup: (id: string) => invokeDesktop<void>("delete_cloud_backup", { id }),
   previewCloudBackup: (id: string, recoveryPassword: string) => invokeDesktop<CloudBackupPreview>("preview_cloud_backup", { id, recoveryPassword }),

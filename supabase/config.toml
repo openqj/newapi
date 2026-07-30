@@ -2,3 +2,20 @@ project_id = "vvqzkkyfwmuwmntyvbgz"
 
 [functions.login-with-audit]
 verify_jwt = false
+
+[auth]
+site_url = "relayhub://auth/callback"
+additional_redirect_urls = ["relayhub://auth/reset-password"]
+enable_anonymous_sign_ins = true
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[storage.vector]
+enabled = false

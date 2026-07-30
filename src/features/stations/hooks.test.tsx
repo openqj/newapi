@@ -22,6 +22,11 @@ function RefreshProbe() {
   return <button type="button" onClick={() => { void refresh(); void refresh(); }}>刷新</button>;
 }
 
+function ScopedRefreshProbe({ onSyncComplete, onComplete }: { onSyncComplete: () => void; onComplete: () => void }) {
+  const { refreshAll: refresh } = useStations({ emptySnapshot, onSyncComplete });
+  return <button type="button" onClick={() => void refresh(onComplete)}>刷新指定数据</button>;
+}
+
 describe("useStations", () => {
   it("shares one in-flight full refresh and permits a later refresh", async () => {
     let resolveFirstRefresh: () => void = () => undefined;
@@ -41,5 +46,19 @@ describe("useStations", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "刷新" }));
     expect(refreshAll).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a page-specific completion callback when supplied", async () => {
+    const defaultComplete = vi.fn();
+    const scopedComplete = vi.fn();
+    list.mockResolvedValue([]);
+    refreshAll.mockResolvedValue([]);
+
+    render(<ToastProvider><ScopedRefreshProbe onSyncComplete={defaultComplete} onComplete={scopedComplete} /></ToastProvider>);
+    await waitFor(() => expect(list).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新指定数据" }));
+    await waitFor(() => expect(scopedComplete).toHaveBeenCalled());
+    expect(defaultComplete).not.toHaveBeenCalled();
   });
 });
