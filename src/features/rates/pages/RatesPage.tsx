@@ -1,12 +1,14 @@
 import { useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Columns3, RefreshCw, Search } from "lucide-react";
-import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
+import { ArrowDown, ArrowUp, Columns3, RefreshCw, Search, Share2 } from "lucide-react";
+import { DataTable, EmptyState, StatusBadge, useToast } from "../../../components/ui";
 import type { Station } from "../../stations";
 import type { RateRow } from "../types";
 import "../../../components/Sub2ApiPages.css";
 import "../../../components/TablePage.css";
 import { useOutsideDismiss } from "../../../lib/useOutsideDismiss";
 import "./RatesPage.css";
+import { merchantApi } from "../../merchant";
+import { errorMessage } from "../../../lib/errors";
 
 const formatTime = (value?: number) => value ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(value * 1000) : "尚未同步";
 type RateTableColumn = "model" | "station" | "group" | "multiplier" | "input" | "output" | "synced";
@@ -15,7 +17,8 @@ const isDefaultRate = (row: RateRow) => row.rate.model === "全部模型";
 const rateModelLabel = (row: RateRow) => isDefaultRate(row) ? "全模型默认" : row.rate.model;
 const formatRatePrice = (value?: number) => value == null ? "-" : `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 }).format(value)}/M`;
 
-export function RatesPage({ rows, stations, unavailableStationCount, onRefresh, onOpenStation }: { rows: RateRow[]; stations: Station[]; unavailableStationCount: number; onRefresh: () => Promise<void>; onOpenStation: (url: string) => void | Promise<void> }) {
+export function RatesPage({ rows, stations, unavailableStationCount, onRefresh, onOpenStation, canShare = false }: { rows: RateRow[]; stations: Station[]; unavailableStationCount: number; onRefresh: () => Promise<void>; onOpenStation: (url: string) => void | Promise<void>; canShare?: boolean }) {
+  const { notify } = useToast();
   const [query, setQuery] = useState("");
   const [station, setStation] = useState("all");
   const [group, setGroup] = useState("all");
@@ -23,6 +26,7 @@ export function RatesPage({ rows, stations, unavailableStationCount, onRefresh, 
   const [showColumns, setShowColumns] = useState(false);
   const columnMenuRef = useRef<HTMLDivElement>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [visible, setVisible] = useState<Record<RateTableColumn, boolean>>({ model: true, station: true, group: true, multiplier: true, input: true, output: true, synced: true });
   useOutsideDismiss(columnMenuRef, showColumns, () => setShowColumns(false));
   const hasSplitMultiplier = rows.some((row) => row.rate.inputMultiplier != null || row.rate.outputMultiplier != null);
@@ -32,13 +36,33 @@ export function RatesPage({ rows, stations, unavailableStationCount, onRefresh, 
   const tableColumns = rateTableColumns.filter(({ key }) => hasSplitMultiplier || (key !== "input" && key !== "output"));
   const hiddenColumns = tableColumns.filter(({ key }) => !visible[key]).map(({ key }) => `sub2-rate-column-hidden-${key}`).join(" ");
   const refresh = async () => { setRefreshing(true); try { await onRefresh(); } finally { setRefreshing(false); } };
+  const shareRates = async () => {
+    const groups = new Map<string, RateRow[]>();
+    for (const row of filtered) {
+      const key = `${row.stationId}\u0000${row.rate.group}`;
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    }
+    if (!groups.size) return;
+    setSharing(true);
+    try {
+      await Promise.all([...groups.values()].map((items) => {
+        const multipliers = items.map((item) => item.rate.multiplier);
+        const min = Math.min(...multipliers).toFixed(3);
+        const max = Math.max(...multipliers).toFixed(3);
+        const sample = items[0];
+        return merchantApi.publishRate({ stationName: sample.stationName, stationUrl: sample.stationUrl, groupName: sample.rate.group, multiplierSummary: min === max ? `${min}x` : `${min}x - ${max}x · ${items.length} 个模型` });
+      }));
+      notify(`已分享 ${groups.size} 组倍率。`, "success");
+    } catch (reason) { notify(errorMessage(reason, "分享失败，请先在商家端完善商家资料。"), "error"); }
+    finally { setSharing(false); }
+  };
   const selectSort = () => setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
   const sortIcon = sortDirection === "asc" ? <ArrowUp size={14} /> : <ArrowDown size={14} />;
   const empty = <EmptyState message="没有符合筛选条件的倍率数据。" />;
 
   return <div className="sub2-page sub2-keys-page sub2-rates-page">
     <header className="sub2-rate-header"><div><h1>分组倍率</h1><p>已同步 {new Set(rows.map((row) => row.stationId)).size} 个站点 / {rows.length} 条记录</p></div>{unavailableStationCount > 0 && <p className="sub2-rate-unavailable">{unavailableStationCount} 个站点暂无可用倍率数据</p>}</header>
-    <section className="table-page-toolbar"><div className="table-page-filters"><select aria-label="站点筛选" value={station} onChange={(event) => setStation(event.target.value)}><option value="all">全部站点</option>{stations.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="分组筛选" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">全部分组</option>{groups.map((item) => <option value={item} key={item}>{item}</option>)}</select><label className="sub2-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型" /></label><select aria-label="排序" value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")}><option value="asc">计费倍率从低到高</option><option value="desc">计费倍率从高到低</option></select></div><div className="table-page-actions"><button className="button-secondary" title="刷新" aria-label="刷新" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} /></button><div className="sub2-column-menu" ref={columnMenuRef}><button className="button-secondary" title="列设置" onClick={() => setShowColumns((value) => !value)}><Columns3 size={16} /><span>列设置</span></button>{showColumns && <div className="sub2-menu">{tableColumns.map(({ key, label }) => <label key={key}><input type="checkbox" checked={visible[key]} onChange={() => setVisible((current) => ({ ...current, [key]: !current[key] }))} />{label}</label>)}</div>}</div></div></section>
+    <section className="table-page-toolbar"><div className="table-page-filters"><select aria-label="站点筛选" value={station} onChange={(event) => setStation(event.target.value)}><option value="all">全部站点</option>{stations.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="分组筛选" value={group} onChange={(event) => setGroup(event.target.value)}><option value="all">全部分组</option>{groups.map((item) => <option value={item} key={item}>{item}</option>)}</select><label className="sub2-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索模型" /></label><select aria-label="排序" value={sortDirection} onChange={(event) => setSortDirection(event.target.value as "asc" | "desc")}><option value="asc">计费倍率从低到高</option><option value="desc">计费倍率从高到低</option></select></div><div className="table-page-actions">{canShare && <button className="button-primary" onClick={() => void shareRates()} disabled={sharing || !filtered.length}><Share2 size={16} />{sharing ? "分享中" : "一键分享"}</button>}<button className="button-secondary" title="刷新" aria-label="刷新" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} /></button><div className="sub2-column-menu" ref={columnMenuRef}><button className="button-secondary" title="列设置" onClick={() => setShowColumns((value) => !value)}><Columns3 size={16} /><span>列设置</span></button>{showColumns && <div className="sub2-menu">{tableColumns.map(({ key, label }) => <label key={key}><input type="checkbox" checked={visible[key]} onChange={() => setVisible((current) => ({ ...current, [key]: !current[key] }))} />{label}</label>)}</div>}</div></div></section>
     <DataTable
       className="sub2-panel sub2-table-panel"
       ariaLabel="模型倍率"

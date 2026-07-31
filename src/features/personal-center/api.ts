@@ -123,6 +123,6 @@ export const personalCenterApi = {
 export const PERSONAL_CENTER_AUTH_CHANGED_EVENT = "relayhub:personal-center-auth-changed";
 export const PERSONAL_CENTER_MEMBERSHIPS_CHANGED_EVENT = "relayhub:personal-center-memberships-changed";
 
-export function signalPersonalCenterAuthChanged(status?: { email?: string; isAdmin?: boolean }) {
+export function signalPersonalCenterAuthChanged(status?: { email?: string; isAdmin?: boolean; role?: "member" | "pro" | "merchant" | "admin" }) {
   window.dispatchEvent(new CustomEvent(PERSONAL_CENTER_AUTH_CHANGED_EVENT, { detail: status }));
 }

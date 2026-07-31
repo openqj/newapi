@@ -6,7 +6,7 @@ describe("application route registry", () => {
     const navigation = getPrimaryNavigation();
 
     expect(Object.keys(appRoutes)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "personalCenter", "settings", "alertHistory",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "personalCenter", "settings",
     ]);
     expect(navigation.map((item) => item.view)).toEqual([
       "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",

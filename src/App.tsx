@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useToast } from "./components/ui";
 import { MessagesDialog, useNotifications } from "./features/notifications";
-import { useNotificationPreferences, usePersonalCenterRealtime } from "./features/personal-center";
+import { PERSONAL_CENTER_AUTH_CHANGED_EVENT, useNotificationPreferences, usePersonalCenterRealtime } from "./features/personal-center";
 import { AppSidebar } from "./components/AppSidebar";
 import {
   AddStationWithProfiles,
@@ -21,13 +21,11 @@ import { errorMessage } from "./lib/errors";
 import { settingsApi } from "./features/settings/api";
 import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import type { AccountRole } from "./features/merchant";
+import type { CloudAuthStatus } from "./features/settings";
 import {
   Bell,
-  Minimize2,
-  Minus,
-  Square,
-  X,
 } from "lucide-react";
 import "./App.css";
 
@@ -40,8 +38,8 @@ function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingStation, setEditingStation] = useState<StationAccountDraft | null>(null);
   const [showMessages, setShowMessages] = useState(false);
-  const [isMaximized, setIsMaximized] = useState(false);
   const [activeRelayName, setActiveRelayName] = useState<string | null>(null);
+  const [accountRole, setAccountRole] = useState<AccountRole>("member");
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
     remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadAccountRows,
@@ -81,6 +79,8 @@ function App() {
     usageLogs,
     remoteServers,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
+    accountRole,
+    onPersonalCenterAuthChanged: (status) => setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member")),
     onSavePersonalCenterNotificationPreferences: personalCenterNotifications.saveNotificationPreferences,
     demoLoginProfiles,
     navigate: setView,
@@ -114,55 +114,19 @@ function App() {
   useEffect(() => { void loadActiveRelayName(); }, [loadActiveRelayName]);
   useEffect(() => {
     if (!isTauri()) return;
-    const appWindow = getCurrentWindow();
+    const applyAuth = (status: CloudAuthStatus) => setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
+    void settingsApi.cloudAuthStatus().then(applyAuth).catch(() => undefined);
+    const onAuthChanged = (event: Event) => applyAuth((event as CustomEvent<CloudAuthStatus>).detail ?? { configured: true });
+    window.addEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged);
     let unlisten: (() => void) | undefined;
-    let maximizedCheckInFlight = false;
-    const syncMaximized = () => {
-      if (maximizedCheckInFlight) return;
-      maximizedCheckInFlight = true;
-      void appWindow.isMaximized()
-        .then((next) => setIsMaximized((current) => current === next ? current : next))
-        .catch(() => undefined)
-        .finally(() => { maximizedCheckInFlight = false; });
-    };
-
-    syncMaximized();
-    void appWindow.onResized(syncMaximized).then((nextUnlisten) => {
-      unlisten = nextUnlisten;
-    });
-    return () => unlisten?.();
-  }, []);
-
-  const controlWindow = async (action: "minimize" | "maximize" | "close") => {
-    if (!isTauri()) return;
-    const appWindow = getCurrentWindow();
-    try {
-      if (action === "minimize") await appWindow.minimize();
-      if (action === "maximize") await appWindow.toggleMaximize();
-      if (action === "close") await appWindow.hide();
-    } catch (reason) {
-      notify(errorMessage(reason, "窗口操作失败，请稍后重试。"), "error");
-    }
-  };
-  const startWindowDrag = async (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!isTauri() || event.button !== 0 || event.detail > 1) return;
-    try {
-      await getCurrentWindow().startDragging();
-    } catch (reason) {
-      notify(errorMessage(reason, "无法拖动窗口，请稍后重试。"), "error");
-    }
-  };
-
+    void listen("relayhub:stations-changed", () => void Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()])).then((value) => { unlisten = value; });
+    return () => { window.removeEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged); unlisten?.(); };
+  }, [loadAccountRows, loadStations, loadUsageSummary]);
   return (
     <AppRouteProvider value={routeContext}>
     <div className="app-shell min-h-screen text-slate-900">
-      <header className="window-titlebar">
-        <div
-          className="window-drag-region"
-          onMouseDown={(event) => void startWindowDrag(event)}
-          onDoubleClick={() => void controlWindow("maximize")}
-        />
-        <div className="window-titlebar-actions">
+      <header className="app-toolbar">
+        <div className="app-toolbar-actions">
           {activeRelayName && <button
             type="button"
             className="window-station-button"
@@ -181,33 +145,6 @@ function App() {
           >
             <Bell size={16} />
             {unreadCount > 0 && <span className="notification-unread-dot" aria-hidden="true" />}
-          </button>
-          <button
-            type="button"
-            className="window-action-button"
-            aria-label="最小化"
-            title="最小化"
-            onClick={() => void controlWindow("minimize")}
-          >
-            <Minus size={16} />
-          </button>
-          <button
-            type="button"
-            className="window-action-button"
-            aria-label={isMaximized ? "还原" : "最大化"}
-            title={isMaximized ? "还原" : "最大化"}
-            onClick={() => void controlWindow("maximize")}
-          >
-            {isMaximized ? <Minimize2 size={15} /> : <Square size={14} />}
-          </button>
-          <button
-            type="button"
-            className="window-action-button window-close-button"
-            aria-label="关闭"
-            title="关闭"
-            onClick={() => void controlWindow("close")}
-          >
-            <X size={17} />
           </button>
         </div>
       </header>

@@ -4,20 +4,24 @@ import { PageHeader, Panel, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { UpdateSettings } from "../UpdateSettings";
 import { AlertSettings } from "../../alerts";
+import { AlertHistoryPage } from "../../alerts/pages/AlertHistoryPage";
+import { LoginProfilesPage } from "../../profiles";
 import { settingsApi } from "../api";
+import type { LoginProfile } from "../../profiles";
 import "./SettingsPage.css";
 
-type SettingsTab = "general" | "alerts" | "credentials" | "codex" | "updates";
+type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "codex" | "updates";
 
 const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "常规" },
   { id: "alerts", label: "通知与告警" },
-  { id: "credentials", label: "登录与凭据" },
+  { id: "alertHistory", label: "告警历史与趋势" },
+  { id: "profiles", label: "常用登录" },
   { id: "codex", label: "Codex" },
   { id: "updates", label: "更新" },
 ];
 
-export function SettingsPage({ onManageProfiles, onViewAlertHistory }: { onManageProfiles: () => void; onViewAlertHistory: () => void }) {
+export function SettingsPage({ demoProfiles }: { demoProfiles: LoginProfile[] }) {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
   return <>
@@ -33,8 +37,9 @@ export function SettingsPage({ onManageProfiles, onViewAlertHistory }: { onManag
     </nav>
     <section>
       {activeTab === "general" && <GeneralSettings />}
-      {activeTab === "alerts" && <AlertSettingsPanel onViewAlertHistory={onViewAlertHistory} />}
-      {activeTab === "credentials" && <CredentialsSettings onManageProfiles={onManageProfiles} />}
+      {activeTab === "alerts" && <AlertSettingsPanel />}
+      {activeTab === "alertHistory" && <AlertHistoryPage />}
+      {activeTab === "profiles" && <ProfilesSettings demoProfiles={demoProfiles} />}
       {activeTab === "codex" && <CodexEnhancement />}
       {activeTab === "updates" && <Panel className="settings-panel"><UpdateSettings /></Panel>}
     </section>
@@ -47,18 +52,20 @@ function GeneralSettings() {
   </Panel>;
 }
 
-function AlertSettingsPanel({ onViewAlertHistory }: { onViewAlertHistory: () => void }) {
+function AlertSettingsPanel() {
   return <Panel className="settings-panel">
     <SettingRow title="桌面通知" description="倍率、密钥状态或优惠内容发生变化时提醒。" value="已开启" />
-    <AlertSettings onViewHistory={onViewAlertHistory} />
+    <AlertSettings />
   </Panel>;
 }
 
-function CredentialsSettings({ onManageProfiles }: { onManageProfiles: () => void }) {
-  return <Panel className="settings-panel">
-    <SettingRow title="凭据存储" description="账号密码和登录态使用 Windows Credential Manager 保存。" value="系统凭据库" />
-    <SettingRow title="常用登录" description="管理用于快速填写中转站登录信息的本地凭据。" action={<button type="button" className="button-secondary" onClick={onManageProfiles}>管理</button>} />
-  </Panel>;
+function ProfilesSettings({ demoProfiles }: { demoProfiles: LoginProfile[] }) {
+  return <>
+    <LoginProfilesPage demoProfiles={demoProfiles} />
+    <Panel className="settings-panel">
+      <SettingRow title="凭据存储" description="账号密码和登录态使用 Windows Credential Manager 保存。" value="系统凭据库" />
+    </Panel>
+  </>;
 }
 
 function CodexEnhancement() {

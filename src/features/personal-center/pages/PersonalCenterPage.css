@@ -1,5 +1,5 @@
 .personal-center-panel { margin-top: 1rem; }
-.personal-login-panel { width: min(100%, 36rem); overflow: hidden; }
+.personal-login-panel { width: min(100%, 36rem); margin-top: 0; overflow: hidden; }
 .personal-login-heading { display: flex; align-items: center; gap: .75rem; padding: .9rem 1.1rem; border-bottom: 1px solid #eef0f3; }
 .personal-login-icon { display: grid; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; place-items: center; border: 1px solid #e2e8f0; border-radius: 7px; background: #f8fafc; color: #334155; }
 .personal-login-heading h2 { margin: 0; color: var(--ui-text); font-size: .95rem; font-weight: 650; }
@@ -10,12 +10,12 @@
 .personal-login-fields .input { width: 100%; max-width: 21rem; min-height: 2.35rem; }
 .personal-login-actions { display: flex; align-items: center; gap: .5rem; padding: .75rem 1.1rem; background: #fafbfc; }
 .personal-login-submit { margin-left: auto; min-width: 5.5rem; justify-content: center; }
-.personal-admin-console { overflow: hidden; }
-.personal-admin-tabs { display: flex; gap: .15rem; overflow-x: auto; border-top: 1px solid #eef0f3; border-bottom: 1px solid #eef0f3; padding: .45rem 1.1rem; }
+.personal-admin-console { margin-top: 0; border: 0 !important; border-radius: 0; background: transparent; box-shadow: none !important; }
+.personal-admin-tabs { display: flex; gap: .15rem; margin: 0; overflow-x: auto; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-panel); background: var(--ui-panel); box-shadow: var(--ui-shadow-panel); padding: .45rem 1.1rem; }
 .personal-admin-tab { display: inline-flex; flex: 0 0 auto; align-items: center; gap: .4rem; border: 0; border-radius: 6px; background: transparent; padding: .48rem .7rem; color: var(--ui-muted); font-size: .8125rem; }
 .personal-admin-tab:hover { background: #f4f5f6; color: var(--ui-text); }
 .personal-admin-tab.active { background: #111; color: #fff; font-weight: 600; }
-.personal-admin-content { padding: 1rem 1.1rem 1.1rem; }
+.personal-admin-content { margin-top: .8rem; }
 .personal-admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, .45fr); gap: 1rem; }
 .personal-admin-section { min-width: 0; border: 1px solid #e8ebef; border-radius: 9px; background: #fff; }
 .personal-admin-section-title { display: flex; align-items: flex-start; gap: .55rem; }

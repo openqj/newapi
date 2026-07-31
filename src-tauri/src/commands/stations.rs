@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+use reqwest::Method;
+use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use tokio::task::JoinSet;
@@ -15,9 +17,10 @@ use crate::{
     commands::alerts::notify as notify_alerts,
     keyring_store::{clear_secret, load_secret, save_secret, Secret},
     services::stations::{
-        authenticate, detect_kind, refresh_session, sync_one, sync_one_authorized, title_from_html,
+        authenticate, detect_kind, refresh_session, station_request, sync_one,
+        sync_one_authorized, title_from_html,
     },
-    station_adapter::Station,
+    station_adapter::{Station, StationAdapter},
     station_store::StationStore,
     support::station_base,
     AddStationRequest, AppState, StationConnectionResult, StationProbe, StationSaveResult,
@@ -26,6 +29,49 @@ use crate::{
 use uuid::Uuid;
 
 const MAX_CONCURRENT_STATION_SYNCS: usize = 6;
+
+#[tauri::command]
+pub(crate) async fn redeem_station_code(
+    state: State<'_, AppState>,
+    station_id: String,
+    code: String,
+) -> Result<String, String> {
+    let code = code.trim();
+    if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
+        return Err("请输入有效兑换码".into());
+    }
+    let station = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .get_station(&station_id)?;
+    if StationAdapter::for_station(&station)? != StationAdapter::NewApi {
+        return Err("当前站点类型暂不支持应用内兑换，请前往站点完成兑换。".into());
+    }
+    let mut secret = load_secret(&station.id)?;
+    let response = station_request(
+        &state,
+        &station,
+        &mut secret,
+        Method::POST,
+        "/api/user/topup",
+        Some(json!({ "key": code })),
+    )
+    .await?;
+    if response.get("success").and_then(|value| value.as_bool()) == Some(false) {
+        return Err(response
+            .get("message")
+            .and_then(|value| value.as_str())
+            .unwrap_or("兑换失败，请检查兑换码。")
+            .to_string());
+    }
+    sync_one_authorized(&state, &station.id).await?;
+    Ok(response
+        .get("message")
+        .and_then(|value| value.as_str())
+        .unwrap_or("兑换成功，账户余额已更新。")
+        .to_string())
+}
 
 #[tauri::command]
 pub(crate) async fn probe_station(

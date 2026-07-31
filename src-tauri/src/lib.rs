@@ -34,14 +34,18 @@ use commands::gateway::{
     set_active_gateway_route, set_gateway_port, set_routing_mode, start_gateway, stop_gateway,
 };
 use commands::personal_center::{
-    delete_personal_center_membership, delete_personal_center_notification,
+    claim_merchant_free_account, delete_personal_center_membership, delete_personal_center_notification,
+    get_merchant_profile,
     get_personal_center_notification_preferences, get_personal_center_realtime_session,
+    import_merchant_free_accounts, list_merchant_free_offers, list_merchant_rate_shares,
     list_personal_center_audit_history, list_personal_center_login_events,
     list_personal_center_memberships, list_personal_center_notifications,
     list_sent_personal_center_notifications, mark_personal_center_notification,
-    publish_personal_center_notification, refresh_personal_center_notification_preferences,
+    publish_merchant_rate_share, publish_personal_center_notification,
+    refresh_personal_center_notification_preferences, release_merchant_free_account,
     revoke_personal_center_notification, save_personal_center_membership,
-    save_personal_center_notification_preferences, update_personal_center_notification,
+    save_merchant_profile, save_personal_center_notification_preferences,
+    update_personal_center_notification,
 };
 use commands::profiles::{
     delete_login_profile, get_login_profile, list_login_profiles, save_login_profile,
@@ -67,7 +71,7 @@ use commands::settings::{
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_sync_progress,
     list_stations, probe_station, reauthenticate_station, refresh_all, refresh_station,
-    update_station,
+    redeem_station_code, update_station,
 };
 use commands::usage::{list_usage_logs, refresh_usage_logs};
 use models::*;
@@ -83,6 +87,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         evaluate_alerts,
         list_alert_history,
         add_station,
+        redeem_station_code,
         update_station,
         list_stations,
         list_login_profiles,
@@ -90,6 +95,14 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         save_login_profile,
         delete_login_profile,
         get_personal_center_notification_preferences,
+        get_merchant_profile,
+        save_merchant_profile,
+        list_merchant_rate_shares,
+        publish_merchant_rate_share,
+        import_merchant_free_accounts,
+        list_merchant_free_offers,
+        claim_merchant_free_account,
+        release_merchant_free_account,
         refresh_personal_center_notification_preferences,
         save_personal_center_notification_preferences,
         list_personal_center_memberships,

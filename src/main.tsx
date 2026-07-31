@@ -1,6 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { MerchantMarketplacePage } from "./features/merchant/pages/MerchantMarketplacePage";
 import { ConfirmationProvider, PromptProvider, ToastProvider } from "./components/ui";
 import "./index.css";
 
@@ -35,6 +36,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 }
 
 document.documentElement.dataset.appMounted = "true";
+const isMerchantWindow = new URLSearchParams(window.location.search).get("window") === "merchant-market";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -42,7 +44,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ToastProvider>
         <ConfirmationProvider>
           <PromptProvider>
-            <App />
+            {isMerchantWindow ? <MerchantMarketplacePage /> : <App />}
           </PromptProvider>
         </ConfirmationProvider>
       </ToastProvider>

@@ -6,7 +6,8 @@
 .setting-update-progress i { display: block; height: .35rem; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
 .setting-update-progress b { display: block; height: 100%; border-radius: inherit; background: #111; transition: width .2s ease; }
 .app-shell { display: flex; height: 100vh; height: 100dvh; flex-direction: column; overflow: hidden; background: linear-gradient(155deg, #fcf9fa 0%, #f9f2f4 54%, #f5ebee 100%); color: #0f172a; }
-.window-titlebar { position: relative; display: flex; height: 2.5rem; flex: 0 0 auto; align-items: stretch; overflow: hidden; background: transparent; user-select: none; }
+.app-toolbar { position: relative; display: flex; min-height: 2.5rem; flex: 0 0 auto; justify-content: flex-end; overflow: hidden; background: transparent; }
+.app-toolbar-actions { display: flex; min-width: 0; align-items: stretch; }
 .window-drag-region { min-width: 0; flex: 1; }
 .window-titlebar-actions { position: absolute; top: 0; right: 0; display: flex; max-width: 100%; min-width: 0; height: 100%; align-items: stretch; }
 .window-action-button, .window-station-button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #475569; }
@@ -32,7 +33,7 @@
 }
 .app-content > main > .content-surface { position:relative; z-index:1; min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; border-top:1px solid rgba(66,48,44,.10); border-left:1px solid rgba(66,48,44,.10); border-radius:16px 0 0 0; background:#fff; padding:1.5rem; box-shadow:-3px 0 8px rgba(66,48,44,.045), 0 -3px 8px rgba(66,48,44,.045); }
 .page-heading { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
-.content-surface > div:first-of-type:not(.mb-4):not(.sub2-page) { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
+.content-surface > div:first-of-type:not(.mb-4):not(.sub2-page):not(.personal-admin-console) { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
 .modal .grid.grid-cols-2 { display:block; }
 .modal .grid.grid-cols-2 > label + label { margin-top:1rem; }
 
@@ -74,7 +75,7 @@
 .version-button:hover { border-color: #d1d5db; background: #e5e7eb; color: #dc2626; }
 
 @media (max-width: 767px) {
-  .window-titlebar { display: none; }
+  .app-toolbar { display: none; }
   .app-content { display: flex; min-height: 0; flex-direction: column; }
   .app-shell > .app-content { min-height: 0; }
   .app-sidebar { width: 100%; min-width: 0; flex: 0 0 auto; overflow: visible; padding: .75rem; }

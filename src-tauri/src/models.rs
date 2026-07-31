@@ -486,6 +486,7 @@ pub(crate) struct CloudAuthStatus {
     pub(crate) configured: bool,
     pub(crate) email: Option<String>,
     pub(crate) is_admin: bool,
+    pub(crate) role: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

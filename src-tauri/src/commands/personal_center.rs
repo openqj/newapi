@@ -1,12 +1,14 @@
 use std::collections::BTreeSet;
 
 use tauri::State;
+use url::Url;
 
 use crate::{
     personal_center_store::{
-        MembershipAccess, NotificationPreferences, PersonalCenterAuditEntry,
+        ClaimedMerchantAccount, MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer,
+        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
         PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
-        PersonalCenterStore, PublishNotificationRequest,
+        PersonalCenterStore, PublishMerchantRateRequest, PublishNotificationRequest,
     },
     services::{authorization::require_cloud_admin, cloud_backup},
     support::now,
@@ -24,6 +26,26 @@ const PRIVILEGES: &[&str] = &[
     "members",
     "admin",
 ];
+
+fn validate_https(value: &str, field: &str) -> Result<String, String> {
+    let value = value.trim();
+    let url = Url::parse(value).map_err(|_| format!("{field} must be a valid URL"))?;
+    if url.scheme() != "https" || url.host_str().is_none() {
+        return Err(format!("{field} must use HTTPS"));
+    }
+    Ok(value.to_string())
+}
+
+fn validate_optional(value: Option<String>, field: &str, max: usize) -> Result<Option<String>, String> {
+    value.map(|value| {
+        let value = value.trim();
+        if value.len() > max || value.chars().any(char::is_control) {
+            Err(format!("{field} is invalid"))
+        } else {
+            Ok(value.to_string())
+        }
+    }).transpose().map(|value| value.filter(|value| !value.is_empty()))
+}
 
 fn validate_text(value: &str, field: &str) -> Result<String, String> {
     let value = value.trim();
@@ -295,6 +317,71 @@ pub(crate) async fn list_personal_center_login_events(
 ) -> Result<Vec<PersonalCenterLoginEvent>, String> {
     require_cloud_admin(&state).await?;
     cloud_backup::cloud_login_events(&state, limit.unwrap_or(100)).await
+}
+
+#[tauri::command]
+pub(crate) async fn get_merchant_profile(state: State<'_, AppState>) -> Result<Option<MerchantProfile>, String> {
+    cloud_backup::merchant_profile(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_merchant_profile(state: State<'_, AppState>, mut profile: MerchantProfile) -> Result<MerchantProfile, String> {
+    profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.qq = validate_optional(profile.qq, "QQ", 40)?;
+    profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
+        .map(|value| validate_https(&value, "QQ link")).transpose()?;
+    profile.wechat_qr_url = validate_optional(profile.wechat_qr_url, "WeChat QR URL", 500)?
+        .map(|value| validate_https(&value, "WeChat QR URL")).transpose()?;
+    cloud_backup::save_merchant_profile(&state, &profile).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_merchant_rate_shares(state: State<'_, AppState>) -> Result<Vec<MerchantRateShare>, String> {
+    cloud_backup::merchant_rate_shares(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn publish_merchant_rate_share(state: State<'_, AppState>, mut request: PublishMerchantRateRequest) -> Result<(), String> {
+    request.station_name = validate_text(&request.station_name, "Station name")?;
+    request.station_url = validate_https(&request.station_url, "Station URL")?;
+    request.group_name = validate_text(&request.group_name, "Group name")?;
+    request.multiplier_summary = request.multiplier_summary.trim().to_string();
+    if request.multiplier_summary.is_empty() || request.multiplier_summary.len() > 500 || request.multiplier_summary.chars().any(char::is_control) {
+        return Err("Multiplier summary must contain 1 to 500 visible characters".into());
+    }
+    cloud_backup::publish_merchant_rate(&state, &request).await
+}
+
+#[tauri::command]
+pub(crate) async fn import_merchant_free_accounts(state: State<'_, AppState>, mut accounts: Vec<MerchantFreeAccountInput>) -> Result<(), String> {
+    if accounts.is_empty() || accounts.len() > 200 { return Err("每次请导入 1 到 200 个免费账号".into()); }
+    for account in &mut accounts {
+        account.station_name = validate_text(&account.station_name, "Station name")?;
+        account.station_url = validate_https(&account.station_url, "Station URL")?;
+        account.username = validate_optional(Some(account.username.clone()), "Username", 254)?.unwrap_or_default();
+        account.password = validate_optional(Some(account.password.clone()), "Password", 500)?.unwrap_or_default();
+        if account.username.is_empty() || account.password.is_empty() { return Err("账号和密码不能为空".into()); }
+        if !["auto", "newapi", "sub2api"].contains(&account.station_kind.as_str()) { return Err("站点类型必须是 auto、newapi 或 sub2api".into()); }
+        if !account.quota.is_finite() || account.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
+    }
+    cloud_backup::import_merchant_accounts(&state, &accounts).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_merchant_free_offers(state: State<'_, AppState>) -> Result<Vec<MerchantFreeOffer>, String> {
+    cloud_backup::merchant_free_offers(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn claim_merchant_free_account(state: State<'_, AppState>, offer_id: String) -> Result<ClaimedMerchantAccount, String> {
+    let offer_id = validate_text(&offer_id, "Offer ID")?;
+    cloud_backup::claim_merchant_account(&state, &offer_id).await
+}
+
+#[tauri::command]
+pub(crate) async fn release_merchant_free_account(state: State<'_, AppState>, offer_id: String) -> Result<(), String> {
+    let offer_id = validate_text(&offer_id, "Offer ID")?;
+    cloud_backup::release_merchant_account(&state, &offer_id).await
 }
 
 #[cfg(test)]

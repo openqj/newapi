@@ -21,9 +21,10 @@ use crate::{
     },
     login_profiles::LoginProfileStore,
     personal_center_store::{
-        MembershipAccess, NotificationPreferences, PersonalCenterAuditEntry,
+        ClaimedMerchantAccount, MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer,
+        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
         PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
-        PublishNotificationRequest,
+        PublishMerchantRateRequest, PublishNotificationRequest,
     },
     remote_store::RemoteServerStore,
     station_store::StationStore,
@@ -158,11 +159,26 @@ fn config() -> Result<CloudConfig, String> {
 
 fn status_from_session(configured: bool) -> CloudAuthStatus {
     let session = load_cloud_session().ok();
+    let role = session
+        .as_ref()
+        .map(|value| value.role.clone())
+        .unwrap_or_else(|| "member".into());
     CloudAuthStatus {
         configured,
         email: session.as_ref().map(|value| value.email.clone()),
         is_admin: session.is_some_and(|value| value.is_admin),
+        role,
     }
+}
+
+fn cloud_role(role: Option<&str>) -> String {
+    match role {
+        Some("admin" | "super_admin") => "admin",
+        Some("merchant") => "merchant",
+        Some("pro") => "pro",
+        _ => "member",
+    }
+    .into()
 }
 
 pub(crate) async fn auth_status(_state: &AppState) -> CloudAuthStatus {
@@ -207,9 +223,11 @@ fn save_auth_response(response: AuthResponse) -> Result<CloudAuthStatus, String>
             configured: true,
             email: None,
             is_admin: false,
+            role: "member".into(),
         });
     };
     let email = response.user.email.unwrap_or_default();
+    let role = cloud_role(response.user.app_metadata.role.as_deref());
     let is_admin = matches!(
         response.user.app_metadata.role.as_deref(),
         Some("admin" | "super_admin")
@@ -221,11 +239,13 @@ fn save_auth_response(response: AuthResponse) -> Result<CloudAuthStatus, String>
         email: email.clone(),
         expires_at: Utc::now().timestamp() + response.expires_in.unwrap_or(3600),
         is_admin,
+        role: role.clone(),
     })?;
     Ok(CloudAuthStatus {
         configured: true,
         email: Some(email),
         is_admin,
+        role,
     })
 }
 
@@ -310,6 +330,7 @@ pub(crate) async fn complete_password_reset(
         .map_err(|error| error.to_string())?;
     let user: AuthUser = response_json(response).await?;
     let email = user.email.unwrap_or_default();
+    let role = cloud_role(user.app_metadata.role.as_deref());
     let is_admin = matches!(
         user.app_metadata.role.as_deref(),
         Some("admin" | "super_admin")
@@ -321,11 +342,13 @@ pub(crate) async fn complete_password_reset(
         email: email.clone(),
         expires_at: Utc::now().timestamp() + expires_in.clamp(60, 86_400),
         is_admin,
+        role: role.clone(),
     })?;
     Ok(CloudAuthStatus {
         configured: true,
         email: Some(email),
         is_admin,
+        role,
     })
 }
 
@@ -373,6 +396,7 @@ async fn session(state: &AppState, config: &CloudConfig) -> Result<CloudSession,
             refreshed.user.app_metadata.role.as_deref(),
             Some("admin" | "super_admin")
         ),
+        role: cloud_role(refreshed.user.app_metadata.role.as_deref()),
     };
     save_cloud_session(&next)?;
     Ok(next)
@@ -394,6 +418,7 @@ async fn verified_session(state: &AppState, config: &CloudConfig) -> Result<Clou
         user.app_metadata.role.as_deref(),
         Some("admin" | "super_admin")
     );
+    current.role = cloud_role(user.app_metadata.role.as_deref());
     save_cloud_session(&current)?;
     Ok(current)
 }
@@ -411,6 +436,148 @@ pub(crate) async fn require_verified_admin(state: &AppState) -> Result<CloudSess
 pub(crate) async fn is_verified_cloud_admin(state: &AppState) -> Result<bool, String> {
     let config = config()?;
     Ok(verified_session(state, &config).await?.is_admin)
+}
+
+async fn require_verified_merchant(state: &AppState) -> Result<(CloudConfig, CloudSession), String> {
+    let config = config()?;
+    let current = verified_session(state, &config).await?;
+    if current.role == "merchant" || current.is_admin {
+        Ok((config, current))
+    } else {
+        Err("Merchant permission is required".into())
+    }
+}
+
+pub(crate) async fn merchant_profile(state: &AppState) -> Result<Option<MerchantProfile>, String> {
+    let (config, current) = require_verified_merchant(state).await?;
+    let response = state.client
+        .get(format!("{}/rest/v1/merchant_profiles", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("user_id", format!("eq.{}", current.user_id)), ("select", "merchant_name,qq,qq_link,wechat_qr_url".into())])
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<CloudMerchantProfile>>(response).await?.into_iter().next().map(Into::into))
+}
+
+pub(crate) async fn save_merchant_profile(state: &AppState, profile: &MerchantProfile) -> Result<MerchantProfile, String> {
+    let (config, current) = require_verified_merchant(state).await?;
+    let response = state.client
+        .post(format!("{}/rest/v1/merchant_profiles", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .header("Prefer", "resolution=merge-duplicates,return=representation")
+        .json(&serde_json::json!({
+            "user_id": current.user_id,
+            "merchant_name": profile.merchant_name,
+            "qq": profile.qq,
+            "qq_link": profile.qq_link,
+            "wechat_qr_url": profile.wechat_qr_url,
+        }))
+        .send().await.map_err(|error| error.to_string())?;
+    response_json::<Vec<CloudMerchantProfile>>(response).await?.into_iter().next().map(Into::into)
+        .ok_or_else(|| "Merchant profile was not saved".into())
+}
+
+pub(crate) async fn merchant_rate_shares(state: &AppState) -> Result<Vec<MerchantRateShare>, String> {
+    let config = config()?;
+    let response = state.client
+        .get(format!("{}/rest/v1/merchant_rate_shares", config.url))
+        .headers(public_postgrest_headers(&config)?)
+        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,published_at,merchant_profiles!inner(merchant_name,qq,qq_link,wechat_qr_url)"), ("active", "eq.true"), ("order", "published_at.desc")])
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<CloudMerchantRateShare>>(response).await?.into_iter().map(Into::into).collect())
+}
+
+pub(crate) async fn publish_merchant_rate(state: &AppState, request: &PublishMerchantRateRequest) -> Result<(), String> {
+    let (config, current) = require_verified_merchant(state).await?;
+    let response = state.client
+        .post(format!("{}/rest/v1/merchant_rate_shares", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .header("Prefer", "resolution=merge-duplicates")
+        .json(&serde_json::json!({
+            "merchant_id": current.user_id,
+            "station_name": request.station_name,
+            "station_url": request.station_url,
+            "group_name": request.group_name,
+            "multiplier_summary": request.multiplier_summary,
+            "active": true,
+        }))
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
+pub(crate) async fn import_merchant_accounts(state: &AppState, accounts: &[MerchantFreeAccountInput]) -> Result<(), String> {
+    let (config, current) = require_verified_merchant(state).await?;
+    let payload = accounts.iter().map(|account| serde_json::json!({
+        "merchant_id": current.user_id,
+        "station_name": account.station_name,
+        "station_url": account.station_url,
+        "username": account.username,
+        "password": account.password,
+        "station_kind": account.station_kind,
+        "quota": account.quota,
+    })).collect::<Vec<_>>();
+    let response = state.client
+        .post(format!("{}/rest/v1/merchant_free_accounts", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .json(&payload)
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
+pub(crate) async fn merchant_free_offers(state: &AppState) -> Result<Vec<MerchantFreeOffer>, String> {
+    let config = config()?;
+    let response = state.client
+        .post(format!("{}/rest/v1/rpc/list_merchant_free_offers", config.url))
+        .headers(public_postgrest_headers(&config)?)
+        .json(&serde_json::json!({}))
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<CloudMerchantFreeOffer>>(response).await?.into_iter().map(Into::into).collect())
+}
+
+pub(crate) async fn claim_merchant_account(state: &AppState, offer_id: &str) -> Result<ClaimedMerchantAccount, String> {
+    let config = config()?;
+    let current = verified_session(state, &config).await?;
+    let response = state.client
+        .post(format!("{}/rest/v1/rpc/claim_merchant_free_account", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .json(&serde_json::json!({ "offer_id": offer_id }))
+        .send().await.map_err(|error| error.to_string())?;
+    response_json::<Vec<CloudClaimedMerchantAccount>>(response).await?.into_iter().next().map(Into::into)
+        .ok_or_else(|| "该免费额度已被领取，请选择其他账号。".into())
+}
+
+pub(crate) async fn release_merchant_account(state: &AppState, offer_id: &str) -> Result<(), String> {
+    let config = config()?;
+    let current = verified_session(state, &config).await?;
+    let response = state.client
+        .post(format!("{}/rest/v1/rpc/release_merchant_free_account", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .json(&serde_json::json!({ "offer_id": offer_id }))
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
+#[derive(Deserialize)]
+struct CloudMerchantProfile { merchant_name: String, qq: Option<String>, qq_link: Option<String>, wechat_qr_url: Option<String> }
+impl From<CloudMerchantProfile> for MerchantProfile {
+    fn from(value: CloudMerchantProfile) -> Self { Self { merchant_name: value.merchant_name, qq: value.qq, qq_link: value.qq_link, wechat_qr_url: value.wechat_qr_url } }
+}
+
+#[derive(Deserialize)]
+struct CloudMerchantRateShare { id: String, station_name: String, station_url: String, group_name: String, multiplier_summary: String, published_at: i64, merchant_profiles: CloudMerchantProfile }
+impl From<CloudMerchantRateShare> for MerchantRateShare {
+    fn from(value: CloudMerchantRateShare) -> Self { Self { id: value.id, merchant_name: value.merchant_profiles.merchant_name, station_name: value.station_name, station_url: value.station_url, group_name: value.group_name, multiplier_summary: value.multiplier_summary, qq: value.merchant_profiles.qq, qq_link: value.merchant_profiles.qq_link, wechat_qr_url: value.merchant_profiles.wechat_qr_url, published_at: value.published_at } }
+}
+
+#[derive(Deserialize)]
+struct CloudMerchantFreeOffer { id: String, merchant_name: String, station_name: String, station_url: String, quota: f64, published_at: i64 }
+impl From<CloudMerchantFreeOffer> for MerchantFreeOffer {
+    fn from(value: CloudMerchantFreeOffer) -> Self { Self { id: value.id, merchant_name: value.merchant_name, station_name: value.station_name, station_url: value.station_url, quota: value.quota, published_at: value.published_at } }
+}
+
+#[derive(Deserialize)]
+struct CloudClaimedMerchantAccount { id: String, station_name: String, station_url: String, username: String, password: String, station_kind: String }
+impl From<CloudClaimedMerchantAccount> for ClaimedMerchantAccount {
+    fn from(value: CloudClaimedMerchantAccount) -> Self { Self { id: value.id, station_name: value.station_name, station_url: value.station_url, username: value.username, password: value.password, station_kind: value.station_kind } }
 }
 
 #[derive(Deserialize)]

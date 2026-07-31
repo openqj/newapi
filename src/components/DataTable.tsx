@@ -21,7 +21,7 @@ type DataTableProps = {
 };
 
 type TableBulkActionsProps = {
-  summary: ReactNode;
+  summary?: ReactNode;
   children: ReactNode;
 };
 
@@ -54,7 +54,7 @@ export function TableBulkActions({
 }: TableBulkActionsProps) {
   return (
     <div className="table-bulk-actions">
-      <span>{summary}</span>
+      {summary != null && <span>{summary}</span>}
       {children}
     </div>
   );

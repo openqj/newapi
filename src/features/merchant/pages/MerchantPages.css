@@ -1,0 +1,28 @@
+.merchant-center-page { display: grid; gap: 1rem; }
+.merchant-center-page .panel { margin: 0; }
+.merchant-profile-form { display: grid; gap: .85rem; padding: 1rem 1.1rem 1.1rem; }
+.merchant-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
+.merchant-form-actions { display: flex; justify-content: flex-end; }
+.merchant-import-meta { display: flex; align-items: center; gap: .4rem; color: #64748b; font-size: .75rem; }
+.merchant-market-window { min-height: 100vh; background: #f6f7f8; color: #111827; }
+.merchant-market-header { display: flex; min-height: 4.25rem; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #e5e7eb; background: #fff; padding: .8rem 1rem; }
+.merchant-market-brand { display: flex; align-items: center; gap: .65rem; }
+.merchant-market-brand > svg { color: #111; }
+.merchant-market-brand h1 { font-size: 1rem; font-weight: 700; }
+.merchant-market-brand p { margin-top: .08rem; color: #6b7280; font-size: .7rem; }
+.merchant-refresh { width: 2.2rem; height: 2.2rem; padding: 0; }
+.merchant-market-tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; border-bottom: 1px solid #e5e7eb; background: #fff; padding: .65rem 1rem; }
+.merchant-market-tabs .test-mode-button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; }
+.merchant-market-table { margin: 1rem; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 7px; background: #fff; }
+.merchant-market-table th { padding: .75rem .85rem; }
+.merchant-market-table td { padding: .8rem .85rem; }
+.merchant-market-table td strong, .merchant-market-table td small { display: block; }
+.merchant-market-table td small { max-width: 18rem; margin-top: .18rem; overflow: hidden; color: #6b7280; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.merchant-contact-button, .merchant-import-button { min-width: 4.7rem; white-space: nowrap; }
+.merchant-contact-dialog { display: grid; grid-template-columns: minmax(0, 1fr) 10rem; gap: 1rem; padding: .5rem 0 1rem; }
+.merchant-qq-contact, .merchant-wechat-contact { display: flex; flex-direction: column; gap: .55rem; }
+.merchant-qq-contact span, .merchant-wechat-contact span { color: #64748b; font-size: .75rem; }
+.merchant-qq-contact .button-primary { width: fit-content; }
+.merchant-wechat-contact img { width: 10rem; aspect-ratio: 1; border: 1px solid #e5e7eb; border-radius: 7px; object-fit: contain; }
+.merchant-wechat-contact p { display: grid; width: 10rem; aspect-ratio: 1; place-items: center; border: 1px dashed #d1d5db; border-radius: 7px; color: #9ca3af; font-size: .75rem; text-align: center; }
+@media (max-width: 560px) { .merchant-form-grid, .merchant-contact-dialog { grid-template-columns: 1fr; } .merchant-market-table { margin: .75rem; overflow-x: auto; } }

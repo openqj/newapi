@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { Play } from "lucide-react";
 import { useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
@@ -7,14 +8,27 @@ import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
 import { ApiKeyTable } from "../components/ApiKeyTable";
 import { ApiKeyToolbar, keyTableColumns, type KeyTableColumn } from "../components/ApiKeyToolbar";
-import type { KeyRow } from "../types";
+import type { ApiKeyTestState, KeyRow, ModelTestResult } from "../types";
 import "../../../components/Sub2ApiPages.css";
 import "../../../components/TablePage.css";
 import "./ApiKeysPage.css";
 
 const isActive = (status: string) => status === "active" || status === "有效";
+const rowId = (row: KeyRow) => `${row.stationId}:${row.key.id}`;
 
-export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexApplied }: { rows: KeyRow[]; stations: Station[]; onRefresh: () => Promise<void>; onUpdated: () => Promise<void>; onCodexApplied?: () => Promise<void> }) {
+export function ApiKeysPage({
+  rows,
+  stations,
+  onRefresh,
+  onUpdated,
+  onCodexApplied,
+}: {
+  rows: KeyRow[];
+  stations: Station[];
+  onRefresh: () => Promise<void>;
+  onUpdated: () => Promise<void>;
+  onCodexApplied?: () => Promise<void>;
+}) {
   const confirm = useConfirm();
   const { notify } = useToast();
   const showError = (reason: unknown) => notify(errorMessage(reason), "error");
@@ -26,6 +40,9 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
   const [saving, setSaving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editor, setEditor] = useState<{ row?: KeyRow } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [testRunning, setTestRunning] = useState(false);
+  const [testStates, setTestStates] = useState<Record<string, ApiKeyTestState>>({});
   const refreshStationGroups = useCallback(async (stationId: string) => {
     if (!isTauri()) return;
     await stationApi.refresh(stationId);
@@ -36,6 +53,18 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
     && (status === "all" || (status === "active" ? isActive(row.key.status) : !isActive(row.key.status)))
     && `${row.stationName} ${row.key.name} ${row.key.maskedKey} ${row.key.group ?? ""}`.toLowerCase().includes(query.toLowerCase())
   ));
+  const selectedRows = filtered.filter((row) => selectedIds.includes(rowId(row)));
+  const toggleSelected = (row: KeyRow) => {
+    const id = rowId(row);
+    setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
+  };
+  const toggleAllSelected = () => {
+    const visibleIds = filtered.map(rowId);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds((current) => allSelected
+      ? current.filter((id) => !visibleIds.includes(id))
+      : [...new Set([...current, ...visibleIds])]);
+  };
   const reveal = async (row: KeyRow) => {
     try {
       const key = await apiKeyApi.reveal(row.stationId, row.key.id);
@@ -48,7 +77,7 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
   };
   const changeGroup = async (row: KeyRow, group: string) => {
     if (group === row.key.group) return;
-    const id = `${row.stationId}:${row.key.id}`;
+    const id = rowId(row);
     setSaving(id);
     try {
       if (isTauri()) await apiKeyApi.updateGroup(row.stationId, row.key.id, group);
@@ -61,7 +90,7 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
     }
   };
   const applyToCodex = async (row: KeyRow) => {
-    const id = `codex:${row.stationId}:${row.key.id}`;
+    const id = `codex:${rowId(row)}`;
     setSaving(id);
     try {
       await apiKeyApi.applyToCodex(row.stationId, row.key.id);
@@ -90,10 +119,42 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
     if (!approved) return;
     try {
       await apiKeyApi.remove(row.stationId, row.key.id);
+      setSelectedIds((current) => current.filter((id) => id !== rowId(row)));
       await onUpdated();
       notify("API 密钥已删除", "success");
     } catch (reason) {
       showError(reason);
+    }
+  };
+  const testSelected = async () => {
+    if (!selectedRows.length || testRunning) return;
+    setTestRunning(true);
+    let successCount = 0;
+    let failureCount = 0;
+    try {
+      for (const row of selectedRows) {
+        const id = rowId(row);
+        const model = row.models.find((value) => value.trim())?.trim();
+        setTestStates((current) => ({ ...current, [id]: { status: "testing" } }));
+        try {
+          if (!model) throw new Error("没有可测试的模型");
+          const results = isTauri()
+            ? await apiKeyApi.testModels<ModelTestResult[]>(row.stationId, row.key.id, [model], "chat")
+            : [{ model, available: true, response: "hi", elapsedMs: 0 }];
+          const result = results[0];
+          if (!result || result.available === false || result.error) {
+            throw new Error(result?.error || "测试未返回有效响应");
+          }
+          setTestStates((current) => ({ ...current, [id]: { status: "success", message: result.response } }));
+          successCount += 1;
+        } catch (reason) {
+          setTestStates((current) => ({ ...current, [id]: { status: "error", message: errorMessage(reason, "请求失败") } }));
+          failureCount += 1;
+        }
+      }
+      notify(`一键测试完成：${successCount} 个正常，${failureCount} 个异常`, failureCount ? "error" : "success");
+    } finally {
+      setTestRunning(false);
     }
   };
   const refresh = async () => {
@@ -124,10 +185,17 @@ export function ApiKeysPage({ rows, stations, onRefresh, onUpdated, onCodexAppli
       onRefresh={() => void refresh()}
       onCreate={() => setEditor({})}
     />
+    <div className="api-key-bulk-actions">
+      <button className="button-primary" type="button" disabled={testRunning || selectedRows.length === 0} onClick={() => void testSelected()}><Play size={16} />{testRunning ? "测试中" : "一键测试"}</button>
+    </div>
     <ApiKeyTable
       rows={filtered}
       hiddenColumns={hiddenColumns}
       saving={saving}
+      selectedIds={selectedIds}
+      testStates={testStates}
+      onToggleSelected={toggleSelected}
+      onToggleAll={toggleAllSelected}
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
       onImport={(row) => void importToCcSwitch(row)}

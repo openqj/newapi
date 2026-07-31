@@ -29,6 +29,12 @@ pub(crate) struct CloudSession {
     pub(crate) expires_at: i64,
     #[serde(default)]
     pub(crate) is_admin: bool,
+    #[serde(default = "default_cloud_role")]
+    pub(crate) role: String,
+}
+
+fn default_cloud_role() -> String {
+    "member".into()
 }
 
 pub(crate) fn credential_entry(id: &str) -> Result<Entry, String> {

@@ -102,6 +102,72 @@ pub(crate) struct PersonalCenterRealtimeSession {
     pub(crate) expires_at: i64,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantProfile {
+    pub(crate) merchant_name: String,
+    pub(crate) qq: Option<String>,
+    pub(crate) qq_link: Option<String>,
+    pub(crate) wechat_qr_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantRateShare {
+    pub(crate) id: String,
+    pub(crate) merchant_name: String,
+    pub(crate) station_name: String,
+    pub(crate) station_url: String,
+    pub(crate) group_name: String,
+    pub(crate) multiplier_summary: String,
+    pub(crate) qq: Option<String>,
+    pub(crate) qq_link: Option<String>,
+    pub(crate) wechat_qr_url: Option<String>,
+    pub(crate) published_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PublishMerchantRateRequest {
+    pub(crate) station_name: String,
+    pub(crate) station_url: String,
+    pub(crate) group_name: String,
+    pub(crate) multiplier_summary: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantFreeAccountInput {
+    pub(crate) station_name: String,
+    pub(crate) station_url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) station_kind: String,
+    pub(crate) quota: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantFreeOffer {
+    pub(crate) id: String,
+    pub(crate) merchant_name: String,
+    pub(crate) station_name: String,
+    pub(crate) station_url: String,
+    pub(crate) quota: f64,
+    pub(crate) published_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ClaimedMerchantAccount {
+    pub(crate) id: String,
+    pub(crate) station_name: String,
+    pub(crate) station_url: String,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) station_kind: String,
+}
+
 #[cfg(test)]
 fn membership(row: &Row<'_>) -> rusqlite::Result<MembershipAccess> {
     let privileges: String = row.get(7)?;

@@ -22,9 +22,15 @@ export type GroupOption = {
 
 export type ModelTestResult = {
   model: string;
+  available?: boolean;
   response?: string;
   error?: string;
   elapsedMs: number;
+};
+
+export type ApiKeyTestState = {
+  status: "testing" | "success" | "error";
+  message?: string;
 };
 
 export type KeyRow = {

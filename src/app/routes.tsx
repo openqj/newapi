@@ -8,6 +8,7 @@ import {
   ScanSearch,
   ServerCog,
   Settings,
+  Store,
   Tags,
   UserRound,
   UsersRound,
@@ -15,6 +16,8 @@ import {
 import type { AccountRow } from "../features/accounts";
 import type { KeyRow } from "../features/api-keys";
 import type { Offer } from "../features/offers";
+import type { AccountRole } from "../features/merchant";
+import type { CloudAuthStatus } from "../features/settings";
 import type { NotificationPreferences } from "../features/personal-center";
 import type { LoginProfile } from "../features/profiles";
 import type { RateRow } from "../features/rates";
@@ -23,13 +26,13 @@ import type { Station } from "../features/stations";
 import type { UsageLog, UsageSummary } from "../features/usage";
 
 const AccountsPage = lazy(() => import("../features/accounts/pages/AccountsPage").then(({ AccountsPage }) => ({ default: AccountsPage })));
-const AlertHistoryPage = lazy(() => import("../features/alerts/pages/AlertHistoryPage").then(({ AlertHistoryPage }) => ({ default: AlertHistoryPage })));
 const ApiDetectionPage = lazy(() => import("../features/api-detection/pages/ApiDetectionPage").then(({ ApiDetectionPage }) => ({ default: ApiDetectionPage })));
 const ApiKeysPage = lazy(() => import("../features/api-keys/pages/ApiKeysPage").then(({ ApiKeysPage }) => ({ default: ApiKeysPage })));
 const DashboardPage = lazy(() => import("../features/dashboard/pages/DashboardPage").then(({ DashboardPage }) => ({ default: DashboardPage })));
 const OffersPage = lazy(() => import("../features/offers/pages/OffersPage").then(({ OffersPage }) => ({ default: OffersPage })));
 const PersonalCenterPage = lazy(() => import("../features/personal-center/pages/PersonalCenterPage").then(({ PersonalCenterPage }) => ({ default: PersonalCenterPage })));
 const LoginProfilesPage = lazy(() => import("../features/profiles/pages/LoginProfilesPage").then(({ LoginProfilesPage }) => ({ default: LoginProfilesPage })));
+const MerchantCenterPage = lazy(() => import("../features/merchant/pages/MerchantCenterPage").then(({ MerchantCenterPage }) => ({ default: MerchantCenterPage })));
 const RatesPage = lazy(() => import("../features/rates/pages/RatesPage").then(({ RatesPage }) => ({ default: RatesPage })));
 const RemoteConfigPage = lazy(() => import("../features/remote/pages/RemoteConfigPage").then(({ RemoteConfigPage }) => ({ default: RemoteConfigPage })));
 const SettingsPage = lazy(() => import("../features/settings/pages/SettingsPage").then(({ SettingsPage }) => ({ default: SettingsPage })));
@@ -45,9 +48,9 @@ export type AppView =
   | "remote"
   | "profiles"
   | "offers"
+  | "merchantCenter"
   | "personalCenter"
-  | "settings"
-  | "alertHistory";
+  | "settings";
 
 /**
  * Dependencies supplied by the application shell to a feature page.
@@ -66,6 +69,8 @@ export type AppRouteContext = {
   remoteServers: RemoteServer[];
   demoLoginProfiles: LoginProfile[];
   personalCenterNotificationPreferences: NotificationPreferences;
+  accountRole: AccountRole;
+  onPersonalCenterAuthChanged: (status: CloudAuthStatus) => void;
   onSavePersonalCenterNotificationPreferences: (preferences: NotificationPreferences) => Promise<boolean>;
   navigate: (view: AppView) => void;
   onAddStation: () => void;
@@ -96,6 +101,7 @@ export type AppRoute = {
   navigation?: {
     label: string;
     Icon: LucideIcon;
+    roles?: readonly AccountRole[];
   };
   createPage: (context: AppRouteContext) => ReactNode;
 };
@@ -140,13 +146,14 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   rates: {
     view: "rates",
     navigation: { label: "分组倍率", Icon: RefreshCw },
-    createPage: ({ rateRows, stations, onRefreshRatesAndKeys, onOpenStation }) => (
+    createPage: ({ rateRows, stations, accountRole, onRefreshRatesAndKeys, onOpenStation }) => (
       <RatesPage
         rows={rateRows}
         stations={stations}
         unavailableStationCount={stations.filter((station) => !rateRows.some((row) => row.stationId === station.id)).length}
         onRefresh={onRefreshRatesAndKeys}
         onOpenStation={onOpenStation}
+        canShare={accountRole === "merchant" || accountRole === "admin"}
       />
     ),
   },
@@ -171,7 +178,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   },
   remote: {
     view: "remote",
-    navigation: { label: "远程配置", Icon: ServerCog },
+    navigation: { label: "远程配置", Icon: ServerCog, roles: ["pro", "merchant", "admin"] },
     createPage: ({ remoteServers, keyRows, onRefreshRemoteServers }) => (
       <RemoteConfigPage servers={remoteServers} keyRows={keyRows} onChanged={onRefreshRemoteServers} />
     ),
@@ -187,25 +194,27 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
     navigation: { label: "优惠中心", Icon: Tags },
     createPage: ({ snapshot }) => <OffersPage offers={snapshot.offers} />,
   },
+  merchantCenter: {
+    view: "merchantCenter",
+    navigation: { label: "商家端", Icon: Store, roles: ["merchant", "admin"] },
+    createPage: () => <MerchantCenterPage />,
+  },
   personalCenter: {
     view: "personalCenter",
     navigation: { label: "个人中心", Icon: UserRound },
-    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences }) => (
+    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences, onPersonalCenterAuthChanged }) => (
       <PersonalCenterPage
         accountRows={accountRows}
         preferences={personalCenterNotificationPreferences}
         onPreferencesChange={onSavePersonalCenterNotificationPreferences}
+        onAuthChanged={onPersonalCenterAuthChanged}
       />
     ),
   },
   settings: {
     view: "settings",
     navigation: { label: "设置", Icon: Settings },
-    createPage: ({ navigate }) => <SettingsPage onManageProfiles={() => navigate("profiles")} onViewAlertHistory={() => navigate("alertHistory")} />,
-  },
-  alertHistory: {
-    view: "alertHistory",
-    createPage: ({ navigate }) => <AlertHistoryPage onBack={() => navigate("settings")} />,
+    createPage: ({ demoLoginProfiles }) => <SettingsPage demoProfiles={demoLoginProfiles} />,
   },
 };
 
@@ -218,9 +227,10 @@ export function createRoutePage(view: AppView): ReactNode {
   return <RegisteredRoutePage view={view} />;
 }
 
-export function getPrimaryNavigation(_context?: AppRouteContext): readonly NavigationItem[] {
+export function getPrimaryNavigation(context?: AppRouteContext): readonly NavigationItem[] {
   return (Object.values(appRoutes) as AppRoute[])
     .filter((route): route is AppRoute & { navigation: NonNullable<AppRoute["navigation"]> } => Boolean(route.navigation))
+    .filter((route) => !route.navigation.roles || route.navigation.roles.includes(context?.accountRole ?? "member"))
     .map(({ view, navigation }) => ({ view: view as Exclude<AppView, "profiles">, ...navigation }));
 }
 

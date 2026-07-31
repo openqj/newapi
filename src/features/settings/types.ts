@@ -19,6 +19,7 @@ export type CloudAuthStatus = {
   configured: boolean;
   email?: string;
   isAdmin?: boolean;
+  role?: "member" | "pro" | "merchant" | "admin";
 };
 
 export type CloudBackupSummary = {

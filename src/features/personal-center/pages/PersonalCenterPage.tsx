@@ -62,8 +62,8 @@ export function AdminConsole({ preferences = defaultPreferences, memberships = [
     { id: "audit" as const, label: "操作审计", icon: ClipboardList },
   ];
 
-  return <Panel className="personal-center-panel personal-admin-console">
-    <div className="personal-admin-tabs" role="tablist" aria-label="用户管理">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? "personal-admin-tab active" : "personal-admin-tab"} onClick={() => setActiveTab(id)}><Icon size={16} />{label}</button>)}</div>
+  return <div className="personal-admin-console">
+    <nav className="personal-admin-tabs" role="tablist" aria-label="用户管理">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? "personal-admin-tab active" : "personal-admin-tab"} onClick={() => setActiveTab(id)}><Icon size={16} />{label}</button>)}</nav>
     {loading ? <div className="personal-admin-empty">正在加载管理员数据…</div> : <div className="personal-admin-content">
       {activeTab === "notifications" && <div className="personal-admin-grid">
         <section className="personal-admin-section"><div className="personal-admin-section-title"><BellRing size={17} /><div><h3>通知规则</h3><p>选择需要同步至个人中心的消息类型。</p></div></div><div className="personal-center-preferences">
@@ -88,16 +88,17 @@ export function AdminConsole({ preferences = defaultPreferences, memberships = [
         {auditRecords.length ? <div className="personal-admin-audit-list">{auditRecords.slice(0, 5).map((record) => <article key={record.id}><span className="personal-admin-audit-dot" /><div><strong>{record.action}</strong><p>{record.subject} · {record.detail}</p></div><time>{formatTime(record.createdAt)}</time></article>)}</div> : <div className="personal-admin-empty">尚无操作记录。管理员配置变更后会自动留存审计信息。</div>}
       </section>}
     </div>}
-  </Panel>;
+  </div>;
 }
 
 type PersonalCenterPageProps = {
   accountRows: AccountRow[];
   preferences: NotificationPreferences;
   onPreferencesChange: (preferences: NotificationPreferences) => Promise<boolean>;
+  onAuthChanged?: (status: CloudAuthStatus) => void;
 };
 
-export function PersonalCenterPage({ accountRows, preferences, onPreferencesChange }: PersonalCenterPageProps) {
+export function PersonalCenterPage({ accountRows, preferences, onPreferencesChange, onAuthChanged }: PersonalCenterPageProps) {
   const confirm = useConfirm();
   const { notify } = useToast();
   const [auth, setAuth] = useState<CloudAuthStatus | null>(null);
@@ -115,11 +116,13 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
 
   useEffect(() => {
     if (!isTauri()) {
-      setAuth({ configured: true });
+      const status = { configured: true };
+      setAuth(status);
+      onAuthChanged?.(status);
       return;
     }
-    void settingsApi.cloudAuthStatus().then(setAuth).catch(() => setAuth({ configured: false }));
-  }, []);
+    void settingsApi.cloudAuthStatus().then((status) => { setAuth(status); onAuthChanged?.(status); }).catch(() => setAuth({ configured: false }));
+  }, [onAuthChanged]);
 
   const openNewMembership = () => {
     if (!accountRows.length) return;
@@ -197,7 +200,7 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
   }, [auth?.isAdmin]);
 
   if (!auth) return <Panel className="personal-center-panel"><p className="personal-admin-empty">正在加载个人中心…</p></Panel>;
-  if (!auth.email) return <PersonalCenterLogin auth={auth} onAuthenticated={setAuth} />;
+  if (!auth.email) return <PersonalCenterLogin auth={auth} onAuthenticated={(status) => { setAuth(status); onAuthChanged?.(status); }} />;
 
   return <>
     {auth.isAdmin ? <AdminConsole
@@ -218,7 +221,7 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
     /> : <><Panel className="personal-center-panel personal-standard-panel" title="我的会员权限" description="管理员分配的站点权限由服务器同步到当前账户。">
       {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><span className={item.enabled ? "personal-admin-state enabled" : "personal-admin-state"}>{item.enabled ? "已启用" : "已停用"}</span><small>有效期：{formatTime(item.expiresAt)}</small></aside></article>)}</div> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
     </Panel><MobileAppConnection email={auth.email} /></>}
-    {!isDevelopmentBypass && <CloudBackupPanel onAuthChanged={setAuth} />}
+    {!isDevelopmentBypass && <CloudBackupPanel onAuthChanged={(status) => { setAuth(status); onAuthChanged?.(status); signalPersonalCenterAuthChanged(status); }} />}
     {auth.isAdmin && isEditorOpen && <MembershipEditor accountRows={accountRows} membership={editing} saving={saving} onClose={() => setEditorOpen(false)} onSave={save} onDelete={remove} />}
     {auth.isAdmin && isNotificationEditorOpen && <NotificationEditor notification={editingNotification} saving={publishingNotification} onClose={() => { setNotificationEditorOpen(false); setEditingNotification(null); }} onSave={publishNotification} />}
   </>;
@@ -311,7 +314,7 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
     }
   };
   const devSignIn = (email: string, isAdmin: boolean) => {
-    const status = { configured: true, email, isAdmin };
+    const status: CloudAuthStatus = { configured: true, email, isAdmin, role: isAdmin ? "admin" : "member" };
     onAuthenticated(status);
     signalPersonalCenterAuthChanged(status);
     notify(isAdmin ? "已用开发管理员账号进入个人中心。" : "已用开发普通用户账号进入个人中心。", "success");
