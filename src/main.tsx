@@ -37,6 +37,7 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 
 document.documentElement.dataset.appMounted = "true";
 const isMerchantWindow = new URLSearchParams(window.location.search).get("window") === "merchant-market";
+if (isMerchantWindow) document.body.classList.add("merchant-market-body");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

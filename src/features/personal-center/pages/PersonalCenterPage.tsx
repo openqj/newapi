@@ -1,5 +1,6 @@
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { BellRing, ChevronRight, ClipboardList, Crown, KeyRound, LogIn, Pencil, Plus, ShieldCheck, SlidersHorizontal, Smartphone, Trash2, Undo2, UserPlus, UsersRound } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BellRing, ChevronRight, ClipboardList, Crown, KeyRound, LogIn, Pencil, Plus, ShieldCheck, SlidersHorizontal, Smartphone, Store, Trash2, Undo2, UserPlus, UsersRound } from "lucide-react";
+import type { AppView } from "../../../app/routes";
 import type { AccountRow } from "../../accounts";
 import { FormDialog, FormField, Panel, PasswordField, SelectField, TextareaField, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
@@ -7,12 +8,15 @@ import { isTauri } from "../../../lib/platform";
 import { CloudBackupPanel } from "../../settings/components/CloudBackupPanel";
 import { settingsApi } from "../../settings/api";
 import type { CloudAuthStatus } from "../../settings/types";
+import { MerchantAdminPage } from "../../merchant/pages/MerchantAdminPage";
+import { MerchantCenterPage } from "../../merchant/pages/MerchantCenterPage";
 import { useMembershipAccess, usePersonalCenterAuditHistory } from "../hooks";
 import { personalCenterApi, signalPersonalCenterAuthChanged } from "../api";
 import type { MembershipAccess, NotificationPreferences, PersonalCenterAuditEntry, PersonalCenterLoginEvent, PersonalCenterNotification, PublishNotificationRequest } from "../types";
 import "./PersonalCenterPage.css";
 
 export type AdminConsoleProps = {
+  activeTab?: PersonalCenterAdminTab;
   preferences?: NotificationPreferences;
   memberships?: MembershipAccess[];
   auditRecords?: PersonalCenterAuditEntry[];
@@ -29,9 +33,12 @@ export type AdminConsoleProps = {
   onDeleteNotification?: (notification: PersonalCenterNotification) => void;
 };
 
+export type PersonalCenterAdminTab = "notifications" | "users" | "membership" | "merchants" | "audit";
+
 const defaultPreferences: NotificationPreferences = { desktopEnabled: true, syncEnabled: true, alertEnabled: true, offerEnabled: false };
 const developmentAdminEmail = "dev@relayhub.local";
 const developmentMemberEmail = "member@relayhub.local";
+const developmentMerchantEmail = "merchant@relayhub.local";
 const epochMilliseconds = (value: number) => value < 10_000_000_000 ? value * 1000 : value;
 const formatTime = (value?: number | null) => {
   if (!value) return "长期有效";
@@ -51,19 +58,11 @@ function notificationStatus(notification: PersonalCenterNotification) {
   return "生效中";
 }
 
-export function AdminConsole({ preferences = defaultPreferences, memberships = [], auditRecords = [], loginEvents = [], sentNotifications = [], loading, onPreferencesChange, onAddMembership, onManageMembership, onViewAudit, onPublishNotification, onEditNotification, onRevokeNotification, onDeleteNotification }: AdminConsoleProps) {
-  const [activeTab, setActiveTab] = useState<"notifications" | "users" | "membership" | "audit">("notifications");
+export function AdminConsole({ activeTab = "notifications", preferences = defaultPreferences, memberships = [], auditRecords = [], loginEvents = [], sentNotifications = [], loading, onPreferencesChange, onAddMembership, onManageMembership, onViewAudit, onPublishNotification, onEditNotification, onRevokeNotification, onDeleteNotification }: AdminConsoleProps) {
   const activeMemberships = useMemo(() => memberships.filter((item) => item.enabled), [memberships]);
   const updatePreference = (key: keyof NotificationPreferences) => onPreferencesChange?.({ ...preferences, [key]: !preferences[key] });
-  const tabs = [
-    { id: "notifications" as const, label: "通知中心", icon: BellRing },
-    { id: "users" as const, label: "用户概览", icon: UsersRound },
-    { id: "membership" as const, label: "会员权限", icon: Crown },
-    { id: "audit" as const, label: "操作审计", icon: ClipboardList },
-  ];
 
   return <div className="personal-admin-console">
-    <nav className="personal-admin-tabs" role="tablist" aria-label="用户管理">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? "personal-admin-tab active" : "personal-admin-tab"} onClick={() => setActiveTab(id)}><Icon size={16} />{label}</button>)}</nav>
     {loading ? <div className="personal-admin-empty">正在加载管理员数据…</div> : <div className="personal-admin-content">
       {activeTab === "notifications" && <div className="personal-admin-grid">
         <section className="personal-admin-section"><div className="personal-admin-section-title"><BellRing size={17} /><div><h3>通知规则</h3><p>选择需要同步至个人中心的消息类型。</p></div></div><div className="personal-center-preferences">
@@ -96,9 +95,10 @@ type PersonalCenterPageProps = {
   preferences: NotificationPreferences;
   onPreferencesChange: (preferences: NotificationPreferences) => Promise<boolean>;
   onAuthChanged?: (status: CloudAuthStatus) => void;
+  onNavigate?: (view: AppView) => void;
 };
 
-export function PersonalCenterPage({ accountRows, preferences, onPreferencesChange, onAuthChanged }: PersonalCenterPageProps) {
+export function PersonalCenterPage({ accountRows, preferences, onPreferencesChange, onAuthChanged, onNavigate }: PersonalCenterPageProps) {
   const confirm = useConfirm();
   const { notify } = useToast();
   const [auth, setAuth] = useState<CloudAuthStatus | null>(null);
@@ -110,9 +110,12 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
   const [sentNotifications, setSentNotifications] = useState<PersonalCenterNotification[]>([]);
   const [sentNotificationsLoading, setSentNotificationsLoading] = useState(false);
   const [loginEvents] = useState<PersonalCenterLoginEvent[]>([]);
-  const { memberships, loading: membershipsLoading, saving, saveMembership, deleteMembership } = useMembershipAccess({ loadOnMount: false });
+  const [activeSection, setActiveSection] = useState<"overview" | "merchant" | "admin">("overview");
+  const [activeAdminTab, setActiveAdminTab] = useState<PersonalCenterAdminTab>("notifications");
+  const authLoadVersion = useRef(0);
+  const { memberships, loading: membershipsLoading, saving, saveMembership, deleteMembership, loadMemberships } = useMembershipAccess({ loadOnMount: false });
   const { entries, loading: auditLoading, loadAuditHistory } = usePersonalCenterAuditHistory({ loadOnMount: false, limit: 100 });
-  const isDevelopmentBypass = import.meta.env.DEV && (auth?.email === developmentAdminEmail || auth?.email === developmentMemberEmail);
+  const isDevelopmentBypass = import.meta.env.DEV && (auth?.email === developmentAdminEmail || auth?.email === developmentMemberEmail || auth?.email === developmentMerchantEmail);
 
   useEffect(() => {
     if (!isTauri()) {
@@ -121,7 +124,22 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
       onAuthChanged?.(status);
       return;
     }
-    void settingsApi.cloudAuthStatus().then((status) => { setAuth(status); onAuthChanged?.(status); }).catch(() => setAuth({ configured: false }));
+    const version = ++authLoadVersion.current;
+    void settingsApi.cloudAuthStatus().then((status) => {
+      if (version !== authLoadVersion.current) return;
+      setActiveSection(status.role === "admin" || status.isAdmin ? "admin" : "overview");
+      setAuth(status);
+      onAuthChanged?.(status);
+    }).catch(() => {
+      if (version === authLoadVersion.current) setAuth({ configured: false });
+    });
+  }, [onAuthChanged]);
+
+  const acceptAuthStatus = useCallback((status: CloudAuthStatus) => {
+    authLoadVersion.current += 1;
+    setActiveSection(status.role === "admin" || status.isAdmin ? "admin" : "overview");
+    setAuth(status);
+    onAuthChanged?.(status);
   }, [onAuthChanged]);
 
   const openNewMembership = () => {
@@ -172,6 +190,13 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
       setSentNotificationsLoading(false);
     }
   };
+  const selectAdminTab = (tab: PersonalCenterAdminTab) => {
+    setActiveSection("admin");
+    setActiveAdminTab(tab);
+    if (tab === "notifications") void loadSentNotifications();
+    if (tab === "users" || tab === "membership") void loadMemberships();
+    if (tab === "audit") void loadAuditHistory();
+  };
   const revokeNotification = async (notification: PersonalCenterNotification) => {
     const approved = await confirm({ title: "撤回云端通知", description: `确定撤回“${notification.title}”吗？用户将不再看到此通知，但已发记录会保留。`, confirmLabel: "撤回通知", destructive: true });
     if (!approved) return;
@@ -200,10 +225,17 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
   }, [auth?.isAdmin]);
 
   if (!auth) return <Panel className="personal-center-panel"><p className="personal-admin-empty">正在加载个人中心…</p></Panel>;
-  if (!auth.email) return <PersonalCenterLogin auth={auth} onAuthenticated={(status) => { setAuth(status); onAuthChanged?.(status); }} />;
+  if (!auth.email) return <PersonalCenterLogin auth={auth} onAuthenticated={acceptAuthStatus} />;
+
+  const role = auth.role ?? (auth.isAdmin ? "admin" : "member");
+  const canSync = role === "pro" || role === "merchant" || role === "admin";
+  const canMerchant = role === "merchant" || role === "admin";
+  const canAdmin = role === "admin";
 
   return <>
-    {auth.isAdmin ? <AdminConsole
+    <PersonalCenterHeaderNav role={role} activeSection={activeSection} activeAdminTab={activeAdminTab} canSync={canSync} canMerchant={canMerchant} canAdmin={canAdmin} onSelectSection={setActiveSection} onSelectAdminTab={selectAdminTab} onNavigate={onNavigate} />
+    {activeSection === "merchant" && canMerchant ? <MerchantCenterPage /> : activeSection === "admin" && canAdmin && activeAdminTab === "merchants" ? <MerchantAdminPage /> : activeSection === "admin" && canAdmin ? <AdminConsole
+      activeTab={activeAdminTab}
       preferences={preferences}
       memberships={memberships}
       auditRecords={entries}
@@ -221,10 +253,30 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
     /> : <><Panel className="personal-center-panel personal-standard-panel" title="我的会员权限" description="管理员分配的站点权限由服务器同步到当前账户。">
       {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><span className={item.enabled ? "personal-admin-state enabled" : "personal-admin-state"}>{item.enabled ? "已启用" : "已停用"}</span><small>有效期：{formatTime(item.expiresAt)}</small></aside></article>)}</div> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
     </Panel><MobileAppConnection email={auth.email} /></>}
-    {!isDevelopmentBypass && <CloudBackupPanel onAuthChanged={(status) => { setAuth(status); onAuthChanged?.(status); signalPersonalCenterAuthChanged(status); }} />}
+    {!isDevelopmentBypass && <CloudBackupPanel onAuthChanged={(status) => { acceptAuthStatus(status); signalPersonalCenterAuthChanged(status); }} />}
     {auth.isAdmin && isEditorOpen && <MembershipEditor accountRows={accountRows} membership={editing} saving={saving} onClose={() => setEditorOpen(false)} onSave={save} onDelete={remove} />}
     {auth.isAdmin && isNotificationEditorOpen && <NotificationEditor notification={editingNotification} saving={publishingNotification} onClose={() => { setNotificationEditorOpen(false); setEditingNotification(null); }} onSave={publishNotification} />}
   </>;
+}
+
+function PersonalCenterHeaderNav({ role, activeSection, activeAdminTab, canSync, canMerchant, canAdmin, onSelectSection, onSelectAdminTab, onNavigate }: { role: "member" | "pro" | "merchant" | "admin"; activeSection: "overview" | "merchant" | "admin"; activeAdminTab: PersonalCenterAdminTab; canSync: boolean; canMerchant: boolean; canAdmin: boolean; onSelectSection: (section: "overview" | "merchant" | "admin") => void; onSelectAdminTab: (tab: PersonalCenterAdminTab) => void; onNavigate?: (view: AppView) => void }) {
+  const adminItems: Array<{ id: PersonalCenterAdminTab; label: string; Icon: typeof BellRing }> = [
+    { id: "notifications", label: "通知中心", Icon: BellRing },
+    { id: "users", label: "用户概览", Icon: UsersRound },
+    { id: "membership", label: "会员权限", Icon: Crown },
+    { id: "merchants", label: "商家信息", Icon: Store },
+    { id: "audit", label: "操作审计", Icon: ClipboardList },
+  ];
+
+  return <nav className="personal-center-header-nav" aria-label="个人中心功能导航">
+    <div className="personal-center-header-nav-items">
+      <button type="button" className={`personal-center-header-nav-item ${activeSection === "overview" ? "active" : ""}`} aria-current={activeSection === "overview" ? "page" : undefined} onClick={() => onSelectSection("overview")}>个人概览</button>
+      {canSync && <button type="button" className="personal-center-header-nav-item" onClick={() => onNavigate?.("remote")}>同步功能</button>}
+      {canMerchant && <button type="button" className={`personal-center-header-nav-item ${activeSection === "merchant" ? "active" : ""}`} aria-current={activeSection === "merchant" ? "page" : undefined} onClick={() => onSelectSection("merchant")}>商家端</button>}
+      {canAdmin && adminItems.map(({ id, label, Icon }) => <button key={id} type="button" className={`personal-center-header-nav-item personal-center-admin-nav-item ${activeSection === "admin" && activeAdminTab === id ? "active" : ""}`} aria-current={activeSection === "admin" && activeAdminTab === id ? "page" : undefined} onClick={() => onSelectAdminTab(id)}><Icon size={15} />{label}</button>)}
+    </div>
+    <span className="personal-center-role-badge">{role === "admin" ? "管理员" : role === "merchant" ? "商家" : role === "pro" ? "Pro 会员" : "普通账号"}</span>
+  </nav>;
 }
 
 function MobileAppConnection({ email }: { email?: string }) {
@@ -313,8 +365,10 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
       notify(errorMessage(reason, "无法发送密码重置邮件。"), "error");
     }
   };
-  const devSignIn = (email: string, isAdmin: boolean) => {
-    const status: CloudAuthStatus = { configured: true, email, isAdmin, role: isAdmin ? "admin" : "member" };
+  const devSignIn = (email: string, requestedRole: "member" | "merchant" | "admin" | boolean) => {
+    const role = typeof requestedRole === "boolean" ? (requestedRole ? "admin" : "member") : requestedRole;
+    const status: CloudAuthStatus = { configured: true, email, isAdmin: role === "admin", role };
+    const isAdmin = role === "admin";
     onAuthenticated(status);
     signalPersonalCenterAuthChanged(status);
     notify(isAdmin ? "已用开发管理员账号进入个人中心。" : "已用开发普通用户账号进入个人中心。", "success");
@@ -332,6 +386,7 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
         {registering && <FormField label="确认密码" required><PasswordField autoComplete="new-password" required minLength={8} placeholder="请再次输入密码" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></FormField>}
       </div>
       <div className="personal-login-actions">
+        {import.meta.env.DEV && !registering && <button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMerchantEmail, "merchant")}><Store size={16} />一键登录商家</button>}
         <button type="button" className="button-secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}><UserPlus size={16} />{registering ? "已有账户" : "注册账户"}</button>
         {!registering && <button type="button" className="button-secondary" disabled={busy || !email} onClick={() => void resetPassword()}><KeyRound size={16} />忘记密码</button>}
         {import.meta.env.DEV && !registering && <><button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentAdminEmail, true)}><LogIn size={16} />一键登录管理员</button><button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMemberEmail, false)}><LogIn size={16} />一键登录会员</button></>}

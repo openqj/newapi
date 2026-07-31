@@ -72,6 +72,20 @@ impl StationAdapter {
         }
     }
 
+    pub(crate) fn redeem_path(self) -> &'static str {
+        match self {
+            Self::Sub2Api => "/api/v1/redeem",
+            Self::NewApi => "/api/user/topup",
+        }
+    }
+
+    pub(crate) fn redeem_body(self, code: &str) -> Value {
+        match self {
+            Self::Sub2Api => json!({"code": code}),
+            Self::NewApi => json!({"key": code}),
+        }
+    }
+
     pub(crate) fn paged_path(self, resource: PagedResource, page: i64, page_size: i64) -> String {
         match (self, resource) {
             (Self::Sub2Api, PagedResource::Keys) => {
@@ -137,5 +151,13 @@ mod tests {
             StationAdapter::NewApi.paged_path(PagedResource::Usage, 0, 100),
             "/api/log/self?p=0&page_size=100"
         );
+    }
+
+    #[test]
+    fn builds_source_specific_redemption_requests() {
+        assert_eq!(StationAdapter::Sub2Api.redeem_path(), "/api/v1/redeem");
+        assert_eq!(StationAdapter::Sub2Api.redeem_body("sub2-code")["code"], "sub2-code");
+        assert_eq!(StationAdapter::NewApi.redeem_path(), "/api/user/topup");
+        assert_eq!(StationAdapter::NewApi.redeem_body("newapi-code")["key"], "newapi-code");
     }
 }

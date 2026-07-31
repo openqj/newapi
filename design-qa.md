@@ -97,6 +97,78 @@ previous result: passed
 
 final result: passed
 
+## 2026-07-31: Merchant title entry
+
+**Verification**
+
+- The custom child-window title `商家信息` is now a semantic button labeled `打开商家端`.
+- In Tauri it emits the merchant-center navigation event, then shows and focuses the main window; the main shell listens for that event and switches to `merchantCenter`.
+- The title button, refresh control, close control, model selector, and sorting selector remain visible in the 340px preview.
+- `pnpm build` and `git diff --check` passed.
+
+final result: passed
+
+## 2026-07-31: Native model selector
+
+**Verification**
+
+- Replaced the checkbox popover with a native select matching the supplied reference control.
+- Model options are `全部`, `claude`, `chatgpt`, and `grok`; sorting remains a matching native select beside it.
+- Selecting `claude` filters the cards while preserving the same card layout and value emphasis; resetting to `全部` restores the full list.
+- `pnpm build` and `git diff --check` passed.
+
+final result: passed
+
+## 2026-07-31: Merchant model filter and quota currency
+
+**Verification**
+
+- Added a multi-select model list to the left of sorting with `claude`, `chatgpt`, and `grok`; all three are selected by default.
+- Verified unchecking `claude` changes the counter to `模型（2/3）` and removes the corresponding demo cards from both tabs.
+- Verified free quota values render with a leading `$` and retain the smaller gray `元` unit.
+- Browser-rendered preview reported zero console errors; `pnpm build` and `git diff --check` passed.
+
+final result: passed
+
+## 2026-07-31: Merchant marketplace card list
+
+**Findings**
+
+- No remaining actionable P0, P1, or P2 visual findings.
+- The merchant marketplace now follows the supplied reference structure within the requested 340 × 840副窗口: sorting is at the upper right, cards are stacked, and the primary value occupies the former action area.
+- Multiplier values render as a large, light blue number with a smaller gray `X`; free quota values use the same treatment with a smaller gray `元` unit.
+- Contact/import actions share the lower-right action position, compact long-button sizing, and no divider between the stat and action cells. Long merchant names, descriptions, group names, and station URLs truncate with ellipses.
+
+**Open Questions**
+
+- The reference image is a wider dark relay list while the product requirement is a narrow light merchant window; comparison therefore evaluates hierarchy, ordering, card density, value emphasis, and action placement rather than theme or exact viewport proportions.
+
+**Implementation Checklist**
+
+1. Confirmed 50 demo multiplier cards and 50 demo free-quota cards render in the narrow viewport.
+2. Confirmed tabs, upper-right sorting, merchant links, contact/import actions, and refresh/close controls are present.
+3. Confirmed value sorting selects the largest free quota first and multiplier values display as numeric values only plus the gray unit.
+4. Confirmed browser-rendered preview has no console errors; the desktop-only toast visible in the non-Tauri browser preview is an expected platform fallback.
+
+**Evidence**
+
+- Source visual truth: `C:\Users\Wecoo\AppData\Local\Temp\codex-clipboard-bfb66261-abad-4c6b-a5dd-bd7a292e9813.png`.
+- Card reference: `C:\Users\Wecoo\AppData\Local\Temp\codex-clipboard-597beb96-df8e-4238-a85c-f60a95ef11f2.png`.
+- Implementation screenshots: `D:\work\newapi\design-qa-merchant-340x840.png` and `D:\work\newapi\design-qa-merchant-free-340x840.png`.
+- Side-by-side comparison: `D:\work\newapi\design-qa-merchant-comparison.png`.
+- Viewport: 340 × 840 CSS px, 1x; comparison source is 884 × 454 px and intentionally wider than the implementation.
+- States: multiplier tab/latest sort and free-quota tab/latest sort; value sort also verified on the free-quota tab.
+- Focused comparison: card header/value region, lower stat/action row, tabs, and upper-right sort control were readable in the combined comparison image.
+- Console errors: none reported by the browser-rendered local preview.
+
+**Comparison History**
+
+1. Initial card-list implementation replaced the table and added upper-right sorting.
+2. Values and action controls were swapped into the requested positions; the value was enlarged and given a unit treatment while actions moved to the lower-right cell.
+3. Final pass removed value backgrounds, made values blue and lighter, added gray `X`/`元` units, aligned group label/name on one line, removed the stat/action divider, and added ellipsis behavior for long text.
+
+final result: passed
+
 ## 2026-07-26: API Key Table and Create Dialog Follow-up
 
 **Verification**

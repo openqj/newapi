@@ -1,11 +1,17 @@
 .profile-manager-modal { width: min(100%, 52rem); }
 .profile-manager-panel { width: min(100%, 52rem); margin-top: 1.25rem; }
-.profile-editor-table { border-color: #e7dfdc; border-radius: 8px; }
-.profile-editor-table table { min-width: 42rem; table-layout: fixed; }
-.profile-editor-table th { padding: .6rem .75rem; }
-.profile-editor-table td { padding: .5rem .6rem; }
-.profile-editor-table .input { min-width: 0; padding: .45rem .55rem; font-size: .8125rem; }
-.profile-cell-display { display: block; width: 100%; min-height: 2rem; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; padding: .45rem .55rem; color: #334155; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.profile-editor-table { border-color: #e5e7eb; border-radius: 12px; }
+.profile-editor-table table { width: 100%; min-width: 42rem; table-layout: fixed; }
+.profile-editor-table th, .profile-editor-table td { vertical-align: middle; }
+.profile-editor-table th { padding: .7rem .75rem; }
+.profile-editor-table th:nth-child(1) { width: 24%; }
+.profile-editor-table th:nth-child(2), .profile-editor-table th:nth-child(3) { width: 34%; }
+.profile-editor-table td { height: 3.35rem; padding: .55rem .65rem; }
+.profile-editor-table tbody tr:last-child td { background: #fcfcfd; }
+.profile-editor-table .input { width: 100%; min-width: 0; min-height: 2.35rem; padding: .45rem .55rem; font-size: .8125rem; }
+.profile-cell-display { display: flex; width: 100%; min-height: 2.35rem; align-items: center; overflow: hidden; border: 1px solid transparent; border-radius: 6px; background: transparent; padding: .45rem .55rem; color: #334155; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.profile-cell-username, .profile-cell-password { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.profile-editor-table tbody tr:last-child .profile-cell-display { color: #94a3b8; }
 .profile-cell-display:hover, .profile-cell-display:focus-visible { border-color: #d8d0ce; background: #faf7f8; outline: 0; }
 .profile-cell-input { min-height: 2rem; }
 .profile-delete-heading, .profile-delete-cell { width: 3rem; padding-right: .4rem !important; padding-left: .4rem !important; text-align: center; }

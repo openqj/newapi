@@ -6,16 +6,20 @@ describe("application route registry", () => {
     const navigation = getPrimaryNavigation();
 
     expect(Object.keys(appRoutes)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "merchantCenter", "personalCenter", "settings",
     ]);
     expect(navigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "offers", "personalCenter", "settings",
     ]);
     navigation.forEach(({ view }) => expect(appRoutes[view].createPage).toBeTypeOf("function"));
   });
 
-  it("does not hide local navigation for a signed-in personal-center account", () => {
-    const navigation = getPrimaryNavigation({} as unknown as AppRouteContext);
+  it("shows Pro synchronization and merchant controls only to their roles", () => {
+    const proNavigation = getPrimaryNavigation({ accountRole: "pro" } as AppRouteContext);
+    expect(proNavigation.map((item) => item.view)).toEqual([
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
+    ]);
+    const navigation = getPrimaryNavigation({ accountRole: "merchant" } as AppRouteContext);
     expect(navigation.map((item) => item.view)).toEqual([
       "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
     ]);

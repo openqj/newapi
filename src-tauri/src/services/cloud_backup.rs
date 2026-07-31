@@ -21,8 +21,11 @@ use crate::{
     },
     login_profiles::LoginProfileStore,
     personal_center_store::{
-        ClaimedMerchantAccount, MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer,
-        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
+        AdminMerchantFreeAccount, AdminMerchantFreeAccountInput, AdminMerchantProfile,
+        AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
+        ClaimedMerchantAccount,
+        MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer, MerchantProfile,
+        MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
         PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
         PublishMerchantRateRequest, PublishNotificationRequest,
     },
@@ -481,7 +484,7 @@ pub(crate) async fn merchant_rate_shares(state: &AppState) -> Result<Vec<Merchan
     let response = state.client
         .get(format!("{}/rest/v1/merchant_rate_shares", config.url))
         .headers(public_postgrest_headers(&config)?)
-        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,published_at,merchant_profiles!inner(merchant_name,qq,qq_link,wechat_qr_url)"), ("active", "eq.true"), ("order", "published_at.desc")])
+        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,pinned,published_at,merchant_profiles!inner(merchant_name,qq,qq_link,wechat_qr_url)"), ("active", "eq.true"), ("order", "pinned.desc,published_at.desc")])
         .send().await.map_err(|error| error.to_string())?;
     Ok(response_json::<Vec<CloudMerchantRateShare>>(response).await?.into_iter().map(Into::into).collect())
 }
@@ -492,6 +495,7 @@ pub(crate) async fn publish_merchant_rate(state: &AppState, request: &PublishMer
         .post(format!("{}/rest/v1/merchant_rate_shares", config.url))
         .headers(postgrest_headers(&config, &current)?)
         .header("Prefer", "resolution=merge-duplicates")
+        .query(&[("on_conflict", "merchant_id,station_url,group_name")])
         .json(&serde_json::json!({
             "merchant_id": current.user_id,
             "station_name": request.station_name,
@@ -533,6 +537,134 @@ pub(crate) async fn merchant_free_offers(state: &AppState) -> Result<Vec<Merchan
     Ok(response_json::<Vec<CloudMerchantFreeOffer>>(response).await?.into_iter().map(Into::into).collect())
 }
 
+pub(crate) async fn admin_merchant_profiles(state: &AppState) -> Result<Vec<AdminMerchantProfile>, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .get(format!("{}/rest/v1/merchant_profiles", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("select", "user_id,merchant_name,qq,qq_link,wechat_qr_url"), ("order", "merchant_name.asc")])
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<AdminMerchantProfile>>(response).await?)
+}
+
+pub(crate) async fn save_admin_merchant_profile(state: &AppState, profile: &AdminMerchantProfileInput) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .patch(format!("{}/rest/v1/merchant_profiles", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("user_id", format!("eq.{}", profile.user_id))])
+        .json(&serde_json::json!({
+            "user_id": profile.user_id,
+            "merchant_name": profile.merchant_name,
+            "qq": profile.qq,
+            "qq_link": profile.qq_link,
+            "wechat_qr_url": profile.wechat_qr_url,
+        }))
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
+pub(crate) async fn admin_merchant_rate_shares(state: &AppState) -> Result<Vec<AdminMerchantRateShare>, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .get(format!("{}/rest/v1/merchant_rate_shares", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("select", "id,merchant_id,station_name,station_url,group_name,multiplier_summary,pinned,published_at,merchant_profiles!inner(merchant_name)"), ("order", "pinned.desc,published_at.desc")])
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<CloudAdminMerchantRateShare>>(response).await?.into_iter().map(Into::into).collect())
+}
+
+pub(crate) async fn save_admin_merchant_rate_share(state: &AppState, share: &AdminMerchantRateShareInput) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let payload = serde_json::json!({
+        "merchant_id": share.merchant_id,
+        "station_name": share.station_name,
+        "station_url": share.station_url,
+        "group_name": share.group_name,
+        "multiplier_summary": share.multiplier_summary,
+        "pinned": share.pinned,
+        "active": true,
+    });
+    let response = if let Some(id) = &share.id {
+        state.client.patch(format!("{}/rest/v1/merchant_rate_shares", config.url))
+            .headers(postgrest_headers(&config, &current)?)
+            .query(&[("id", format!("eq.{id}"))])
+            .json(&payload)
+            .send().await.map_err(|error| error.to_string())?
+    } else {
+        state.client.post(format!("{}/rest/v1/merchant_rate_shares", config.url))
+            .headers(postgrest_headers(&config, &current)?)
+            .json(&payload)
+            .send().await.map_err(|error| error.to_string())?
+    };
+    ensure_success(response).await
+}
+
+pub(crate) async fn delete_admin_merchant_rate_share(state: &AppState, id: &str) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .delete(format!("{}/rest/v1/merchant_rate_shares", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("id", format!("eq.{id}"))])
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
+pub(crate) async fn admin_merchant_free_accounts(state: &AppState) -> Result<Vec<AdminMerchantFreeAccount>, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .get(format!("{}/rest/v1/merchant_free_accounts", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("select", "id,merchant_id,station_name,station_url,username,password,station_kind,quota,pinned,created_at,claimed_by,merchant_profiles!inner(merchant_name)"), ("order", "pinned.desc,created_at.desc")])
+        .send().await.map_err(|error| error.to_string())?;
+    Ok(response_json::<Vec<CloudAdminMerchantFreeAccount>>(response).await?.into_iter().map(Into::into).collect())
+}
+
+pub(crate) async fn save_admin_merchant_free_account(state: &AppState, account: &AdminMerchantFreeAccountInput) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let payload = serde_json::json!({
+        "merchant_id": account.merchant_id,
+        "station_name": account.station_name,
+        "station_url": account.station_url,
+        "username": account.username,
+        "password": account.password,
+        "station_kind": account.station_kind,
+        "quota": account.quota,
+        "pinned": account.pinned,
+    });
+    let response = if let Some(id) = &account.id {
+        state.client.patch(format!("{}/rest/v1/merchant_free_accounts", config.url))
+            .headers(postgrest_headers(&config, &current)?)
+            .query(&[("id", format!("eq.{id}"))])
+            .json(&payload)
+            .send().await.map_err(|error| error.to_string())?
+    } else {
+        state.client.post(format!("{}/rest/v1/merchant_free_accounts", config.url))
+            .headers(postgrest_headers(&config, &current)?)
+            .json(&payload)
+            .send().await.map_err(|error| error.to_string())?
+    };
+    ensure_success(response).await
+}
+
+pub(crate) async fn delete_admin_merchant_free_account(state: &AppState, id: &str) -> Result<(), String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state.client
+        .delete(format!("{}/rest/v1/merchant_free_accounts", config.url))
+        .headers(postgrest_headers(&config, &current)?)
+        .query(&[("id", format!("eq.{id}"))])
+        .send().await.map_err(|error| error.to_string())?;
+    ensure_success(response).await
+}
+
 pub(crate) async fn claim_merchant_account(state: &AppState, offer_id: &str) -> Result<ClaimedMerchantAccount, String> {
     let config = config()?;
     let current = verified_session(state, &config).await?;
@@ -563,15 +695,30 @@ impl From<CloudMerchantProfile> for MerchantProfile {
 }
 
 #[derive(Deserialize)]
-struct CloudMerchantRateShare { id: String, station_name: String, station_url: String, group_name: String, multiplier_summary: String, published_at: i64, merchant_profiles: CloudMerchantProfile }
+struct CloudMerchantRateShare { id: String, station_name: String, station_url: String, group_name: String, multiplier_summary: String, pinned: bool, published_at: i64, merchant_profiles: CloudMerchantProfile }
 impl From<CloudMerchantRateShare> for MerchantRateShare {
-    fn from(value: CloudMerchantRateShare) -> Self { Self { id: value.id, merchant_name: value.merchant_profiles.merchant_name, station_name: value.station_name, station_url: value.station_url, group_name: value.group_name, multiplier_summary: value.multiplier_summary, qq: value.merchant_profiles.qq, qq_link: value.merchant_profiles.qq_link, wechat_qr_url: value.merchant_profiles.wechat_qr_url, published_at: value.published_at } }
+    fn from(value: CloudMerchantRateShare) -> Self { Self { id: value.id, merchant_name: value.merchant_profiles.merchant_name, station_name: value.station_name, station_url: value.station_url, group_name: value.group_name, multiplier_summary: value.multiplier_summary, qq: value.merchant_profiles.qq, qq_link: value.merchant_profiles.qq_link, wechat_qr_url: value.merchant_profiles.wechat_qr_url, pinned: value.pinned, published_at: value.published_at } }
 }
 
 #[derive(Deserialize)]
-struct CloudMerchantFreeOffer { id: String, merchant_name: String, station_name: String, station_url: String, quota: f64, published_at: i64 }
+struct CloudMerchantFreeOffer { id: String, merchant_name: String, station_name: String, station_url: String, quota: f64, pinned: bool, published_at: i64 }
 impl From<CloudMerchantFreeOffer> for MerchantFreeOffer {
-    fn from(value: CloudMerchantFreeOffer) -> Self { Self { id: value.id, merchant_name: value.merchant_name, station_name: value.station_name, station_url: value.station_url, quota: value.quota, published_at: value.published_at } }
+    fn from(value: CloudMerchantFreeOffer) -> Self { Self { id: value.id, merchant_name: value.merchant_name, station_name: value.station_name, station_url: value.station_url, quota: value.quota, pinned: value.pinned, published_at: value.published_at } }
+}
+
+#[derive(Deserialize)]
+struct CloudMerchantName { merchant_name: String }
+
+#[derive(Deserialize)]
+struct CloudAdminMerchantRateShare { id: String, merchant_id: String, station_name: String, station_url: String, group_name: String, multiplier_summary: String, pinned: bool, published_at: i64, merchant_profiles: CloudMerchantName }
+impl From<CloudAdminMerchantRateShare> for AdminMerchantRateShare {
+    fn from(value: CloudAdminMerchantRateShare) -> Self { Self { id: value.id, merchant_id: value.merchant_id, merchant_name: value.merchant_profiles.merchant_name, station_name: value.station_name, station_url: value.station_url, group_name: value.group_name, multiplier_summary: value.multiplier_summary, pinned: value.pinned, published_at: value.published_at } }
+}
+
+#[derive(Deserialize)]
+struct CloudAdminMerchantFreeAccount { id: String, merchant_id: String, station_name: String, station_url: String, username: String, password: String, station_kind: String, quota: f64, pinned: bool, created_at: i64, claimed_by: Option<String>, merchant_profiles: CloudMerchantName }
+impl From<CloudAdminMerchantFreeAccount> for AdminMerchantFreeAccount {
+    fn from(value: CloudAdminMerchantFreeAccount) -> Self { Self { id: value.id, merchant_id: value.merchant_id, merchant_name: value.merchant_profiles.merchant_name, station_name: value.station_name, station_url: value.station_url, username: value.username, password: value.password, station_kind: value.station_kind, quota: value.quota, pinned: value.pinned, claimed: value.claimed_by.is_some(), created_at: value.created_at } }
 }
 
 #[derive(Deserialize)]

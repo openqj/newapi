@@ -38,10 +38,7 @@ export function LoginProfilesPage({
     <>
       <div>
         <div>
-          <p className="text-sm text-slate-500">
-            复用中转站登录凭据
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">常用登录</h1>
+          <h1 className="text-2xl font-semibold">常用登录</h1>
         </div>
       </div>
       <LoginProfileTableManager

@@ -128,7 +128,7 @@ export function LoginProfileTableManager({
     return (
       <button
         type="button"
-        className="profile-cell-display"
+        className={`profile-cell-display profile-cell-${field}`}
         aria-label={`编辑${labels[field]}`}
         onClick={() => setEditingCell({ index, field })}
       >

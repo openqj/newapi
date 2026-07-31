@@ -202,12 +202,13 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   personalCenter: {
     view: "personalCenter",
     navigation: { label: "个人中心", Icon: UserRound },
-    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences, onPersonalCenterAuthChanged }) => (
+    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences, onPersonalCenterAuthChanged, navigate }) => (
       <PersonalCenterPage
         accountRows={accountRows}
         preferences={personalCenterNotificationPreferences}
         onPreferencesChange={onSavePersonalCenterNotificationPreferences}
         onAuthChanged={onPersonalCenterAuthChanged}
+        onNavigate={navigate}
       />
     ),
   },
@@ -230,6 +231,7 @@ export function createRoutePage(view: AppView): ReactNode {
 export function getPrimaryNavigation(context?: AppRouteContext): readonly NavigationItem[] {
   return (Object.values(appRoutes) as AppRoute[])
     .filter((route): route is AppRoute & { navigation: NonNullable<AppRoute["navigation"]> } => Boolean(route.navigation))
+    .filter((route) => route.view !== "merchantCenter")
     .filter((route) => !route.navigation.roles || route.navigation.roles.includes(context?.accountRole ?? "member"))
     .map(({ view, navigation }) => ({ view: view as Exclude<AppView, "profiles">, ...navigation }));
 }

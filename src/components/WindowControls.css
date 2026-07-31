@@ -1,0 +1,19 @@
+.window-controls { display: flex; align-self: stretch; }
+.window-control-button { display: inline-flex; width: 2.875rem; flex: 0 0 2.875rem; align-items: center; justify-content: center; border: 0; background: transparent; color: #475569; }
+.window-control-button:hover { background: #f0ecea; color: #1f2937; }
+.window-control-button.window-close-button:hover { background: #dc2626; color: #fff; }
+.window-control-icon { position: relative; display: block; width: .65rem; height: .65rem; color: currentColor; }
+.window-minimize-icon::after { position: absolute; right: 0; bottom: 0; left: 0; height: 1px; background: currentColor; content: ""; }
+.window-maximize-icon { border: 1px solid currentColor; }
+.window-restore-icon { border: 1px solid currentColor; }
+.window-restore-icon::after { position: absolute; top: -.2rem; left: .2rem; width: .55rem; height: .55rem; border: 1px solid currentColor; background: #fff; content: ""; }
+.window-close-icon::before, .window-close-icon::after { position: absolute; top: 50%; left: 50%; width: .82rem; height: 1px; background: currentColor; content: ""; }
+.window-close-icon::before { transform: translate(-50%, -50%) rotate(45deg); }
+.window-close-icon::after { transform: translate(-50%, -50%) rotate(-45deg); }
+
+@media (prefers-color-scheme: dark) {
+  .window-control-button { color: #c8c8c8; }
+  .window-control-button:hover { background: #303030; color: #fff; }
+  .window-control-button.window-close-button:hover { background: #dc2626; }
+  .window-restore-icon::after { background: #1c1c1c; }
+}

@@ -6,14 +6,13 @@
 .setting-update-progress i { display: block; height: .35rem; overflow: hidden; border-radius: 999px; background: #e2e8f0; }
 .setting-update-progress b { display: block; height: 100%; border-radius: inherit; background: #111; transition: width .2s ease; }
 .app-shell { display: flex; height: 100vh; height: 100dvh; flex-direction: column; overflow: hidden; background: linear-gradient(155deg, #fcf9fa 0%, #f9f2f4 54%, #f5ebee 100%); color: #0f172a; }
-.app-toolbar { position: relative; display: flex; min-height: 2.5rem; flex: 0 0 auto; justify-content: flex-end; overflow: hidden; background: transparent; }
+.app-toolbar { position: relative; display: flex; min-height: 2.5rem; flex: 0 0 auto; overflow: hidden; background: transparent; }
 .app-toolbar-actions { display: flex; min-width: 0; align-items: stretch; }
 .window-drag-region { min-width: 0; flex: 1; }
 .window-titlebar-actions { position: absolute; top: 0; right: 0; display: flex; max-width: 100%; min-width: 0; height: 100%; align-items: stretch; }
 .window-action-button, .window-station-button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #475569; }
 .window-action-button { width: 2.5rem; flex: 0 0 2.5rem; }
 .window-action-button:hover, .window-station-button:hover { background: #f0ecea; color: #1f2937; }
-.window-close-button:hover { background: #dc2626; color: #fff; }
 .window-notification-button { position: relative; }
 .notification-unread-dot { position: absolute; top: .52rem; right: .52rem; width: .45rem; height: .45rem; border: 2px solid #fff; border-radius: 999px; background: #dc2626; }
 .window-station-button { width: fit-content; min-width: 0; max-width: calc(100vw - 10rem); min-height: 2rem; flex: 0 1 auto; align-self: center; gap: .45rem; overflow: hidden; border-radius: 7px; padding: 0 .75rem; font-size: .8125rem; white-space: nowrap; }

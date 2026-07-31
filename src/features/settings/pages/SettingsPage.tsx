@@ -62,7 +62,7 @@ function AlertSettingsPanel() {
 function ProfilesSettings({ demoProfiles }: { demoProfiles: LoginProfile[] }) {
   return <>
     <LoginProfilesPage demoProfiles={demoProfiles} />
-    <Panel className="settings-panel">
+    <Panel className="settings-panel credential-storage-panel">
       <SettingRow title="凭据存储" description="账号密码和登录态使用 Windows Credential Manager 保存。" value="系统凭据库" />
     </Panel>
   </>;

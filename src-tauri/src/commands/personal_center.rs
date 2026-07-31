@@ -2,11 +2,15 @@ use std::collections::BTreeSet;
 
 use tauri::State;
 use url::Url;
+use uuid::Uuid;
 
 use crate::{
     personal_center_store::{
-        ClaimedMerchantAccount, MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer,
-        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
+        AdminMerchantFreeAccount, AdminMerchantFreeAccountInput, AdminMerchantProfile,
+        AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
+        ClaimedMerchantAccount,
+        MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer, MerchantProfile,
+        MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
         PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
         PersonalCenterStore, PublishMerchantRateRequest, PublishNotificationRequest,
     },
@@ -55,6 +59,10 @@ fn validate_text(value: &str, field: &str) -> Result<String, String> {
         ));
     }
     Ok(value.to_string())
+}
+
+fn validate_uuid(value: &str, field: &str) -> Result<String, String> {
+    Uuid::parse_str(value).map(|value| value.to_string()).map_err(|_| format!("{field} must be a valid ID"))
 }
 
 fn validate_email(value: &str) -> Result<String, String> {
@@ -382,6 +390,77 @@ pub(crate) async fn claim_merchant_free_account(state: State<'_, AppState>, offe
 pub(crate) async fn release_merchant_free_account(state: State<'_, AppState>, offer_id: String) -> Result<(), String> {
     let offer_id = validate_text(&offer_id, "Offer ID")?;
     cloud_backup::release_merchant_account(&state, &offer_id).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_admin_merchant_profiles(state: State<'_, AppState>) -> Result<Vec<AdminMerchantProfile>, String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::admin_merchant_profiles(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_admin_merchant_profile(state: State<'_, AppState>, mut profile: AdminMerchantProfileInput) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    profile.user_id = validate_uuid(&profile.user_id, "Merchant ID")?;
+    profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.qq = validate_optional(profile.qq, "QQ", 40)?;
+    profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?.map(|value| validate_https(&value, "QQ link")).transpose()?;
+    profile.wechat_qr_url = validate_optional(profile.wechat_qr_url, "WeChat QR URL", 500)?.map(|value| validate_https(&value, "WeChat QR URL")).transpose()?;
+    cloud_backup::save_admin_merchant_profile(&state, &profile).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_admin_merchant_rate_shares(state: State<'_, AppState>) -> Result<Vec<AdminMerchantRateShare>, String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::admin_merchant_rate_shares(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_admin_merchant_rate_share(state: State<'_, AppState>, mut share: AdminMerchantRateShareInput) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    share.id = share.id.map(|value| validate_uuid(&value, "Rate share ID")).transpose()?;
+    share.merchant_id = validate_uuid(&share.merchant_id, "Merchant ID")?;
+    share.station_name = validate_text(&share.station_name, "Station name")?;
+    share.station_url = validate_https(&share.station_url, "Station URL")?;
+    share.group_name = validate_text(&share.group_name, "Group name")?;
+    share.multiplier_summary = share.multiplier_summary.trim().to_string();
+    if share.multiplier_summary.is_empty() || share.multiplier_summary.len() > 500 || share.multiplier_summary.chars().any(char::is_control) {
+        return Err("Multiplier summary must contain 1 to 500 visible characters".into());
+    }
+    cloud_backup::save_admin_merchant_rate_share(&state, &share).await
+}
+
+#[tauri::command]
+pub(crate) async fn delete_admin_merchant_rate_share(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::delete_admin_merchant_rate_share(&state, &validate_uuid(&id, "Rate share ID")?).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_admin_merchant_free_accounts(state: State<'_, AppState>) -> Result<Vec<AdminMerchantFreeAccount>, String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::admin_merchant_free_accounts(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_admin_merchant_free_account(state: State<'_, AppState>, mut account: AdminMerchantFreeAccountInput) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    account.id = account.id.map(|value| validate_uuid(&value, "Free account ID")).transpose()?;
+    account.merchant_id = validate_uuid(&account.merchant_id, "Merchant ID")?;
+    account.station_name = validate_text(&account.station_name, "Station name")?;
+    account.station_url = validate_https(&account.station_url, "Station URL")?;
+    account.username = validate_optional(Some(account.username), "Username", 254)?.unwrap_or_default();
+    account.password = validate_optional(Some(account.password), "Password", 500)?.unwrap_or_default();
+    if account.username.is_empty() || account.password.is_empty() { return Err("账号和密码不能为空".into()); }
+    if !["auto", "newapi", "sub2api"].contains(&account.station_kind.as_str()) { return Err("站点类型必须是 auto、newapi 或 sub2api".into()); }
+    if !account.quota.is_finite() || account.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
+    cloud_backup::save_admin_merchant_free_account(&state, &account).await
+}
+
+#[tauri::command]
+pub(crate) async fn delete_admin_merchant_free_account(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    require_cloud_admin(&state).await?;
+    cloud_backup::delete_admin_merchant_free_account(&state, &validate_uuid(&id, "Free account ID")?).await
 }
 
 #[cfg(test)]

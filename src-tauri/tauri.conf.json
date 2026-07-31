@@ -13,7 +13,7 @@
     "windows": [
       {
         "title": "RelayHub",
-        "decorations": true,
+        "decorations": false,
         "width": 1200,
         "height": 840,
         "minWidth": 980,
@@ -23,11 +23,11 @@
         "label": "merchant-market",
         "title": "RelayHub 商家信息",
         "url": "/?window=merchant-market",
-        "decorations": true,
+        "decorations": false,
         "visible": false,
-        "width": 680,
+        "width": 340,
         "height": 840,
-        "minWidth": 560,
+        "minWidth": 340,
         "minHeight": 640
       }
     ],

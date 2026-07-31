@@ -7,7 +7,6 @@ use std::{
 };
 
 use reqwest::Method;
-use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use tokio::task::JoinSet;
@@ -45,20 +44,20 @@ pub(crate) async fn redeem_station_code(
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
         .get_station(&station_id)?;
-    if StationAdapter::for_station(&station)? != StationAdapter::NewApi {
-        return Err("当前站点类型暂不支持应用内兑换，请前往站点完成兑换。".into());
-    }
+    let adapter = StationAdapter::for_station(&station)?;
     let mut secret = load_secret(&station.id)?;
     let response = station_request(
         &state,
         &station,
         &mut secret,
         Method::POST,
-        "/api/user/topup",
-        Some(json!({ "key": code })),
+        adapter.redeem_path(),
+        Some(adapter.redeem_body(code)),
     )
     .await?;
-    if response.get("success").and_then(|value| value.as_bool()) == Some(false) {
+    let failed = response.get("success").and_then(|value| value.as_bool()) == Some(false)
+        || response.get("code").and_then(|value| value.as_i64()).is_some_and(|value| value != 0);
+    if failed {
         return Err(response
             .get("message")
             .and_then(|value| value.as_str())

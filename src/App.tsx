@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "./components/ui";
 import { MessagesDialog, useNotifications } from "./features/notifications";
 import { PERSONAL_CENTER_AUTH_CHANGED_EVENT, useNotificationPreferences, usePersonalCenterRealtime } from "./features/personal-center";
 import { AppSidebar } from "./components/AppSidebar";
+import { WindowControls } from "./components/WindowControls";
 import {
   AddStationWithProfiles,
   EmptyWorkspace,
@@ -17,22 +17,23 @@ import {
   emptyUsageSummary,
 } from "./app/demoData";
 import { isTauri } from "./lib/platform";
-import { errorMessage } from "./lib/errors";
 import { settingsApi } from "./features/settings/api";
 import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { AccountRole } from "./features/merchant";
 import type { CloudAuthStatus } from "./features/settings";
 import {
   Bell,
+  Store,
 } from "lucide-react";
 import "./App.css";
 
 const openStationUrl = (url: string) =>
   isTauri() ? openUrl(url) : window.open(url, "_blank", "noopener");
 function App() {
-  const { notify } = useToast();
   const personalCenterNotifications = useNotificationPreferences();
   const [view, setView] = useState<AppView>("overview");
   const [showAdd, setShowAdd] = useState(false);
@@ -40,10 +41,13 @@ function App() {
   const [showMessages, setShowMessages] = useState(false);
   const [activeRelayName, setActiveRelayName] = useState<string | null>(null);
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
+  const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
+    setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
+  }, []);
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
     remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadAccountRows,
-    loadUsageSummary, loadUsageLogs, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
+    loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
   const loadActiveRelayName = useCallback(async () => {
@@ -80,7 +84,7 @@ function App() {
     remoteServers,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
     accountRole,
-    onPersonalCenterAuthChanged: (status) => setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member")),
+    onPersonalCenterAuthChanged: handlePersonalCenterAuthChanged,
     onSavePersonalCenterNotificationPreferences: personalCenterNotifications.saveNotificationPreferences,
     demoLoginProfiles,
     navigate: setView,
@@ -110,7 +114,20 @@ function App() {
   };
   const navigation = getPrimaryNavigation(routeContext);
   const activePage = createRoutePage(view);
-
+  const toggleMerchantWindow = useCallback(async () => {
+    if (!isTauri()) return;
+    const marketWindow = await WebviewWindow.getByLabel("merchant-market");
+    if (!marketWindow) return;
+    if (await marketWindow.isVisible()) {
+      await marketWindow.hide();
+      return;
+    }
+    const mainWindow = getCurrentWindow();
+    const [mainPosition, mainSize] = await Promise.all([mainWindow.outerPosition(), mainWindow.outerSize()]);
+    await marketWindow.setPosition(new PhysicalPosition(mainPosition.x + mainSize.width, mainPosition.y));
+    await marketWindow.show();
+    await marketWindow.setFocus();
+  }, []);
   useEffect(() => { void loadActiveRelayName(); }, [loadActiveRelayName]);
   useEffect(() => {
     if (!isTauri()) return;
@@ -122,10 +139,17 @@ function App() {
     void listen("relayhub:stations-changed", () => void Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()])).then((value) => { unlisten = value; });
     return () => { window.removeEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged); unlisten?.(); };
   }, [loadAccountRows, loadStations, loadUsageSummary]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void listen("relayhub:open-merchant-center", () => setView("merchantCenter")).then((value) => { unlisten = value; });
+    return () => unlisten?.();
+  }, []);
   return (
     <AppRouteProvider value={routeContext}>
     <div className="app-shell min-h-screen text-slate-900">
       <header className="app-toolbar">
+        <div className="window-drag-region" data-tauri-drag-region />
         <div className="app-toolbar-actions">
           {activeRelayName && <button
             type="button"
@@ -136,6 +160,9 @@ function App() {
             <span className="station-status-dot" aria-hidden="true" />
             <span className="window-station-name">{activeRelayName}</span>
           </button>}
+          <button type="button" className="window-action-button window-merchant-button" aria-label="商家信息" title="商家信息" onClick={() => void toggleMerchantWindow()}>
+            <Store size={16} />
+          </button>
           <button
             type="button"
             className="window-action-button window-notification-button"
@@ -146,6 +173,7 @@ function App() {
             <Bell size={16} />
             {unreadCount > 0 && <span className="notification-unread-dot" aria-hidden="true" />}
           </button>
+          <WindowControls />
         </div>
       </header>
       <div className="app-content flex min-h-screen">

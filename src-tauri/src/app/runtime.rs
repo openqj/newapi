@@ -8,7 +8,7 @@ use reqwest::Client;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    Manager, WindowEvent,
+    Manager, PhysicalPosition, PhysicalSize, WindowEvent,
 };
 
 use crate::{
@@ -89,6 +89,24 @@ pub(crate) fn run() {
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
                 sync_caption_colors(&window);
+            }
+            if let (Some(main), Some(market)) = (
+                app.get_webview_window("main"),
+                app.get_webview_window("merchant-market"),
+            ) {
+                let main_size = main.outer_size()?;
+                let main_position = main.outer_position()?;
+                let market_size = market.outer_size()?;
+                let mut x = main_position.x + main_size.width as i32;
+                if let Some(monitor) = main.current_monitor()? {
+                    let work_area = monitor.work_area();
+                    if x + market_size.width as i32 > work_area.position.x + work_area.size.width as i32 {
+                        x = main_position.x - market_size.width as i32;
+                    }
+                }
+                market.set_size(PhysicalSize::new(market_size.width, main_size.height))?;
+                market.set_position(PhysicalPosition::new(x, main_position.y))?;
+                market.show()?;
             }
             if mode == RoutingMode::LocalGateway {
                 let app_handle = app.handle().clone();
@@ -319,6 +337,9 @@ pub(crate) fn run() {
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
+                    if let Some(window) = app.get_webview_window("merchant-market") {
+                        let _ = window.show();
+                    }
                 }
                 "mode-cc-switch" => {
                     let _ = cc_switch.set_checked(true);
@@ -373,6 +394,11 @@ pub(crate) fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    if let Some(market) = window.app_handle().get_webview_window("merchant-market") {
+                        let _ = market.hide();
+                    }
+                }
                 let _ = window.hide();
                 api.prevent_close();
             }
