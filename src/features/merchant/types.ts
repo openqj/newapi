@@ -1,11 +1,13 @@
 export type AccountRole = "member" | "pro" | "merchant" | "admin";
 export type MerchantModel = "claude" | "chatgpt" | "grok";
+export type MerchantTier = "diamond" | "gold" | "silver";
 
 export type MerchantProfile = {
   merchantName: string;
   qq?: string;
   qqLink?: string;
   wechatQrUrl?: string;
+  tier?: MerchantTier;
 };
 
 export type MerchantRateShare = MerchantProfile & {
@@ -26,12 +28,10 @@ export type PublishMerchantRateRequest = {
   multiplierSummary: string;
 };
 
-export type MerchantFreeAccountInput = {
+export type MerchantFreeCodeInput = {
   stationName: string;
   stationUrl: string;
-  username: string;
-  password: string;
-  stationKind: "auto" | "newapi" | "sub2api";
+  redeemCode: string;
   quota: number;
 };
 
@@ -43,6 +43,7 @@ export type MerchantFreeOffer = {
   quota: number;
   pinned: boolean;
   model?: MerchantModel;
+  tier?: MerchantTier;
   publishedAt: number;
 };
 
@@ -52,6 +53,7 @@ export type AdminMerchantProfile = {
   qq?: string;
   qqLink?: string;
   wechatQrUrl?: string;
+  tier?: MerchantTier;
 };
 
 export type AdminMerchantProfileInput = AdminMerchantProfile;
@@ -71,15 +73,13 @@ export type AdminMerchantRateShare = {
 
 export type AdminMerchantRateShareInput = Omit<AdminMerchantRateShare, "id" | "merchantName" | "publishedAt"> & { id?: string };
 
-export type AdminMerchantFreeAccount = {
+export type AdminMerchantFreeCode = {
   id: string;
   merchantId: string;
   merchantName: string;
   stationName: string;
   stationUrl: string;
-  username: string;
-  password: string;
-  stationKind: "auto" | "newapi" | "sub2api";
+  redeemCode: string;
   quota: number;
   pinned: boolean;
   model?: MerchantModel;
@@ -87,13 +87,11 @@ export type AdminMerchantFreeAccount = {
   createdAt: number;
 };
 
-export type AdminMerchantFreeAccountInput = Omit<AdminMerchantFreeAccount, "id" | "merchantName" | "claimed" | "createdAt"> & { id?: string };
+export type AdminMerchantFreeCodeInput = Omit<AdminMerchantFreeCode, "id" | "merchantName" | "claimed" | "createdAt"> & { id?: string };
 
-export type ClaimedMerchantAccount = {
+export type ClaimedMerchantCode = {
   id: string;
   stationName: string;
   stationUrl: string;
-  username: string;
-  password: string;
-  stationKind: "auto" | "newapi" | "sub2api";
+  redeemCode: string;
 };

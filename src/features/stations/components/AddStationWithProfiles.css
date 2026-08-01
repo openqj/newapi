@@ -11,3 +11,5 @@
 .account-profile-menu small { overflow: hidden; color: #8a7f7a; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
 .account-profile-manage { position: absolute; top: 0; right: 0; display: inline-flex; height: 100%; width: 2rem; align-items: center; justify-content: center; border: 0; border-left: 1px solid #e7dfdc; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; }
 .account-profile-manage:hover { background: #f0ecea; color: #2f2c2c; }
+.verification-code-actions { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem; gap: .5rem; }
+.verification-code-actions .button-secondary { width: 6.5rem; white-space: nowrap; }

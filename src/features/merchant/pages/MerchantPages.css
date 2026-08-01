@@ -28,7 +28,9 @@
 .merchant-sort-select { min-width: 4.2rem; border: 0; background-color: transparent; color: #334155; font-size: inherit; font-weight: 600; }
 .merchant-model-select { min-width: 4.8rem; }
 .merchant-card-list { display: grid; gap: .65rem; padding: .35rem .7rem .7rem; }
-.merchant-list-card { min-width: 0; overflow: hidden; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.merchant-list-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.merchant-list-card-pinned { border: .5px solid #22c55e; }
+.merchant-list-card-pinned > header { padding-right: 2.35rem; }
 .merchant-list-card > header { display: flex; min-width: 0; align-items: center; gap: .55rem; padding: .75rem .8rem .55rem; }
 .merchant-card-status { width: .6rem; height: .6rem; flex: 0 0 .6rem; border-radius: 999px; background: #22c55e; }
 .merchant-station-link { display: block; min-width: 0; flex: 1; overflow: hidden; border: 0; background: transparent; padding: 0; color: inherit; text-align: left; }
@@ -38,7 +40,12 @@
 .merchant-station-link strong { color: #1f2937; font-size: .875rem; font-weight: 600; }
 .merchant-station-link small { margin-top: .12rem; color: #64748b; font-size: .7rem; }
 .merchant-station-link:hover strong { color: #111827; text-decoration: underline; text-underline-offset: 2px; }
-.merchant-pinned-badge { display: inline-flex; min-height: 1.15rem; flex: 0 0 auto; align-items: center; gap: .2rem; border: 1px solid #d1d5db; border-radius: 999px; background: #f3f4f6; padding: 0 .36rem; color: #374151; font-size: .625rem; font-weight: 600; line-height: 1; }
+.merchant-pinned-badge { position: absolute; top: .48rem; right: .52rem; z-index: 1; display: inline-flex; color: #16a34a; }
+.merchant-tier-badge { display: inline-flex; min-height: 1.15rem; flex: 0 0 auto; align-items: center; color: #64748b; line-height: 1; }
+.merchant-tier-diamond { color: #2563eb; }
+.merchant-tier-gold { color: #b7791f; }
+.merchant-tier-silver { color: #64748b; }
+.merchant-admin-tier-empty { color: #94a3b8; font-size: .75rem; }
 .merchant-contact-button { min-width: 4.6rem; min-height: 1.7rem; padding: 0 .45rem; font-size: .7rem; white-space: nowrap; }
 .merchant-import-button { min-width: 4.6rem; min-height: 1.7rem; padding: 0 .45rem; font-size: .7rem; white-space: nowrap; }
 .merchant-card-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid #eef2f6; }
@@ -59,12 +66,20 @@
 .merchant-qq-contact .button-primary { width: fit-content; }
 .merchant-wechat-contact img { width: 10rem; aspect-ratio: 1; border: 1px solid #e5e7eb; border-radius: 7px; object-fit: contain; }
 .merchant-wechat-contact p { display: grid; width: 10rem; aspect-ratio: 1; place-items: center; border: 1px dashed #d1d5db; border-radius: 7px; color: #9ca3af; font-size: .75rem; text-align: center; }
+.app-content > main > .content-surface > :is(.merchant-center-page, .merchant-admin-page) { margin-bottom: 0; border: 0; border-radius: 0; background: transparent; padding: 0; box-shadow: none; }
 .merchant-admin-page { display: grid; gap: 1rem; }
 .merchant-admin-page .panel { margin: 0; }
-.merchant-admin-toolbar, .merchant-admin-section-actions { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem; color: #64748b; font-size: .75rem; }
+.merchant-admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem; color: #64748b; font-size: .75rem; }
 .merchant-admin-toolbar-status { display: flex; align-items: center; gap: .55rem; }
+.merchant-admin-tabs { display: flex; gap: .15rem; min-width: max-content; overflow-x: auto; border-bottom: 1px solid #e5e7eb; padding: .35rem .85rem 0; }
+.merchant-admin-tab { border: 0; border-radius: 6px 6px 0 0; background: transparent; padding: .55rem .8rem; color: #64748b; font-size: .8125rem; white-space: nowrap; }
+.merchant-admin-tab:hover { background: #f4f5f6; color: #111827; }
+.merchant-admin-tab.active { background: #111; color: #fff; font-weight: 600; }
+.merchant-admin-tab-panel { min-width: 0; }
+.merchant-admin-tab-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1rem; border-bottom: 1px solid #eef0f3; }
+.merchant-admin-tab-heading h3 { margin: 0; color: var(--ui-text); font-size: .875rem; font-weight: 600; }
+.merchant-admin-tab-heading p { margin: .2rem 0 0; color: var(--ui-muted); font-size: .75rem; }
 .merchant-demo-badge { display: inline-flex; min-height: 1.35rem; align-items: center; border: 1px solid #d1d5db; border-radius: 999px; background: #f3f4f6; padding: 0 .45rem; color: #374151; font-size: .6875rem; font-weight: 600; white-space: nowrap; }
-.merchant-admin-section-actions { border-bottom: 1px solid #eef0f3; }
 .merchant-admin-table-wrap { overflow-x: auto; }
 .merchant-admin-table-wrap table { width: 100%; min-width: 47rem; border-collapse: collapse; }
 .merchant-admin-table-wrap th, .merchant-admin-table-wrap td { padding: .72rem .9rem; border-bottom: 1px solid #eef0f3; color: #334155; font-size: .75rem; text-align: left; vertical-align: middle; }

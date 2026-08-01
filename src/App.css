@@ -13,14 +13,13 @@
 .window-action-button, .window-station-button { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #475569; }
 .window-action-button { width: 2.5rem; flex: 0 0 2.5rem; }
 .window-action-button:hover, .window-station-button:hover { background: #f0ecea; color: #1f2937; }
+.window-action-button:disabled { cursor: wait; opacity: .55; }
 .window-notification-button { position: relative; }
 .notification-unread-dot { position: absolute; top: .52rem; right: .52rem; width: .45rem; height: .45rem; border: 2px solid #fff; border-radius: 999px; background: #dc2626; }
-.window-station-button { width: fit-content; min-width: 0; max-width: calc(100vw - 10rem); min-height: 2rem; flex: 0 1 auto; align-self: center; gap: .45rem; overflow: hidden; border-radius: 7px; padding: 0 .75rem; font-size: .8125rem; white-space: nowrap; }
+.window-station-button { width: fit-content; min-width: 0; max-width: calc(100vw - 22rem); min-height: 2rem; flex: 0 1 auto; align-self: center; overflow: hidden; border-radius: 7px; padding: 0 .65rem; font-size: .8125rem; white-space: nowrap; }
 .window-station-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.station-status-dot { height: .5rem; width: .5rem; flex: 0 0 .5rem; border-radius: 999px; background: #94a3b8; }
-.station-status-dot.online { background: #22c55e; }
-.station-status-dot.partial, .station-status-dot.connecting { background: #f59e0b; }
-.station-status-dot.error { background: #ef4444; }
+.window-station-balance { display: inline-flex; min-width: 7.5rem; flex: 0 0 auto; align-items: baseline; gap: .3rem; align-self: center; padding: 0 .65rem; color: #64748b; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.window-station-balance strong { color: #15803d; font-weight: 650; }
 .app-content { min-height: 0; flex: 1 1 auto; overflow: visible; }
 .app-sidebar { min-height: 0; overflow: hidden; background: transparent; }
 .app-content > main { display: flex; min-height: 0; overflow: visible; }
@@ -32,7 +31,7 @@
 }
 .app-content > main > .content-surface { position:relative; z-index:1; min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; border-top:1px solid rgba(66,48,44,.10); border-left:1px solid rgba(66,48,44,.10); border-radius:16px 0 0 0; background:#fff; padding:1.5rem; box-shadow:-3px 0 8px rgba(66,48,44,.045), 0 -3px 8px rgba(66,48,44,.045); }
 .page-heading { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
-.content-surface > div:first-of-type:not(.mb-4):not(.sub2-page):not(.personal-admin-console) { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
+.content-surface > div:first-of-type:not(.mb-4):not(.sub2-page):not(.personal-admin-console):not(.api-detection-page):not(.merchant-center-page):not(.merchant-admin-page) { margin-bottom:1.25rem; border:1px solid #e7edf4; border-radius:14px; background:#fff; padding:1.1rem 1.25rem; box-shadow:0 1px 3px rgba(15,23,42,.03); }
 .modal .grid.grid-cols-2 { display:block; }
 .modal .grid.grid-cols-2 > label + label { margin-top:1rem; }
 
@@ -108,6 +107,9 @@ tr:hover td { background: #fafafa; }
 .input:focus { border-color: #0f766e; box-shadow: 0 0 0 3px rgba(15,118,110,.12); }
 .input[aria-invalid="true"] { border-color: #e11d48; }
 .field-error { margin-top: .35rem; color: #be123c; font-size: .75rem; line-height: 1rem; }
+.field-message { margin-top: .35rem; font-size: .75rem; line-height: 1rem; }
+.field-message.success { color: #15803d; }
+.field-message.error { color: #be123c; }
 
 /* ── 空单元格 ─────────────────────────────────────────── */
 .empty-cell { text-align: center; color: #94a3b8; padding: 2.5rem 1rem; }
@@ -193,6 +195,8 @@ label { display: block; font-size: .8125rem; font-weight: 500; color: #334155; }
   .window-titlebar { background: transparent; }
   .window-action-button, .window-station-button { color: #c8c8c8; }
   .window-action-button:hover, .window-station-button:hover { background: #303030; color: #fff; }
+  .window-station-balance { color: #a3a3a3; }
+  .window-station-balance strong { color: #4ade80; }
   .app-sidebar { background: transparent; }
   .app-sidebar .nav-item { color: #c8c8c8; }
   .app-sidebar .nav-item:hover,

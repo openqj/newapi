@@ -219,6 +219,17 @@ pub(crate) struct AddStationRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct ImportStationWithCodeRequest {
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) email: String,
+    pub(crate) password: String,
+    pub(crate) verification_code: String,
+    pub(crate) redeem_code: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateStationRequest {
     pub(crate) id: String,
     pub(crate) name: String,
@@ -262,6 +273,14 @@ pub(crate) struct StationConnectionResult {
 pub(crate) struct StationSaveResult {
     pub(crate) station: Station,
     pub(crate) connection: StationConnectionResult,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StationCodeImportResult {
+    pub(crate) station: Station,
+    pub(crate) connection: StationConnectionResult,
+    pub(crate) redemption_message: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -478,6 +497,14 @@ pub(crate) struct SyncProgress {
 pub(crate) struct CodexIntegrationStatus {
     pub(crate) preserve_official_login: bool,
     pub(crate) config_directory: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActiveCodexRelayStatus {
+    pub(crate) name: String,
+    pub(crate) balance: Option<f64>,
+    pub(crate) balance_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

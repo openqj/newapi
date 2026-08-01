@@ -178,7 +178,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   },
   remote: {
     view: "remote",
-    navigation: { label: "远程配置", Icon: ServerCog, roles: ["pro", "merchant", "admin"] },
+    navigation: { label: "远程配置", Icon: ServerCog },
     createPage: ({ remoteServers, keyRows, onRefreshRemoteServers }) => (
       <RemoteConfigPage servers={remoteServers} keyRows={keyRows} onChanged={onRefreshRemoteServers} />
     ),

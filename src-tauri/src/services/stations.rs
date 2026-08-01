@@ -899,6 +899,62 @@ pub(crate) async fn login_request(
     Ok((value, session))
 }
 
+pub(crate) async fn register(
+    client: &Client,
+    station: &Station,
+    email: &str,
+    password: &str,
+    verification_code: &str,
+) -> Result<(), String> {
+    let adapter = StationAdapter::for_station(station)?;
+    login_request(
+        client,
+        station,
+        adapter.register_path(),
+        adapter.register_body(email, password, verification_code),
+    )
+    .await
+    .map(|_| ())
+}
+
+pub(crate) async fn send_registration_verification_code(
+    client: &Client,
+    station: &Station,
+    email: &str,
+) -> Result<String, String> {
+    let adapter = StationAdapter::for_station(station)?;
+    let request = if let Some(body) = adapter.register_verification_body(email) {
+        client.post(endpoint(station, adapter.register_verification_path())).json(&body)
+    } else {
+        client.get(endpoint(station, adapter.register_verification_path())).query(&[("email", email)])
+    };
+    let response = request
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|error| format!("请求失败：{error}"))?;
+    let status = response.status();
+    let value = response
+        .json::<Value>()
+        .await
+        .map_err(|_| format!("站点返回了无法识别的数据 ({status})"))?;
+    if !status.is_success()
+        || value.get("success") == Some(&Value::Bool(false))
+        || value.get("code") == Some(&json!(-1))
+    {
+        return Err(value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("邮箱验证码发送失败")
+            .to_string());
+    }
+    Ok(value
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("邮箱验证码已发送。")
+        .to_string())
+}
+
 pub(crate) async fn authenticate(
     client: &Client,
     station: &Station,
@@ -1271,6 +1327,13 @@ mod tests {
         let balance = newapi_display_balance(&profile, Some(&status)).unwrap();
 
         assert!((balance - 0.203462).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn converts_newapi_quota_to_usd_without_currency_overrides() {
+        let profile = json!({"data": {"quota": 495_000.0}});
+
+        assert_eq!(newapi_display_balance(&profile, None), Some(0.99));
     }
 
     #[test]

@@ -58,6 +58,34 @@ impl StationAdapter {
         }
     }
 
+    pub(crate) fn register_path(self) -> &'static str {
+        match self {
+            Self::Sub2Api => "/api/v1/auth/register",
+            Self::NewApi => "/api/user/register",
+        }
+    }
+
+    pub(crate) fn register_verification_path(self) -> &'static str {
+        match self {
+            Self::Sub2Api => "/api/v1/auth/send-verify-code",
+            Self::NewApi => "/api/verification",
+        }
+    }
+
+    pub(crate) fn register_verification_body(self, email: &str) -> Option<Value> {
+        match self {
+            Self::Sub2Api => Some(json!({"email": email})),
+            Self::NewApi => None,
+        }
+    }
+
+    pub(crate) fn register_body(self, email: &str, password: &str, verification_code: &str) -> Value {
+        match self {
+            Self::Sub2Api => json!({"email": email, "password": password, "verification_code": verification_code, "username": email}),
+            Self::NewApi => json!({"email": email, "username": email, "password": password, "verification_code": verification_code, "aff_code": ""}),
+        }
+    }
+
     pub(crate) fn login_body(self, username: &str, password: &str) -> Value {
         match self {
             Self::Sub2Api => json!({"email": username, "password": password}),
@@ -159,5 +187,13 @@ mod tests {
         assert_eq!(StationAdapter::Sub2Api.redeem_body("sub2-code")["code"], "sub2-code");
         assert_eq!(StationAdapter::NewApi.redeem_path(), "/api/user/topup");
         assert_eq!(StationAdapter::NewApi.redeem_body("newapi-code")["key"], "newapi-code");
+    }
+
+    #[test]
+    fn builds_source_specific_registration_requests() {
+        assert_eq!(StationAdapter::Sub2Api.register_body("a@b.com", "secret", "123456")["email"], "a@b.com");
+        assert_eq!(StationAdapter::NewApi.register_body("a@b.com", "secret", "123456")["verification_code"], "123456");
+        assert_eq!(StationAdapter::Sub2Api.register_verification_body("a@b.com").unwrap()["email"], "a@b.com");
+        assert!(StationAdapter::NewApi.register_verification_body("a@b.com").is_none());
     }
 }

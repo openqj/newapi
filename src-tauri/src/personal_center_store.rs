@@ -109,6 +109,7 @@ pub(crate) struct MerchantProfile {
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
+    pub(crate) tier: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -123,6 +124,7 @@ pub(crate) struct MerchantRateShare {
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
+    pub(crate) tier: Option<String>,
     pub(crate) pinned: bool,
     pub(crate) published_at: i64,
 }
@@ -138,12 +140,10 @@ pub(crate) struct PublishMerchantRateRequest {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MerchantFreeAccountInput {
+pub(crate) struct MerchantFreeCodeInput {
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) username: String,
-    pub(crate) password: String,
-    pub(crate) station_kind: String,
+    pub(crate) redeem_code: String,
     pub(crate) quota: f64,
 }
 
@@ -156,6 +156,7 @@ pub(crate) struct MerchantFreeOffer {
     pub(crate) station_url: String,
     pub(crate) quota: f64,
     pub(crate) pinned: bool,
+    pub(crate) tier: Option<String>,
     pub(crate) published_at: i64,
 }
 
@@ -167,6 +168,7 @@ pub(crate) struct AdminMerchantProfile {
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
+    pub(crate) tier: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -177,6 +179,7 @@ pub(crate) struct AdminMerchantProfileInput {
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
+    pub(crate) tier: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -207,15 +210,13 @@ pub(crate) struct AdminMerchantRateShareInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AdminMerchantFreeAccount {
+pub(crate) struct AdminMerchantFreeCode {
     pub(crate) id: String,
     pub(crate) merchant_id: String,
     pub(crate) merchant_name: String,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) username: String,
-    pub(crate) password: String,
-    pub(crate) station_kind: String,
+    pub(crate) redeem_code: String,
     pub(crate) quota: f64,
     pub(crate) pinned: bool,
     pub(crate) claimed: bool,
@@ -224,27 +225,23 @@ pub(crate) struct AdminMerchantFreeAccount {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AdminMerchantFreeAccountInput {
+pub(crate) struct AdminMerchantFreeCodeInput {
     pub(crate) id: Option<String>,
     pub(crate) merchant_id: String,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) username: String,
-    pub(crate) password: String,
-    pub(crate) station_kind: String,
+    pub(crate) redeem_code: String,
     pub(crate) quota: f64,
     pub(crate) pinned: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ClaimedMerchantAccount {
+pub(crate) struct ClaimedMerchantCode {
     pub(crate) id: String,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) username: String,
-    pub(crate) password: String,
-    pub(crate) station_kind: String,
+    pub(crate) redeem_code: String,
 }
 
 #[cfg(test)]

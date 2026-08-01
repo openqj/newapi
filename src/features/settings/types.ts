@@ -15,6 +15,12 @@ export type CodexIntegrationStatus = {
   configDirectory: string;
 };
 
+export type ActiveCodexRelayStatus = {
+  name: string;
+  balance?: number;
+  balanceError?: string;
+};
+
 export type CloudAuthStatus = {
   configured: boolean;
   email?: string;

@@ -9,12 +9,12 @@ describe("application route registry", () => {
       "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "merchantCenter", "personalCenter", "settings",
     ]);
     expect(navigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
     ]);
     navigation.forEach(({ view }) => expect(appRoutes[view].createPage).toBeTypeOf("function"));
   });
 
-  it("shows Pro synchronization and merchant controls only to their roles", () => {
+  it("shows remote configuration to every role", () => {
     const proNavigation = getPrimaryNavigation({ accountRole: "pro" } as AppRouteContext);
     expect(proNavigation.map((item) => item.view)).toEqual([
       "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",

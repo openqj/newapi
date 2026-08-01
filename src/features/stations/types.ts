@@ -19,6 +19,10 @@ export type StationSaveResult = {
   connection: StationConnectionResult;
 };
 
+export type StationCodeImportResult = StationSaveResult & {
+  redemptionMessage?: string;
+};
+
 export type StationAccountDraft = {
   id: string;
   name: string;

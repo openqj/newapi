@@ -17,7 +17,9 @@
 .remote-config-table .remote-config-select-column { width: 3rem; }
 .remote-config-table .remote-config-id-column { width: 3rem; }
 .remote-config-table .remote-config-status-column { width: 4.5rem; }
-.remote-config-table .remote-config-actions-column { width: 10rem; }
+.remote-config-table .remote-config-actions-column { width: 16rem; }
+.remote-config-table th:last-child { position: sticky; right: 0; z-index: 3; background: #f9fafb; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
+.remote-config-table td:last-child { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
 .remote-config-select-cell { padding-right: .5rem !important; padding-left: .75rem !important; text-align: center; }
 .remote-config-select-cell input { height: 1rem; width: 1rem; accent-color: #1677ff; }
 .remote-config-table .relay-input,
@@ -25,6 +27,12 @@
 .remote-config-table .relay-key-input .input,
 .remote-config-table .min-w-80,
 .remote-config-table .relay-display { min-width: 0; max-width: none; width: 100%; }
+.remote-server-row-actions { display: flex; align-items: center; gap: .15rem; }
+.remote-server-row-actions button { display: flex; min-width: 2.6rem; flex-direction: column; align-items: center; gap: .16rem; border-radius: 6px; padding: .36rem .28rem; color: #6b7280; font-size: .625rem; line-height: 1.1; transition: color .16s, background .16s; }
+.remote-server-row-actions button:hover:not(:disabled) { background: #f3f4f6; color: #2563eb; }
+.remote-server-row-actions .delete:hover:not(:disabled) { background: #fff1f2; color: #e11d48; }
+.remote-server-row-actions .cancel:hover:not(:disabled) { background: #fff7ed; color: #ea580c; }
+.remote-server-row-actions button:disabled { cursor: not-allowed; opacity: .45; }
 .remote-codex-version { display: flex; min-width: 0; align-items: center; gap: .35rem; }
 .remote-codex-version > span { min-width: 0; }
 .remote-codex-action { display: inline-flex; min-height: 1.9rem; flex: 0 0 auto; align-items: center; gap: .25rem; padding: .3rem .45rem; font-size: .75rem; }

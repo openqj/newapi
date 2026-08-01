@@ -63,13 +63,13 @@ export function RemoteServerRow({
     <td>{editingUrl ? <div className="relay-key-input" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) onCancelRelayEdit("url"); }}><input className="input relay-input" autoFocus value={relayDraft.url} onChange={(event) => onRelayDraftChange({ url: event.target.value })} placeholder="输入中转站地址" /><button className="icon-button" title="保存中转配置" disabled={savingRelay} onClick={onSaveRelay}><Check size={16} /></button></div> : <button className="relay-display" onClick={() => onStartRelayEdit("url")}>{server.relayUrl ?? "未配置"}</button>}</td>
     <td>{editingKey ? <div className="relay-key-input" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) onCancelRelayEdit("key"); }}><input className="input" autoFocus type="password" value={relayDraft.key} onChange={(event) => onRelayDraftChange({ key: event.target.value })} placeholder={server.relayKeyMasked ? "已安全保存，输入新密钥以替换" : "输入中转站密钥"} /><button className="icon-button" title="保存中转配置" disabled={savingRelay} onClick={onSaveRelay}><Check size={16} /></button></div> : <button className="relay-display relay-key-display api-key-mask" onClick={() => onStartRelayEdit("key")}>{server.relayKeyMasked ?? "未配置"}</button>}</td>
     <td><details className="relay-switch-select" open={openSelection} onToggle={(event) => onSelectMenuToggle(event.currentTarget)}><summary><span className="truncate">{selectedKeyLabel}</span><ChevronDown size={15} /></summary><div className="relay-switch-options" hidden>{keyRows.map((row) => <button type="button" key={`${row.stationId}:${row.key.id}`} disabled={saving} onClick={() => { onCloseSelection(); onSwitchKey(`${row.stationId}:${row.key.id}`); }}>{row.stationName} · {row.key.name || row.key.id} · {row.key.maskedKey}</button>)}{keyRows.length === 0 && <p className="relay-switch-empty">暂无本地中转站密钥</p>}</div></details></td>
-    <td><div className="flex items-center gap-1">
-      <button className="icon-button" type="button" title="管理服务器" onClick={onOpenEditor}><Pencil size={16} /></button>
-      <button className="icon-button" type="button" title="测试 SSH 连接" disabled={testing} onClick={onTest}><PlugZap size={16} className={testing ? "animate-spin" : ""} /></button>
-      <button className="icon-button" type="button" title="同步记录" disabled={loadingLogs} onClick={onShowLogs}><Clock3 size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-      <button className="icon-button" type="button" title="验证 Codex CLI 实际会话" disabled={verifyingSession} onClick={onVerifySession}><Play size={16} className={verifyingSession ? "animate-spin" : ""} /></button>
-      {operationRunning && <button className="icon-button text-rose-600" type="button" title="取消服务器操作" onClick={onCancelOperation}><X size={16} /></button>}
-      <button className="icon-button text-rose-600" type="button" title="删除服务器" disabled={deleting || operationRunning} onClick={onDelete}><Trash2 size={16} /></button>
+    <td><div className="remote-server-row-actions">
+      <button type="button" className="edit" title="管理服务器" onClick={onOpenEditor}><Pencil size={15} /><span>管理</span></button>
+      <button type="button" className="test" title="测试 SSH 连接" disabled={testing} onClick={onTest}><PlugZap size={15} className={testing ? "animate-spin" : ""} /><span>测试</span></button>
+      <button type="button" className="logs" title="同步记录" disabled={loadingLogs} onClick={onShowLogs}><Clock3 size={15} className={loadingLogs ? "animate-spin" : ""} /><span>记录</span></button>
+      <button type="button" className="verify" title="验证 Codex CLI 实际会话" disabled={verifyingSession} onClick={onVerifySession}><Play size={15} className={verifyingSession ? "animate-spin" : ""} /><span>验证</span></button>
+      {operationRunning && <button type="button" className="cancel" title="取消服务器操作" onClick={onCancelOperation}><X size={15} /><span>取消</span></button>}
+      <button type="button" className="delete" title="删除服务器" disabled={deleting || operationRunning} onClick={onDelete}><Trash2 size={15} /><span>删除</span></button>
     </div></td>
   </tr>;
 }

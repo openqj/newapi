@@ -20,13 +20,15 @@ import { isTauri } from "./lib/platform";
 import { settingsApi } from "./features/settings/api";
 import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { AccountRole } from "./features/merchant";
-import type { CloudAuthStatus } from "./features/settings";
+import { merchantApi, MERCHANT_IMPORT_REQUEST_EVENT, MERCHANT_OFFERS_CHANGED_EVENT } from "./features/merchant";
+import type { AccountRole, ClaimedMerchantCode } from "./features/merchant";
+import type { ActiveCodexRelayStatus, CloudAuthStatus } from "./features/settings";
 import {
   Bell,
+  RefreshCw,
   Store,
 } from "lucide-react";
 import "./App.css";
@@ -38,8 +40,10 @@ function App() {
   const [view, setView] = useState<AppView>("overview");
   const [showAdd, setShowAdd] = useState(false);
   const [editingStation, setEditingStation] = useState<StationAccountDraft | null>(null);
+  const [merchantImport, setMerchantImport] = useState<{ claim: ClaimedMerchantCode; completed: boolean } | null>(null);
   const [showMessages, setShowMessages] = useState(false);
-  const [activeRelayName, setActiveRelayName] = useState<string | null>(null);
+  const [activeRelay, setActiveRelay] = useState<ActiveCodexRelayStatus | null>(null);
+  const [activeRelayRefreshing, setActiveRelayRefreshing] = useState(false);
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
     setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
@@ -50,12 +54,19 @@ function App() {
     loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
-  const loadActiveRelayName = useCallback(async () => {
+  const loadActiveRelay = useCallback(async () => {
     if (!isTauri()) {
-      setActiveRelayName(null);
+      setActiveRelay(null);
       return;
     }
-    setActiveRelayName(await settingsApi.activeCodexRelayName().catch(() => null));
+    setActiveRelayRefreshing(true);
+    try {
+      setActiveRelay(await settingsApi.activeCodexRelayStatus());
+    } catch {
+      setActiveRelay(null);
+    } finally {
+      setActiveRelayRefreshing(false);
+    }
   }, []);
   const notificationSource = useMemo(() => ({
     stations,
@@ -107,7 +118,7 @@ function App() {
     onRefreshUsageLogs: refreshUsageLogs,
     onRefreshRemoteServers: loadRemoteServers,
     onRefreshSupportingData: refreshSupportingData,
-    onCodexRelayChanged: loadActiveRelayName,
+    onCodexRelayChanged: loadActiveRelay,
     onOpenStation: (url) => {
       void openStationUrl(url);
     },
@@ -123,12 +134,20 @@ function App() {
       return;
     }
     const mainWindow = getCurrentWindow();
-    const [mainPosition, mainSize] = await Promise.all([mainWindow.outerPosition(), mainWindow.outerSize()]);
-    await marketWindow.setPosition(new PhysicalPosition(mainPosition.x + mainSize.width, mainPosition.y));
+    const [mainPosition, mainSize, mainInnerSize, marketInnerSize] = await Promise.all([
+      mainWindow.outerPosition(),
+      mainWindow.outerSize(),
+      mainWindow.innerSize(),
+      marketWindow.innerSize(),
+    ]);
+    await Promise.all([
+      marketWindow.setSize(new PhysicalSize(marketInnerSize.width, mainInnerSize.height)),
+      marketWindow.setPosition(new PhysicalPosition(mainPosition.x + mainSize.width, mainPosition.y)),
+    ]);
     await marketWindow.show();
     await marketWindow.setFocus();
   }, []);
-  useEffect(() => { void loadActiveRelayName(); }, [loadActiveRelayName]);
+  useEffect(() => { void loadActiveRelay(); }, [loadActiveRelay]);
   useEffect(() => {
     if (!isTauri()) return;
     const applyAuth = (status: CloudAuthStatus) => setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
@@ -145,21 +164,52 @@ function App() {
     void listen("relayhub:open-merchant-center", () => setView("merchantCenter")).then((value) => { unlisten = value; });
     return () => unlisten?.();
   }, []);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void listen<ClaimedMerchantCode>(MERCHANT_IMPORT_REQUEST_EVENT, (event) => {
+      setShowAdd(false);
+      setEditingStation(null);
+      setMerchantImport((current) => {
+        if (current && !current.completed) void merchantApi.releaseCode(current.claim.id).catch(() => undefined);
+        return { claim: event.payload, completed: false };
+      });
+    }).then((value) => { unlisten = value; });
+    return () => unlisten?.();
+  }, []);
   return (
     <AppRouteProvider value={routeContext}>
     <div className="app-shell min-h-screen text-slate-900">
       <header className="app-toolbar">
         <div className="window-drag-region" data-tauri-drag-region />
         <div className="app-toolbar-actions">
-          {activeRelayName && <button
+          <button
+            type="button"
+            className="window-action-button window-relay-refresh-button"
+            aria-label="刷新当前中转站与余额"
+            title="刷新当前中转站与余额"
+            disabled={activeRelayRefreshing}
+            onClick={() => void loadActiveRelay()}
+          >
+            <RefreshCw size={16} className={activeRelayRefreshing ? "animate-spin" : ""} />
+          </button>
+          {activeRelay && <><button
             type="button"
             className="window-station-button"
-            title={activeRelayName}
+            title={activeRelay.balanceError ? `${activeRelay.name}：${activeRelay.balanceError}` : activeRelay.name}
             onClick={() => setView("keys")}
           >
-            <span className="station-status-dot" aria-hidden="true" />
-            <span className="window-station-name">{activeRelayName}</span>
-          </button>}
+            <span className="window-station-name">{activeRelay.name}</span>
+          </button>
+          {activeRelay.balance != null && <span
+            className="window-station-balance"
+            title={`当前余额 ${activeRelay.balance.toFixed(2)} USD`}
+            aria-label={`余额 ${activeRelay.balance.toFixed(2)} USD`}
+          >
+            <span>余额</span>
+            <strong>{activeRelay.balance.toFixed(2)}</strong>
+            <span>USD</span>
+          </span>}</>}
           <button type="button" className="window-action-button window-merchant-button" aria-label="商家信息" title="商家信息" onClick={() => void toggleMerchantWindow()}>
             <Store size={16} />
           </button>
@@ -217,6 +267,35 @@ function App() {
               setShowAdd(false);
             }
             await Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()]);
+          }}
+        />
+      )}
+      {merchantImport && (
+        <AddStationWithProfiles
+          key={merchantImport.claim.id}
+          demoProfiles={demoLoginProfiles}
+          merchantImport={merchantImport.claim}
+          onClose={() => {
+            const current = merchantImport;
+            setMerchantImport(null);
+            void (async () => {
+              if (!current.completed) await merchantApi.releaseCode(current.claim.id).catch(() => undefined);
+              await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
+            })();
+          }}
+          onManageProfiles={() => {
+            const current = merchantImport;
+            setMerchantImport(null);
+            setView("profiles");
+            void (async () => {
+              if (!current.completed) await merchantApi.releaseCode(current.claim.id).catch(() => undefined);
+              await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
+            })();
+          }}
+          onAdded={async () => {
+            setMerchantImport((current) => current ? { ...current, completed: true } : current);
+            await Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()]);
+            await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
           }}
         />
       )}

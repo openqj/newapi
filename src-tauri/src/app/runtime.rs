@@ -95,8 +95,10 @@ pub(crate) fn run() {
                 app.get_webview_window("merchant-market"),
             ) {
                 let main_size = main.outer_size()?;
+                let main_inner_size = main.inner_size()?;
                 let main_position = main.outer_position()?;
                 let market_size = market.outer_size()?;
+                let market_inner_size = market.inner_size()?;
                 let mut x = main_position.x + main_size.width as i32;
                 if let Some(monitor) = main.current_monitor()? {
                     let work_area = monitor.work_area();
@@ -104,7 +106,10 @@ pub(crate) fn run() {
                         x = main_position.x - market_size.width as i32;
                     }
                 }
-                market.set_size(PhysicalSize::new(market_size.width, main_size.height))?;
+                market.set_size(PhysicalSize::new(
+                    market_inner_size.width,
+                    main_inner_size.height,
+                ))?;
                 market.set_position(PhysicalPosition::new(x, main_position.y))?;
                 market.show()?;
             }

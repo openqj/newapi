@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { MessageCircle, Pin, RefreshCw, Store, UserPlus, X } from "lucide-react";
+import { ArrowUpToLine, MessageCircle, RefreshCw, ShieldCheck, Store, UserPlus, X } from "lucide-react";
 import { EmptyState, FormDialog, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
-import { stationApi, type StationSaveResult } from "../../stations";
-import { merchantApi } from "../api";
+import { merchantApi, MERCHANT_IMPORT_REQUEST_EVENT, MERCHANT_OFFERS_CHANGED_EVENT } from "../api";
 import { DEMO_MERCHANT_CHANGED_EVENT, DEMO_MERCHANT_STORAGE_KEY, demoMarketplaceData } from "../demoData";
-import type { MerchantFreeOffer, MerchantModel, MerchantRateShare } from "../types";
+import type { MerchantFreeOffer, MerchantModel, MerchantRateShare, MerchantTier } from "../types";
 import "./MerchantPages.css";
 
 const external = (url: string) => isTauri() ? openUrl(url) : window.open(url, "_blank", "noopener");
 const multiplierValue = (summary: string) => summary.match(/-?\d+(?:\.\d+)?/)?.[0] ?? summary;
 const merchantModels: MerchantModel[] = ["claude", "chatgpt", "grok"];
 const modelLabel: Record<MerchantModel, string> = { claude: "claude", chatgpt: "chatgpt", grok: "grok" };
+const tierLabel: Record<MerchantTier, string> = { diamond: "钻石", gold: "金牌", silver: "银牌" };
 
 export function MerchantMarketplacePage() {
   const { notify } = useToast();
@@ -68,6 +68,12 @@ export function MerchantMarketplacePage() {
       unlisten?.();
     };
   }, [applyDemoData]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void listen(MERCHANT_OFFERS_CHANGED_EVENT, () => void load()).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, [load]);
   const filteredRates = useMemo(() => rates.filter((item) => selectedModel === "all" || (item.model ?? "chatgpt") === selectedModel), [rates, selectedModel]);
   const filteredOffers = useMemo(() => offers.filter((item) => selectedModel === "all" || (item.model ?? "chatgpt") === selectedModel), [offers, selectedModel]);
   const sortedRates = useMemo(() => [...filteredRates].sort((left, right) => {
@@ -91,15 +97,15 @@ export function MerchantMarketplacePage() {
     setClaiming(offer.id);
     let claimed = false;
     try {
-      const account = await merchantApi.claimAccount(offer.id);
+      const claimedCode = await merchantApi.claimCode(offer.id);
       claimed = true;
-      const result = await stationApi.add<StationSaveResult>({ name: account.stationName, baseUrl: account.stationUrl, username: account.username, password: account.password, kind: account.stationKind, totp: null });
-      if (!result.connection.success) throw new Error(result.connection.reason ?? "站点账号验证失败");
-      await emit("relayhub:stations-changed");
+      await emitTo("main", MERCHANT_IMPORT_REQUEST_EVENT, claimedCode);
+      const mainWindow = await WebviewWindow.getByLabel("main");
+      await mainWindow?.show();
+      await mainWindow?.setFocus();
       setOffers((current) => current.filter((item) => item.id !== offer.id));
-      notify(`${offer.stationName} 已添加到 RelayHub。`, "success");
     } catch (reason) {
-      if (claimed) await merchantApi.releaseAccount(offer.id).catch(() => undefined);
+      if (claimed) await merchantApi.releaseCode(offer.id).catch(() => undefined);
       notify(errorMessage(reason, "导入免费额度失败。"), "error");
     } finally { setClaiming(null); }
   };
@@ -116,11 +122,16 @@ export function MerchantMarketplacePage() {
     <nav className="merchant-market-tabs" role="tablist" aria-label="商家信息分类"><button className={`merchant-market-tab ${tab === "rates" ? "active" : ""}`} role="tab" aria-selected={tab === "rates"} onClick={() => setTab("rates")}>分组倍率</button><button className={`merchant-market-tab ${tab === "free" ? "active" : ""}`} role="tab" aria-selected={tab === "free"} onClick={() => setTab("free")}>免费额度</button></nav>
     <section className="merchant-market-table" role="tabpanel">
       <div className="merchant-list-toolbar"><label>模型：<select className="merchant-sort-select merchant-model-select" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value as "all" | MerchantModel)}><option value="all">全部</option>{merchantModels.map((model) => <option key={model} value={model}>{modelLabel[model]}</option>)}</select></label><label>排序：<select className="merchant-sort-select" value={sortBy} onChange={(event) => setSortBy(event.target.value as "latest" | "name" | "value")}><option value="latest">最新</option><option value="name">商家名</option><option value="value">{tab === "rates" ? "倍率" : "额度"}</option></select></label></div>
-      {tab === "rates" && (sortedRates.length ? <div className="merchant-card-list">{sortedRates.map((item) => <article className="merchant-list-card" key={item.id}><header><span className="merchant-card-status" aria-hidden="true" /><button type="button" className="merchant-station-link" title={`打开 ${item.merchantName}`} onClick={() => void external(item.stationUrl)}><span className="merchant-card-merchant-line"><strong>{item.merchantName}</strong>{item.pinned && <span className="merchant-pinned-badge" title="置顶内容"><Pin size={10} aria-hidden="true" />置顶</span>}</span><small>{item.stationName}</small></button><strong className="merchant-card-highlight merchant-card-primary-value merchant-rate-value" title={`倍率 ${multiplierValue(item.multiplierSummary)} X`}>{multiplierValue(item.multiplierSummary)}<small className="merchant-card-value-unit">X</small></strong></header><div className="merchant-card-stats"><div className="merchant-card-inline-stat"><span>分组</span><strong>{item.groupName}</strong></div><div className="merchant-card-stat-action"><button className="button-secondary merchant-contact-button" title="联系商家" aria-label={`联系 ${item.merchantName}`} onClick={() => setContact(item)}><MessageCircle size={15} />联系</button></div></div></article>)}</div> : <EmptyState message={loading ? "正在加载商家倍率…" : "暂无商家分享的分组倍率。"} />)}
-      {tab === "free" && (sortedOffers.length ? <div className="merchant-card-list">{sortedOffers.map((item) => <article className="merchant-list-card" key={item.id}><header><span className="merchant-card-status" aria-hidden="true" /><button type="button" className="merchant-station-link" title={`打开 ${item.merchantName}`} onClick={() => void external(item.stationUrl)}><span className="merchant-card-merchant-line"><strong>{item.merchantName}</strong>{item.pinned && <span className="merchant-pinned-badge" title="置顶内容"><Pin size={10} aria-hidden="true" />置顶</span>}</span><small>{item.stationName}</small></button><strong className="merchant-card-highlight merchant-card-primary-value merchant-quota-value" title={`免费额度 $${item.quota.toFixed(2)} 元`}>${item.quota.toFixed(2)}<small className="merchant-card-value-unit">元</small></strong></header><div className="merchant-card-stats"><div className="merchant-card-inline-stat"><span>站点</span><strong>{item.stationUrl}</strong></div><div className="merchant-card-stat-action"><button className="button-secondary merchant-import-button" disabled={Boolean(claiming)} onClick={() => void importOffer(item)}><UserPlus size={15} />{claiming === item.id ? "导入中" : "导入"}</button></div></div></article>)}</div> : <EmptyState message={loading ? "正在加载免费额度…" : "暂无可领取的免费额度。"} />)}
+      {tab === "rates" && (sortedRates.length ? <div className="merchant-card-list">{sortedRates.map((item) => <article className={`merchant-list-card ${item.pinned ? "merchant-list-card-pinned" : ""}`} key={item.id}>{item.pinned && <span className="merchant-pinned-badge" title="置顶内容" aria-label="置顶内容"><ArrowUpToLine size={11} aria-hidden="true" /></span>}<header><span className="merchant-card-status" aria-hidden="true" /><button type="button" className="merchant-station-link" title={`打开 ${item.merchantName}`} onClick={() => void external(item.stationUrl)}><span className="merchant-card-merchant-line"><strong>{item.merchantName}</strong><MerchantTierBadge tier={item.tier} /></span><small>{item.stationName}</small></button><strong className="merchant-card-highlight merchant-card-primary-value merchant-rate-value" title={`倍率 ${multiplierValue(item.multiplierSummary)} X`}>{multiplierValue(item.multiplierSummary)}<small className="merchant-card-value-unit">X</small></strong></header><div className="merchant-card-stats"><div className="merchant-card-inline-stat"><span>分组</span><strong>{item.groupName}</strong></div><div className="merchant-card-stat-action"><button className="button-secondary merchant-contact-button" title="联系商家" aria-label={`联系 ${item.merchantName}`} onClick={() => setContact(item)}><MessageCircle size={15} />联系</button></div></div></article>)}</div> : <EmptyState message={loading ? "正在加载商家倍率…" : "暂无商家分享的分组倍率。"} />)}
+      {tab === "free" && (sortedOffers.length ? <div className="merchant-card-list">{sortedOffers.map((item) => <article className={`merchant-list-card ${item.pinned ? "merchant-list-card-pinned" : ""}`} key={item.id}>{item.pinned && <span className="merchant-pinned-badge" title="置顶内容" aria-label="置顶内容"><ArrowUpToLine size={11} aria-hidden="true" /></span>}<header><span className="merchant-card-status" aria-hidden="true" /><button type="button" className="merchant-station-link" title={`打开 ${item.merchantName}`} onClick={() => void external(item.stationUrl)}><span className="merchant-card-merchant-line"><strong>{item.merchantName}</strong><MerchantTierBadge tier={item.tier} /></span><small>{item.stationName}</small></button><strong className="merchant-card-highlight merchant-card-primary-value merchant-quota-value" title={`免费额度 $${item.quota.toFixed(2)} 元`}>${item.quota.toFixed(2)}<small className="merchant-card-value-unit">元</small></strong></header><div className="merchant-card-stats"><div className="merchant-card-inline-stat"><span>站点</span><strong>{item.stationUrl}</strong></div><div className="merchant-card-stat-action"><button className="button-secondary merchant-import-button" disabled={Boolean(claiming)} onClick={() => void importOffer(item)}><UserPlus size={15} />{claiming === item.id ? "导入中" : "导入"}</button></div></div></article>)}</div> : <EmptyState message={loading ? "正在加载免费额度…" : "暂无可领取的免费额度。"} />)}
     </section>
     {contact && <ContactDialog merchant={contact} onClose={() => setContact(null)} />}
   </main>;
+}
+
+function MerchantTierBadge({ tier }: { tier?: MerchantTier }) {
+  if (!tier) return null;
+  return <span className={`merchant-tier-badge merchant-tier-${tier}`} title={`${tierLabel[tier]}商家`} aria-label={`${tierLabel[tier]}商家`}><ShieldCheck size={13} aria-hidden="true" /></span>;
 }
 
 function ContactDialog({ merchant, onClose }: { merchant: MerchantRateShare; onClose: () => void }) {

@@ -1,7 +1,8 @@
-import type { AdminMerchantFreeAccount, AdminMerchantProfile, AdminMerchantRateShare, MerchantFreeOffer, MerchantModel, MerchantRateShare } from "./types";
+import type { AdminMerchantFreeCode, AdminMerchantProfile, AdminMerchantRateShare, MerchantFreeOffer, MerchantModel, MerchantRateShare, MerchantTier } from "./types";
 
 const demoCount = 50;
 const demoModels: MerchantModel[] = ["claude", "chatgpt", "grok"];
+const demoTiers: MerchantTier[] = ["diamond", "gold", "silver"];
 
 export const demoMerchantRates: MerchantRateShare[] = Array.from({ length: demoCount }, (_, index) => {
   const number = String(index + 1).padStart(2, "0");
@@ -39,12 +40,12 @@ export const DEMO_MERCHANT_CHANGED_EVENT = "relayhub:merchant-marketplace-change
 export type DemoMerchantState = {
   profiles: AdminMerchantProfile[];
   rates: AdminMerchantRateShare[];
-  accounts: AdminMerchantFreeAccount[];
+  accounts: AdminMerchantFreeCode[];
 };
 
 const demoProfile = (index: number): AdminMerchantProfile => {
   const number = String(index + 1).padStart(2, "0");
-  return { userId: `demo-merchant-${number}`, merchantName: `模拟商家 ${number}`, qq: `1000${String(index + 1).padStart(4, "0")}`, qqLink: `https://qm.qq.com/demo-${number}`, wechatQrUrl: `https://demo-${number}.example.com/wechat-qr.png` };
+  return { userId: `demo-merchant-${number}`, merchantName: `模拟商家 ${number}`, qq: `1000${String(index + 1).padStart(4, "0")}`, qqLink: `https://qm.qq.com/demo-${number}`, wechatQrUrl: `https://demo-${number}.example.com/wechat-qr.png`, tier: demoTiers[index % demoTiers.length] };
 };
 
 export function createDemoMerchantState(): DemoMerchantState {
@@ -52,7 +53,7 @@ export function createDemoMerchantState(): DemoMerchantState {
   return {
     profiles,
     rates: demoMerchantRates.map((item, index) => ({ id: item.id, merchantId: profiles[index].userId, merchantName: item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, groupName: item.groupName, multiplierSummary: item.multiplierSummary, pinned: item.pinned, model: item.model, publishedAt: item.publishedAt })),
-    accounts: demoMerchantOffers.map((item, index) => ({ id: item.id.replace("demo-offer", "demo-account"), merchantId: profiles[index].userId, merchantName: item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, username: `demo-user-${String(index + 1).padStart(2, "0")}`, password: "demo-password", stationKind: "auto", quota: item.quota, pinned: item.pinned, model: item.model, claimed: false, createdAt: item.publishedAt })),
+    accounts: demoMerchantOffers.map((item, index) => ({ id: item.id.replace("demo-offer", "demo-code"), merchantId: profiles[index].userId, merchantName: item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, redeemCode: `DEMO-FREE-${String(index + 1).padStart(4, "0")}`, quota: item.quota, pinned: item.pinned, model: item.model, claimed: false, createdAt: item.publishedAt })),
   };
 }
 
@@ -63,7 +64,12 @@ export function loadDemoMerchantState(): DemoMerchantState {
     if (!raw) return createDemoMerchantState();
     const parsed = JSON.parse(raw) as DemoMerchantState;
     if (!Array.isArray(parsed.profiles) || !Array.isArray(parsed.rates) || !Array.isArray(parsed.accounts)) return createDemoMerchantState();
-    return parsed;
+    const fallback = createDemoMerchantState();
+    return {
+      ...parsed,
+      profiles: parsed.profiles.map((profile, index) => ({ ...profile, tier: profile.tier ?? demoTiers[index % demoTiers.length] })),
+      accounts: parsed.accounts.map((account, index) => ({ ...account, redeemCode: account.redeemCode ?? fallback.accounts[index % fallback.accounts.length].redeemCode })),
+    };
   } catch {
     return createDemoMerchantState();
   }
@@ -79,11 +85,11 @@ export function demoMarketplaceData(state = loadDemoMerchantState()): { rates: M
   return {
     rates: state.rates.map((item) => {
       const profile = profiles.get(item.merchantId);
-      return { ...item, merchantName: profile?.merchantName ?? item.merchantName, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl };
+    return { ...item, merchantName: profile?.merchantName ?? item.merchantName, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl, tier: profile?.tier };
     }),
     offers: state.accounts.filter((item) => !item.claimed).map((item) => {
       const profile = profiles.get(item.merchantId);
-      return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned: item.pinned, model: item.model, publishedAt: item.createdAt };
+    return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned: item.pinned, model: item.model, tier: profile?.tier, publishedAt: item.createdAt };
     }),
   };
 }

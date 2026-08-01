@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use reqwest::Method;
 use serde_json::{Map, Value};
 use toml_edit::{value, DocumentMut, Item, Table};
 
@@ -11,12 +12,16 @@ use crate::{
     services::{
         api_keys::read_api_key,
         gateway::{current_routing_mode, RoutingMode},
-        stations::title_from_html,
+        stations::{
+            load_authenticated_secret, newapi_display_balance, parse_balance, station_request,
+            title_from_html,
+        },
     },
     settings_store::SettingsStore,
+    station_adapter::{Station, StationAdapter},
     station_store::StationStore,
     support::{api_base_url, station_base},
-    AppState, CodexIntegrationStatus,
+    ActiveCodexRelayStatus, AppState, CodexIntegrationStatus,
 };
 
 const PRESERVE_OFFICIAL_AUTH_SETTING: &str = "preserveCodexOfficialAuthOnSwitch";
@@ -29,28 +34,45 @@ pub(crate) fn status(state: &AppState) -> Result<CodexIntegrationStatus, String>
     })
 }
 
-pub(crate) async fn active_relay_name(state: &AppState) -> Result<Option<String>, String> {
+pub(crate) async fn active_relay_status(
+    state: &AppState,
+) -> Result<Option<ActiveCodexRelayStatus>, String> {
     let config = read_optional(&codex_directory()?.join("config.toml"))?;
-    let Some(relay_url) = active_relay_url(&config) else {
+    let Some((relay_url, relay_key)) = active_relay_credentials(&config) else {
         return Ok(None);
     };
     let relay_root = station_base(&relay_url);
-    let managed_name = state
-        .store
-        .lock()
-        .map_err(|_| "Local database is unavailable".to_string())?
-        .list_stations()?
-        .into_iter()
-        .find(|station| station_base(&station.base_url) == relay_root)
-        .map(|station| station.name)
-        .filter(|name| !name.trim().is_empty());
-    if managed_name.is_some() {
-        return Ok(managed_name);
+    let managed_station = {
+        state
+            .store
+            .lock()
+            .map_err(|_| "Local database is unavailable".to_string())?
+            .list_stations()?
+            .into_iter()
+            .find(|station| station_base(&station.base_url) == relay_root)
+    };
+    if let Some(station) = managed_station {
+        let balance_result = match fetch_config_balance(state, &relay_url, relay_key.as_deref()).await {
+            Ok(balance) => Ok(balance),
+            Err(config_error) => fetch_station_balance(state, &station)
+                .await
+                .map_err(|session_error| format!("{config_error}；登录会话查询失败：{session_error}")),
+        };
+        let (balance, balance_error) = match balance_result {
+            Ok(balance) => (balance, None),
+            Err(error) => (None, Some(error)),
+        };
+        return Ok(Some(ActiveCodexRelayStatus {
+            name: station.name,
+            balance,
+            balance_error,
+        }));
     }
 
+    let balance_result = fetch_config_balance(state, &relay_url, relay_key.as_deref()).await;
     let page = state
         .client
-        .get(relay_root)
+        .get(&relay_root)
         .timeout(Duration::from_secs(10))
         .send()
         .await
@@ -63,7 +85,91 @@ pub(crate) async fn active_relay_name(state: &AppState) -> Result<Option<String>
             .and_then(|html| title_from_html(&html)),
         None => None,
     };
-    Ok(name)
+    Ok(name.map(|name| {
+        let (balance, balance_error) = match balance_result {
+            Ok(balance) => (balance, None),
+            Err(error) => (None, Some(error)),
+        };
+        ActiveCodexRelayStatus { name, balance, balance_error }
+    }))
+}
+
+async fn fetch_config_balance(
+    state: &AppState,
+    base_url: &str,
+    api_key: Option<&str>,
+) -> Result<Option<f64>, String> {
+    let base_url = base_url
+        .trim_end_matches('/')
+        .trim_end_matches("/v1")
+        .trim_end_matches('/');
+    let api_key = api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or("当前 config.toml 没有 API 密钥，无法查询余额".to_string())?;
+    let endpoints = [
+        ("/api/user/self", true),
+        ("/api/v1/user/profile", false),
+        ("/user/balance", false),
+        ("/api/user/balance", false),
+        ("/api/v1/user/balance", false),
+    ];
+    let mut last_error = None;
+    for (path, newapi) in endpoints {
+        let response = state
+            .client
+            .get(format!("{base_url}{path}"))
+            .bearer_auth(api_key)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|error| format!("余额请求失败：{error}"))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("余额响应读取失败：{error}"))?;
+        let Ok(value) = serde_json::from_str::<Value>(&body) else {
+            last_error = Some(format!("余额接口 {path} 返回了非 JSON 数据（HTTP {status}）"));
+            continue;
+        };
+        if !status.is_success() {
+            last_error = Some(format!("余额接口 {path} 返回 HTTP {status}"));
+            continue;
+        }
+        let balance = if newapi {
+            newapi_display_balance(&value, None)
+        } else {
+            parse_balance(&value)
+        };
+        if balance.is_some() {
+            return Ok(balance);
+        }
+        last_error = Some(format!("余额接口 {path} 未返回可识别的余额字段"));
+    }
+    Err(last_error.unwrap_or_else(|| "余额接口不可用".into()))
+}
+
+async fn fetch_station_balance(
+    state: &AppState,
+    station: &Station,
+) -> Result<Option<f64>, String> {
+    let adapter = StationAdapter::for_station(station)?;
+    let mut secret = load_authenticated_secret(state, station).await?;
+    let profile = station_request(
+        state,
+        station,
+        &mut secret,
+        Method::GET,
+        adapter.profile_path(),
+        None,
+    )
+    .await?;
+    if adapter == StationAdapter::NewApi {
+        return Ok(newapi_display_balance(&profile, None));
+    }
+    Ok(parse_balance(&profile))
 }
 
 pub(crate) fn set_preserve_official_login(
@@ -119,18 +225,35 @@ fn codex_directory() -> Result<PathBuf, String> {
 }
 
 fn active_relay_url(config: &str) -> Option<String> {
+    active_relay_credentials(config).map(|(url, _)| url)
+}
+
+fn active_relay_credentials(config: &str) -> Option<(String, Option<String>)> {
     let document = config.parse::<toml::Value>().ok()?;
     let root = document.as_table()?;
     let provider_name = root.get("model_provider")?.as_str()?;
-    root.get("model_providers")?
+    let provider = root.get("model_providers")?
         .as_table()?
         .get(provider_name)?
-        .as_table()?
+        .as_table()?;
+    let url = provider
         .get("base_url")?
-        .as_str()
+        .as_str()?
+        .trim()
+        .to_string();
+    if url.is_empty() {
+        return None;
+    }
+    let key = provider
+        .get("experimental_bearer_token")
+        .or_else(|| provider.get("api_key"))
+        .or_else(|| root.get("experimental_bearer_token"))
+        .or_else(|| root.get("api_key"))
+        .and_then(|value| value.as_str())
         .map(str::trim)
-        .filter(|url| !url.is_empty())
-        .map(str::to_string)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    Some((url, key))
 }
 
 fn apply_to_directory(
@@ -265,7 +388,7 @@ fn restore(path: &Path, source: Option<&str>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_relay_url, apply_to_directory};
+    use super::{active_relay_credentials, active_relay_url, apply_to_directory};
 
     #[test]
     fn reads_the_active_provider_url_from_codex_config() {
@@ -292,6 +415,26 @@ base_url = "https://relay.example/v1"
             None
         );
         assert_eq!(active_relay_url("not valid toml = ["), None);
+    }
+
+    #[test]
+    fn reads_the_active_provider_api_key_for_balance_queries() {
+        let config = r#"
+model_provider = "custom"
+experimental_bearer_token = "sk-root"
+
+[model_providers.custom]
+base_url = "https://relay.example/v1"
+experimental_bearer_token = "sk-provider"
+"#;
+
+        assert_eq!(
+            active_relay_credentials(config),
+            Some((
+                "https://relay.example/v1".into(),
+                Some("sk-provider".into())
+            ))
+        );
     }
 
     #[test]

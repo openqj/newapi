@@ -10,6 +10,8 @@ export const stationApi = {
   syncProgress: <T>() => invokeDesktop<T | null>("get_sync_progress"),
   cancelSync: () => invokeDesktop<void>("cancel_sync"),
   probe: <T>(baseUrl: string) => invokeDesktop<T>("probe_station", { baseUrl }),
+  sendVerificationCode: (baseUrl: string, email: string) => invokeDesktop<string>("send_station_verification_code", { baseUrl, email }),
   add: <T>(request: Record<string, unknown>) => invokeDesktop<T>("add_station", { request }),
+  importWithCode: <T>(request: Record<string, unknown>) => invokeDesktop<T>("import_station_with_code", { request }),
   update: <T>(request: Record<string, unknown>) => invokeDesktop<T>("update_station", { request }),
 };

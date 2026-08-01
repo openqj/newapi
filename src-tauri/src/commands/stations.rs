@@ -7,6 +7,7 @@ use std::{
 };
 
 use reqwest::Method;
+use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 use tokio::task::JoinSet;
@@ -16,18 +17,39 @@ use crate::{
     commands::alerts::notify as notify_alerts,
     keyring_store::{clear_secret, load_secret, save_secret, Secret},
     services::stations::{
-        authenticate, detect_kind, refresh_session, station_request, sync_one,
-        sync_one_authorized, title_from_html,
+        authenticate, detect_kind, refresh_session, register, send_registration_verification_code,
+        station_request, sync_one, sync_one_authorized, title_from_html,
     },
     station_adapter::{Station, StationAdapter},
     station_store::StationStore,
     support::station_base,
-    AddStationRequest, AppState, StationConnectionResult, StationProbe, StationSaveResult,
-    SyncProgress, SyncResult, UpdateStationRequest,
+    AddStationRequest, AppState, ImportStationWithCodeRequest, StationCodeImportResult,
+    StationConnectionResult, StationProbe, StationSaveResult, SyncProgress, SyncResult,
+    UpdateStationRequest,
 };
 use uuid::Uuid;
 
 const MAX_CONCURRENT_STATION_SYNCS: usize = 6;
+
+fn redemption_message(response: &Value) -> Result<String, String> {
+    let failed = response.get("success").and_then(Value::as_bool) == Some(false)
+        || response
+            .get("code")
+            .and_then(Value::as_i64)
+            .is_some_and(|value| value != 0);
+    if failed {
+        return Err(response
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("兑换失败，请检查兑换码。")
+            .to_string());
+    }
+    Ok(response
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("兑换成功，账户余额已更新。")
+        .to_string())
+}
 
 #[tauri::command]
 pub(crate) async fn redeem_station_code(
@@ -55,21 +77,9 @@ pub(crate) async fn redeem_station_code(
         Some(adapter.redeem_body(code)),
     )
     .await?;
-    let failed = response.get("success").and_then(|value| value.as_bool()) == Some(false)
-        || response.get("code").and_then(|value| value.as_i64()).is_some_and(|value| value != 0);
-    if failed {
-        return Err(response
-            .get("message")
-            .and_then(|value| value.as_str())
-            .unwrap_or("兑换失败，请检查兑换码。")
-            .to_string());
-    }
+    let message = redemption_message(&response)?;
     sync_one_authorized(&state, &station.id).await?;
-    Ok(response
-        .get("message")
-        .and_then(|value| value.as_str())
-        .unwrap_or("兑换成功，账户余额已更新。")
-        .to_string())
+    Ok(message)
 }
 
 #[tauri::command]
@@ -104,6 +114,33 @@ pub(crate) async fn probe_station(
             .await
             .ok(),
     })
+}
+
+#[tauri::command]
+pub(crate) async fn send_station_verification_code(
+    state: State<'_, AppState>,
+    base_url: String,
+    email: String,
+) -> Result<String, String> {
+    let parsed = Url::parse(&base_url).map_err(|_| "请输入有效站点地址")?;
+    if parsed.scheme() != "https" {
+        return Err("仅允许 HTTPS 站点地址".into());
+    }
+    let email = email.trim();
+    if email.is_empty() || !email.contains('@') || email.len() > 254 || email.chars().any(char::is_control) {
+        return Err("请输入有效注册邮箱".into());
+    }
+    let base_url = station_base(&base_url);
+    let station = Station {
+        id: "verification-code".into(),
+        name: parsed.host_str().unwrap_or("未命名站点").into(),
+        kind: detect_kind(&state.client, &base_url).await?,
+        base_url,
+        status: "connecting".into(),
+        last_synced_at: None,
+        last_error: None,
+    };
+    send_registration_verification_code(&state.client, &station, email).await
 }
 
 #[tauri::command]
@@ -180,6 +217,103 @@ pub(crate) async fn add_station(
     Ok(StationSaveResult {
         station,
         connection,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn import_station_with_code(
+    state: State<'_, AppState>,
+    request: ImportStationWithCodeRequest,
+) -> Result<StationCodeImportResult, String> {
+    let parsed = Url::parse(&request.base_url).map_err(|_| "请输入有效站点地址")?;
+    if parsed.scheme() != "https" {
+        return Err("仅允许 HTTPS 站点地址".into());
+    }
+    let code = request.redeem_code.trim();
+    if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
+        return Err("请输入有效兑换码".into());
+    }
+    let kind = detect_kind(&state.client, &station_base(&request.base_url)).await?;
+    if kind != "newapi" && kind != "sub2api" {
+        return Err("仅支持 New API 和 Sub2API".into());
+    }
+    let email = request.email.trim();
+    let verification_code = request.verification_code.trim();
+    if email.is_empty() || !email.contains('@') {
+        return Err("请输入有效注册邮箱".into());
+    }
+    if verification_code.is_empty() || verification_code.len() > 32 || verification_code.chars().any(char::is_control) {
+        return Err("请输入有效邮箱验证码".into());
+    }
+    let mut station = Station {
+        id: Uuid::new_v4().to_string(),
+        name: if request.name.trim().is_empty() {
+            parsed.host_str().unwrap_or("未命名站点").to_string()
+        } else {
+            request.name.trim().to_string()
+        },
+        base_url: station_base(&request.base_url),
+        kind,
+        status: "connecting".into(),
+        last_synced_at: None,
+        last_error: None,
+    };
+    let mut secret = Secret {
+        username: email.to_string(),
+        password: request.password,
+        access_token: None,
+        refresh_token: None,
+        newapi_user_id: None,
+        newapi_session: None,
+    };
+    let registration_error = register(&state.client, &station, email, &secret.password, verification_code).await.err();
+    if let Err(reason) = authenticate(&state.client, &station, &mut secret, None).await {
+        station.status = "error".into();
+        return Ok(StationCodeImportResult {
+            station,
+            connection: StationConnectionResult {
+                success: false,
+                status: "error".into(),
+                reason: Some(registration_error.map_or(reason.clone(), |registration| format!("注册失败：{registration}；登录失败：{reason}"))),
+            },
+            redemption_message: None,
+        });
+    }
+    let adapter = StationAdapter::for_station(&station)?;
+    let response = station_request(
+        &state,
+        &station,
+        &mut secret,
+        Method::POST,
+        adapter.redeem_path(),
+        Some(adapter.redeem_body(code)),
+    )
+    .await?;
+    let message = redemption_message(&response)?;
+
+    save_secret(&station.id, &secret)?;
+    station.status = "online".into();
+    if let Err(error) = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_station(&station)
+    {
+        clear_secret(&station.id);
+        return Err(error);
+    }
+    let station = sync_one_authorized(&state, &station.id)
+        .await
+        .map(|result| result.station)
+        .unwrap_or(station);
+    Ok(StationCodeImportResult {
+        station,
+        connection: StationConnectionResult {
+            success: true,
+            status: "online".into(),
+            reason: None,
+        },
+        redemption_message: Some(message),
     })
 }
 

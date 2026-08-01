@@ -114,10 +114,10 @@ pub(crate) fn get_local_cloud_backup_preview(
 }
 
 #[tauri::command]
-pub(crate) async fn get_active_codex_relay_name(
+pub(crate) async fn get_active_codex_relay_status(
     state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    codex_config::active_relay_name(&state).await
+) -> Result<Option<crate::ActiveCodexRelayStatus>, String> {
+    codex_config::active_relay_status(&state).await
 }
 
 #[tauri::command]

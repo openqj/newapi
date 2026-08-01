@@ -5,8 +5,9 @@ import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
 import type { LoginProfile } from "../../profiles";
+import type { ClaimedMerchantCode } from "../../merchant";
 import { stationApi } from "../api";
-import type { StationAccountDraft, StationConnectionResult, StationSaveResult } from "../types";
+import type { StationAccountDraft, StationCodeImportResult, StationConnectionResult, StationSaveResult } from "../types";
 import "./AddStationWithProfiles.css";
 
 export function normalizeStationBaseUrl(value: string) {
@@ -27,24 +28,31 @@ export function AddStationWithProfiles({
   onAdded,
   demoProfiles,
   initial,
+  merchantImport,
 }: {
   onClose: () => void;
   onManageProfiles: () => void;
   onAdded: (keepOpen: boolean) => Promise<void>;
   demoProfiles: LoginProfile[];
   initial?: StationAccountDraft;
+  merchantImport?: ClaimedMerchantCode;
 }) {
   const { notify } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [profiles, setProfiles] = useState<LoginProfile[]>([]);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const accountProfileRef = useRef<HTMLDivElement>(null);
-  const [name, setName] = useState(initial?.name ?? "");
-  const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? ""));
+  const [name, setName] = useState(initial?.name ?? merchantImport?.stationName ?? "");
+  const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? merchantImport?.stationUrl ?? ""));
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
   const [kind, setKind] = useState(initial?.kind ?? "auto");
   const [totp, setTotp] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [sendingVerification, setSendingVerification] = useState(false);
+  const [verificationCooldown, setVerificationCooldown] = useState(0);
+  const [redeemCode, setRedeemCode] = useState(merchantImport?.redeemCode ?? "");
+  const [redemptionResult, setRedemptionResult] = useState<{ success: boolean; message: string } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [connectionResult, setConnectionResult] =
     useState<StationConnectionResult | null>(null);
@@ -70,6 +78,11 @@ export function AddStationWithProfiles({
     window.addEventListener("pointerdown", closeProfileMenu);
     return () => window.removeEventListener("pointerdown", closeProfileMenu);
   }, [showProfileMenu]);
+  useEffect(() => {
+    if (verificationCooldown <= 0) return;
+    const timer = window.setTimeout(() => setVerificationCooldown((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [verificationCooldown]);
   const selectProfile = async (id: string) => {
     if (!id) return;
     try {
@@ -111,22 +124,46 @@ export function AddStationWithProfiles({
       setFieldErrors((current) => ({ ...current, baseUrl: errorMessage(reason, "无法识别该站点，请检查地址。") }));
     }
   };
+  const sendVerificationCode = async () => {
+    const normalizedBaseUrl = normalizeStationBaseUrl(baseUrl);
+    if (!normalizedBaseUrl) {
+      setFieldErrors((current) => ({ ...current, baseUrl: "请输入站点地址" }));
+      return;
+    }
+    if (!username.trim() || !username.includes("@")) {
+      setFieldErrors((current) => ({ ...current, username: "请输入有效注册邮箱" }));
+      return;
+    }
+    setSendingVerification(true);
+    try {
+      const message = await stationApi.sendVerificationCode(normalizedBaseUrl, username.trim());
+      setVerificationCooldown(60);
+      notify(message, "success");
+    } catch (reason) {
+      notify(errorMessage(reason, "邮箱验证码发送失败，请稍后重试。"), "error");
+    } finally {
+      setSendingVerification(false);
+    }
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const keepOpen =
+    const keepOpen = !merchantImport &&
       ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)
         ?.value === "continue";
     const normalizedBaseUrl = normalizeStationBaseUrl(baseUrl);
     const nextErrors = {
       baseUrl: normalizedBaseUrl ? "" : "请输入站点地址",
-      username: initial || username.trim() ? "" : "请输入登录账号",
-      password: initial || password ? "" : "请输入登录密码",
+      username: initial || username.trim() ? "" : merchantImport ? "请输入注册邮箱" : "请输入登录账号",
+      password: initial || password ? "" : merchantImport ? "请输入注册密码" : "请输入登录密码",
+      verificationCode: !merchantImport || verificationCode.trim() ? "" : "请输入邮箱验证码",
+      redeemCode: !merchantImport || redeemCode.trim() ? "" : "请输入兑换码",
     };
     setFieldErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
     if (normalizedBaseUrl !== baseUrl) setBaseUrl(normalizedBaseUrl);
     setSubmitting(true);
     setConnectionResult(null);
+    setRedemptionResult(null);
     try {
       const request = {
           name,
@@ -136,37 +173,49 @@ export function AddStationWithProfiles({
           kind,
           totp: totp || null,
         };
-      const result = initial
+      const result = merchantImport
+        ? await stationApi.importWithCode<StationCodeImportResult>({ name, baseUrl: normalizedBaseUrl, email: username, password, verificationCode, redeemCode })
+        : initial
         ? await stationApi.update<StationSaveResult>({ ...request, id: initial.id })
         : await stationApi.add<StationSaveResult>(request);
       setConnectionResult(result.connection);
       if (result.connection.success) {
-        await onAdded(keepOpen);
+        if (merchantImport) {
+          const message = (result as StationCodeImportResult).redemptionMessage ?? "兑换成功，免费额度已到账。";
+          setRedemptionResult({ success: true, message });
+          notify(message, "success");
+          await onAdded(true);
+        } else {
+          await onAdded(keepOpen);
+        }
       }
     } catch (reason) {
-      notify(errorMessage(reason, "添加站点失败，请检查登录信息后重试。"), "error");
+      const message = errorMessage(reason, merchantImport ? "兑换失败，请检查账号和兑换码后重试。" : "添加站点失败，请检查登录信息后重试。");
+      if (merchantImport) setRedemptionResult({ success: false, message });
+      else notify(message, "error");
     } finally {
       setSubmitting(false);
     }
   };
   return (
     <FormDialog
-      title={initial ? "编辑站点账号" : "添加中转站"}
-      ariaLabel={initial ? "编辑站点账号" : "添加中转站"}
+      title={merchantImport ? "导入免费额度" : initial ? "编辑站点账号" : "添加中转站"}
+      description={merchantImport ? "注册商家中转站账号并兑换免费额度，成功后自动添加到站点账号。" : undefined}
+      ariaLabel={merchantImport ? "导入免费额度" : initial ? "编辑站点账号" : "添加中转站"}
       onClose={onClose}
       onSubmit={submit}
       noValidate
       contentClassName="space-y-4"
       footer={
         <>
-          <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting}>
+          {!merchantImport && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting}>
             {submitting ? "正在连接" : initial ? "保存并继续" : "添加并继续"}
-          </button>
+          </button>}
           <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
-            取消
+            {redemptionResult?.success ? "关闭" : "取消"}
           </button>
-          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting}>
-            {submitting ? "正在连接" : "保存"}
+          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || redemptionResult?.success}>
+            {redemptionResult?.success ? "已导入" : submitting ? (merchantImport ? "正在导入" : "正在连接") : merchantImport ? "导入" : "保存"}
           </button>
         </>
       }
@@ -197,8 +246,19 @@ export function AddStationWithProfiles({
               {fieldErrors.baseUrl && <p className="field-error">{fieldErrors.baseUrl}</p>}
             </label>
             <label>
-              账号
-              <div className="account-input-actions mt-1" ref={accountProfileRef}>
+              {merchantImport ? "注册邮箱" : "账号"}
+              {merchantImport ? <input
+                className="input mt-1"
+                type="email"
+                value={username}
+                onChange={(event) => {
+                  setUsername(event.target.value);
+                  setFieldErrors((current) => ({ ...current, username: "" }));
+                }}
+                aria-invalid={Boolean(fieldErrors.username)}
+                autoComplete="email"
+                placeholder="请输入用于注册的邮箱"
+              /> : <div className="account-input-actions mt-1" ref={accountProfileRef}>
                 <input
                   className="input"
                   value={username}
@@ -271,7 +331,7 @@ export function AddStationWithProfiles({
                 >
                   <Settings size={15} />
                 </button>
-              </div>
+              </div>}
               {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
             </label>
             <label>
@@ -285,12 +345,51 @@ export function AddStationWithProfiles({
                 }}
                 aria-invalid={Boolean(fieldErrors.password)}
                 type="password"
-                autoComplete="current-password"
-                placeholder={initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
+                autoComplete={merchantImport ? "new-password" : "current-password"}
+                placeholder={merchantImport ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
               />
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </label>
-            <label>
+            {merchantImport && <label>
+              邮箱验证码
+              <div className="verification-code-actions mt-1">
+                <input
+                  className="input"
+                  value={verificationCode}
+                  onChange={(event) => {
+                    setVerificationCode(event.target.value);
+                    setFieldErrors((current) => ({ ...current, verificationCode: "" }));
+                    setRedemptionResult(null);
+                  }}
+                  aria-invalid={Boolean(fieldErrors.verificationCode)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="请输入邮箱收到的验证码"
+                />
+                <button type="button" className="button-secondary" disabled={sendingVerification || verificationCooldown > 0} onClick={() => void sendVerificationCode()}>
+                  {sendingVerification ? "发送中" : verificationCooldown > 0 ? `${verificationCooldown} 秒` : "获取验证码"}
+                </button>
+              </div>
+              {fieldErrors.verificationCode && <p className="field-error">{fieldErrors.verificationCode}</p>}
+            </label>}
+            {merchantImport && <label>
+              兑换码
+              <input
+                className="input mt-1"
+                value={redeemCode}
+                onChange={(event) => {
+                  setRedeemCode(event.target.value);
+                  setFieldErrors((current) => ({ ...current, redeemCode: "" }));
+                  setRedemptionResult(null);
+                }}
+                aria-invalid={Boolean(fieldErrors.redeemCode) || redemptionResult?.success === false}
+                autoComplete="off"
+                placeholder="请输入兑换码"
+              />
+              {fieldErrors.redeemCode && <p className="field-error">{fieldErrors.redeemCode}</p>}
+              {redemptionResult && <p className={`field-message ${redemptionResult.success ? "success" : "error"}`} role="status">{redemptionResult.message}</p>}
+            </label>}
+            {!merchantImport && <label>
               站点类型
               <select
                 className="input mt-1"
@@ -301,8 +400,8 @@ export function AddStationWithProfiles({
                 <option value="newapi">New API</option>
                 <option value="sub2api">Sub2API</option>
               </select>
-            </label>
-            <label>
+            </label>}
+            {!merchantImport && <label>
               TOTP 验证码（可选）
               <input
                 className="input mt-1"
@@ -311,12 +410,12 @@ export function AddStationWithProfiles({
                 inputMode="numeric"
                 placeholder="启用二步验证时填入"
               />
-            </label>
+            </label>}
             {connectionResult && (
               <div className={`test-result ${connectionResult.success ? "success" : "error"}`}>
                 {connectionResult.success
-                  ? "站点连接成功"
-                  : `站点验证失败${connectionResult.reason ? `：${connectionResult.reason}` : ""}`}
+                  ? (merchantImport ? "注册、登录与兑换已完成" : "站点连接成功")
+                  : `${merchantImport ? "注册或登录失败" : "站点验证失败"}${connectionResult.reason ? `：${connectionResult.reason}` : ""}`}
               </div>
             )}
     </FormDialog>

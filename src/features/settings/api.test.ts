@@ -9,10 +9,10 @@ import { settingsApi } from "./api";
 describe("settingsApi cloud backup contract", () => {
   beforeEach(() => invokeDesktop.mockReset());
 
-  it("reads the active Codex relay name", async () => {
-    await settingsApi.activeCodexRelayName();
+  it("reads the active Codex relay status", async () => {
+    await settingsApi.activeCodexRelayStatus();
 
-    expect(invokeDesktop).toHaveBeenCalledWith("get_active_codex_relay_name");
+    expect(invokeDesktop).toHaveBeenCalledWith("get_active_codex_relay_status");
   });
 
   it("keeps cloud authentication and backup request shapes stable", async () => {

@@ -6,10 +6,10 @@ use uuid::Uuid;
 
 use crate::{
     personal_center_store::{
-        AdminMerchantFreeAccount, AdminMerchantFreeAccountInput, AdminMerchantProfile,
+        AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile,
         AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
-        ClaimedMerchantAccount,
-        MembershipAccess, MerchantFreeAccountInput, MerchantFreeOffer, MerchantProfile,
+        ClaimedMerchantCode,
+        MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer, MerchantProfile,
         MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
         PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
         PersonalCenterStore, PublishMerchantRateRequest, PublishNotificationRequest,
@@ -59,6 +59,14 @@ fn validate_text(value: &str, field: &str) -> Result<String, String> {
         ));
     }
     Ok(value.to_string())
+}
+
+fn validate_merchant_tier(tier: Option<String>) -> Result<Option<String>, String> {
+    match tier.as_deref() {
+        None => Ok(None),
+        Some("diamond" | "gold" | "silver") => Ok(tier),
+        _ => Err("Merchant tier is invalid".into()),
+    }
 }
 
 fn validate_uuid(value: &str, field: &str) -> Result<String, String> {
@@ -361,18 +369,16 @@ pub(crate) async fn publish_merchant_rate_share(state: State<'_, AppState>, mut 
 }
 
 #[tauri::command]
-pub(crate) async fn import_merchant_free_accounts(state: State<'_, AppState>, mut accounts: Vec<MerchantFreeAccountInput>) -> Result<(), String> {
-    if accounts.is_empty() || accounts.len() > 200 { return Err("每次请导入 1 到 200 个免费账号".into()); }
-    for account in &mut accounts {
-        account.station_name = validate_text(&account.station_name, "Station name")?;
-        account.station_url = validate_https(&account.station_url, "Station URL")?;
-        account.username = validate_optional(Some(account.username.clone()), "Username", 254)?.unwrap_or_default();
-        account.password = validate_optional(Some(account.password.clone()), "Password", 500)?.unwrap_or_default();
-        if account.username.is_empty() || account.password.is_empty() { return Err("账号和密码不能为空".into()); }
-        if !["auto", "newapi", "sub2api"].contains(&account.station_kind.as_str()) { return Err("站点类型必须是 auto、newapi 或 sub2api".into()); }
-        if !account.quota.is_finite() || account.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
+pub(crate) async fn import_merchant_free_codes(state: State<'_, AppState>, mut codes: Vec<MerchantFreeCodeInput>) -> Result<(), String> {
+    if codes.is_empty() || codes.len() > 200 { return Err("每次请导入 1 到 200 个兑换码".into()); }
+    for code in &mut codes {
+        code.station_name = validate_text(&code.station_name, "Station name")?;
+        code.station_url = validate_https(&code.station_url, "Station URL")?;
+        code.redeem_code = validate_optional(Some(code.redeem_code.clone()), "Redeem code", 128)?.unwrap_or_default();
+        if code.redeem_code.is_empty() { return Err("兑换码不能为空".into()); }
+        if !code.quota.is_finite() || code.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
     }
-    cloud_backup::import_merchant_accounts(&state, &accounts).await
+    cloud_backup::import_merchant_codes(&state, &codes).await
 }
 
 #[tauri::command]
@@ -381,15 +387,15 @@ pub(crate) async fn list_merchant_free_offers(state: State<'_, AppState>) -> Res
 }
 
 #[tauri::command]
-pub(crate) async fn claim_merchant_free_account(state: State<'_, AppState>, offer_id: String) -> Result<ClaimedMerchantAccount, String> {
+pub(crate) async fn claim_merchant_free_code(state: State<'_, AppState>, offer_id: String) -> Result<ClaimedMerchantCode, String> {
     let offer_id = validate_text(&offer_id, "Offer ID")?;
-    cloud_backup::claim_merchant_account(&state, &offer_id).await
+    cloud_backup::claim_merchant_code(&state, &offer_id).await
 }
 
 #[tauri::command]
-pub(crate) async fn release_merchant_free_account(state: State<'_, AppState>, offer_id: String) -> Result<(), String> {
+pub(crate) async fn release_merchant_free_code(state: State<'_, AppState>, offer_id: String) -> Result<(), String> {
     let offer_id = validate_text(&offer_id, "Offer ID")?;
-    cloud_backup::release_merchant_account(&state, &offer_id).await
+    cloud_backup::release_merchant_code(&state, &offer_id).await
 }
 
 #[tauri::command]
@@ -406,6 +412,7 @@ pub(crate) async fn save_admin_merchant_profile(state: State<'_, AppState>, mut 
     profile.qq = validate_optional(profile.qq, "QQ", 40)?;
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?.map(|value| validate_https(&value, "QQ link")).transpose()?;
     profile.wechat_qr_url = validate_optional(profile.wechat_qr_url, "WeChat QR URL", 500)?.map(|value| validate_https(&value, "WeChat QR URL")).transpose()?;
+    profile.tier = validate_merchant_tier(profile.tier)?;
     cloud_backup::save_admin_merchant_profile(&state, &profile).await
 }
 
@@ -437,30 +444,28 @@ pub(crate) async fn delete_admin_merchant_rate_share(state: State<'_, AppState>,
 }
 
 #[tauri::command]
-pub(crate) async fn list_admin_merchant_free_accounts(state: State<'_, AppState>) -> Result<Vec<AdminMerchantFreeAccount>, String> {
+pub(crate) async fn list_admin_merchant_free_codes(state: State<'_, AppState>) -> Result<Vec<AdminMerchantFreeCode>, String> {
     require_cloud_admin(&state).await?;
-    cloud_backup::admin_merchant_free_accounts(&state).await
+    cloud_backup::admin_merchant_free_codes(&state).await
 }
 
 #[tauri::command]
-pub(crate) async fn save_admin_merchant_free_account(state: State<'_, AppState>, mut account: AdminMerchantFreeAccountInput) -> Result<(), String> {
+pub(crate) async fn save_admin_merchant_free_code(state: State<'_, AppState>, mut code: AdminMerchantFreeCodeInput) -> Result<(), String> {
     require_cloud_admin(&state).await?;
-    account.id = account.id.map(|value| validate_uuid(&value, "Free account ID")).transpose()?;
-    account.merchant_id = validate_uuid(&account.merchant_id, "Merchant ID")?;
-    account.station_name = validate_text(&account.station_name, "Station name")?;
-    account.station_url = validate_https(&account.station_url, "Station URL")?;
-    account.username = validate_optional(Some(account.username), "Username", 254)?.unwrap_or_default();
-    account.password = validate_optional(Some(account.password), "Password", 500)?.unwrap_or_default();
-    if account.username.is_empty() || account.password.is_empty() { return Err("账号和密码不能为空".into()); }
-    if !["auto", "newapi", "sub2api"].contains(&account.station_kind.as_str()) { return Err("站点类型必须是 auto、newapi 或 sub2api".into()); }
-    if !account.quota.is_finite() || account.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
-    cloud_backup::save_admin_merchant_free_account(&state, &account).await
+    code.id = code.id.map(|value| validate_uuid(&value, "Free code ID")).transpose()?;
+    code.merchant_id = validate_uuid(&code.merchant_id, "Merchant ID")?;
+    code.station_name = validate_text(&code.station_name, "Station name")?;
+    code.station_url = validate_https(&code.station_url, "Station URL")?;
+    code.redeem_code = validate_optional(Some(code.redeem_code), "Redeem code", 128)?.unwrap_or_default();
+    if code.redeem_code.is_empty() { return Err("兑换码不能为空".into()); }
+    if !code.quota.is_finite() || code.quota < 0.0 { return Err("免费额度必须是大于等于 0 的数字".into()); }
+    cloud_backup::save_admin_merchant_free_code(&state, &code).await
 }
 
 #[tauri::command]
-pub(crate) async fn delete_admin_merchant_free_account(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub(crate) async fn delete_admin_merchant_free_code(state: State<'_, AppState>, id: String) -> Result<(), String> {
     require_cloud_admin(&state).await?;
-    cloud_backup::delete_admin_merchant_free_account(&state, &validate_uuid(&id, "Free account ID")?).await
+    cloud_backup::delete_admin_merchant_free_code(&state, &validate_uuid(&id, "Free code ID")?).await
 }
 
 #[cfg(test)]
