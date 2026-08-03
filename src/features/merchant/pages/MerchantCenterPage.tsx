@@ -6,7 +6,7 @@ import { merchantApi } from "../api";
 import type { MerchantFreeCodeInput, MerchantProfile } from "../types";
 import "./MerchantPages.css";
 
-const emptyProfile: MerchantProfile = { merchantName: "", qq: "", qqLink: "", wechatQrUrl: "" };
+const emptyProfile: MerchantProfile = { merchantName: "", description: "", qq: "", qqLink: "", wechatQrUrl: "" };
 
 export function MerchantCenterPage() {
   const { notify } = useToast();
@@ -44,6 +44,7 @@ export function MerchantCenterPage() {
     <Panel title="商家资料" description="公开展示在商家信息窗口中的名称与充值联系方式。">
       <form className="merchant-profile-form" onSubmit={save}>
         <div className="merchant-form-grid"><FormField label="商家名称" required><TextField required value={profile.merchantName} onChange={(event) => setProfile((current) => ({ ...current, merchantName: event.target.value }))} /></FormField><FormField label="QQ"><TextField value={profile.qq ?? ""} onChange={(event) => setProfile((current) => ({ ...current, qq: event.target.value }))} /></FormField></div>
+        <FormField label="商家说明 / 签名"><TextareaField rows={3} maxLength={160} value={profile.description ?? ""} onChange={(event) => setProfile((current) => ({ ...current, description: event.target.value }))} placeholder="例如：稳定高速 · 新用户专享" /></FormField>
         <FormField label="QQ / QQ群福利链接"><TextField type="url" value={profile.qqLink ?? ""} onChange={(event) => setProfile((current) => ({ ...current, qqLink: event.target.value }))} placeholder="https://qm.qq.com/..." /></FormField>
         <FormField label="微信二维码图片地址"><TextField type="url" value={profile.wechatQrUrl ?? ""} onChange={(event) => setProfile((current) => ({ ...current, wechatQrUrl: event.target.value }))} placeholder="https://..." /></FormField>
         <div className="merchant-form-actions"><button className="button-primary" disabled={saving || !profile.merchantName.trim()}><Save size={16} />{saving ? "保存中" : "保存资料"}</button></div>

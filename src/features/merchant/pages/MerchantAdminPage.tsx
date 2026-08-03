@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { emit } from "@tauri-apps/api/event";
 import { Pencil, Pin, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { FormDialog, FormField, Panel, SelectField, TextField, useConfirm, useToast } from "../../../components/ui";
+import { FormDialog, FormField, Panel, SelectField, TextareaField, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { merchantApi } from "../api";
@@ -204,13 +204,14 @@ export function MerchantAdminPage() {
 
 function ProfileEditor({ profile, saving, onClose, onSave }: { profile: AdminMerchantProfile; saving: boolean; onClose: () => void; onSave: (input: AdminMerchantProfileInput) => Promise<void> }) {
   const [merchantName, setMerchantName] = useState(profile.merchantName);
+  const [description, setDescription] = useState(profile.description ?? "");
   const [qq, setQq] = useState(profile.qq ?? "");
   const [qqLink, setQqLink] = useState(profile.qqLink ?? "");
   const [wechatQrUrl, setWechatQrUrl] = useState(profile.wechatQrUrl ?? "");
   const [tier, setTier] = useState<MerchantTier | "">(profile.tier ?? "");
-  const submit = (event: FormEvent) => { event.preventDefault(); void onSave({ userId: profile.userId, merchantName, qq, qqLink, wechatQrUrl, tier: tier || undefined }); };
+  const submit = (event: FormEvent) => { event.preventDefault(); void onSave({ userId: profile.userId, merchantName, description, qq, qqLink, wechatQrUrl, tier: tier || undefined }); };
   return <FormDialog title="编辑商家资料" description="这些资料会显示在副窗口的联系弹窗中。" ariaLabel="商家资料" onClose={onClose} onSubmit={submit} footer={<><button type="button" className="button-secondary" onClick={onClose} disabled={saving}>取消</button><button type="submit" className="button-primary" disabled={saving || !merchantName.trim()}>{saving ? "保存中" : "保存"}</button></>}>
-    <div className="merchant-admin-editor"><FormField label="商家名称" required><TextField autoFocus required value={merchantName} onChange={(event) => setMerchantName(event.target.value)} /></FormField><FormField label="等级徽章"><SelectField value={tier} onChange={(event) => setTier(event.target.value as MerchantTier | "")}><option value="">无</option><option value="diamond">钻石</option><option value="gold">金牌</option><option value="silver">银牌</option></SelectField></FormField><FormField label="QQ"><TextField value={qq} onChange={(event) => setQq(event.target.value)} /></FormField><FormField label="QQ / QQ 群福利链接"><TextField type="url" placeholder="https://qm.qq.com/..." value={qqLink} onChange={(event) => setQqLink(event.target.value)} /></FormField><FormField label="微信二维码图片地址"><TextField type="url" placeholder="https://..." value={wechatQrUrl} onChange={(event) => setWechatQrUrl(event.target.value)} /></FormField></div>
+    <div className="merchant-admin-editor"><FormField label="商家名称" required><TextField autoFocus required value={merchantName} onChange={(event) => setMerchantName(event.target.value)} /></FormField><FormField label="商家说明 / 签名"><TextareaField rows={3} maxLength={160} value={description} onChange={(event) => setDescription(event.target.value)} /></FormField><FormField label="等级徽章"><SelectField value={tier} onChange={(event) => setTier(event.target.value as MerchantTier | "")}><option value="">无</option><option value="diamond">钻石</option><option value="gold">金牌</option><option value="silver">银牌</option></SelectField></FormField><FormField label="QQ"><TextField value={qq} onChange={(event) => setQq(event.target.value)} /></FormField><FormField label="QQ / QQ 群福利链接"><TextField type="url" placeholder="https://qm.qq.com/..." value={qqLink} onChange={(event) => setQqLink(event.target.value)} /></FormField><FormField label="微信二维码图片地址"><TextField type="url" placeholder="https://..." value={wechatQrUrl} onChange={(event) => setWechatQrUrl(event.target.value)} /></FormField></div>
   </FormDialog>;
 }
 

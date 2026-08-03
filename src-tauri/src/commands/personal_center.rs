@@ -356,6 +356,7 @@ pub(crate) async fn save_merchant_profile(
     mut profile: MerchantProfile,
 ) -> Result<MerchantProfile, String> {
     profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.description = validate_optional(profile.description, "Merchant description", 160)?;
     profile.qq = validate_optional(profile.qq, "QQ", 40)?;
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
         .map(|value| validate_https(&value, "QQ link"))
@@ -455,6 +456,7 @@ pub(crate) async fn save_admin_merchant_profile(
     require_cloud_admin(&state).await?;
     profile.user_id = validate_uuid(&profile.user_id, "Merchant ID")?;
     profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.description = validate_optional(profile.description, "Merchant description", 160)?;
     profile.qq = validate_optional(profile.qq, "QQ", 40)?;
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
         .map(|value| validate_https(&value, "QQ link"))

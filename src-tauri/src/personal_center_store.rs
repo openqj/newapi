@@ -106,6 +106,7 @@ pub(crate) struct PersonalCenterRealtimeSession {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MerchantProfile {
     pub(crate) merchant_name: String,
+    pub(crate) description: Option<String>,
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
@@ -117,6 +118,7 @@ pub(crate) struct MerchantProfile {
 pub(crate) struct MerchantRateShare {
     pub(crate) id: String,
     pub(crate) merchant_name: String,
+    pub(crate) description: Option<String>,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
     pub(crate) group_name: String,
@@ -152,6 +154,7 @@ pub(crate) struct MerchantFreeCodeInput {
 pub(crate) struct MerchantFreeOffer {
     pub(crate) id: String,
     pub(crate) merchant_name: String,
+    pub(crate) description: Option<String>,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
     pub(crate) quota: f64,
@@ -165,6 +168,7 @@ pub(crate) struct MerchantFreeOffer {
 pub(crate) struct AdminMerchantProfile {
     pub(crate) user_id: String,
     pub(crate) merchant_name: String,
+    pub(crate) description: Option<String>,
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
@@ -176,6 +180,7 @@ pub(crate) struct AdminMerchantProfile {
 pub(crate) struct AdminMerchantProfileInput {
     pub(crate) user_id: String,
     pub(crate) merchant_name: String,
+    pub(crate) description: Option<String>,
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,

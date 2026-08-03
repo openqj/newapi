@@ -464,7 +464,7 @@ pub(crate) async fn merchant_profile(state: &AppState) -> Result<Option<Merchant
             ("user_id", format!("eq.{}", current.user_id)),
             (
                 "select",
-                "merchant_name,qq,qq_link,wechat_qr_url,tier".into(),
+                "merchant_name,description,qq,qq_link,wechat_qr_url,tier".into(),
             ),
         ])
         .send()
@@ -493,6 +493,7 @@ pub(crate) async fn save_merchant_profile(
         .json(&serde_json::json!({
             "user_id": current.user_id,
             "merchant_name": profile.merchant_name,
+            "description": profile.description,
             "qq": profile.qq,
             "qq_link": profile.qq_link,
             "wechat_qr_url": profile.wechat_qr_url,
@@ -515,7 +516,7 @@ pub(crate) async fn merchant_rate_shares(
     let response = state.client
         .get(format!("{}/rest/v1/merchant_rate_shares", config.url))
         .headers(public_postgrest_headers(&config)?)
-        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,pinned,published_at,merchant_profiles!inner(merchant_name,qq,qq_link,wechat_qr_url,tier)"), ("active", "eq.true"), ("order", "pinned.desc,published_at.desc")])
+        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,pinned,published_at,merchant_profiles!inner(merchant_name,description,qq,qq_link,wechat_qr_url,tier)"), ("active", "eq.true"), ("order", "pinned.desc,published_at.desc")])
         .send().await.map_err(|error| error.to_string())?;
     Ok(response_json::<Vec<CloudMerchantRateShare>>(response)
         .await?
@@ -611,7 +612,7 @@ pub(crate) async fn admin_merchant_profiles(
         .query(&[
             (
                 "select",
-                "user_id,merchant_name,qq,qq_link,wechat_qr_url,tier",
+                "user_id,merchant_name,description,qq,qq_link,wechat_qr_url,tier",
             ),
             ("order", "merchant_name.asc"),
         ])
@@ -635,6 +636,7 @@ pub(crate) async fn save_admin_merchant_profile(
         .json(&serde_json::json!({
             "user_id": profile.user_id,
             "merchant_name": profile.merchant_name,
+            "description": profile.description,
             "qq": profile.qq,
             "qq_link": profile.qq_link,
             "wechat_qr_url": profile.wechat_qr_url,
@@ -834,6 +836,7 @@ pub(crate) async fn release_merchant_code(state: &AppState, offer_id: &str) -> R
 #[derive(Deserialize)]
 struct CloudMerchantProfile {
     merchant_name: String,
+    description: Option<String>,
     qq: Option<String>,
     qq_link: Option<String>,
     wechat_qr_url: Option<String>,
@@ -843,6 +846,7 @@ impl From<CloudMerchantProfile> for MerchantProfile {
     fn from(value: CloudMerchantProfile) -> Self {
         Self {
             merchant_name: value.merchant_name,
+            description: value.description,
             qq: value.qq,
             qq_link: value.qq_link,
             wechat_qr_url: value.wechat_qr_url,
@@ -867,6 +871,7 @@ impl From<CloudMerchantRateShare> for MerchantRateShare {
         Self {
             id: value.id,
             merchant_name: value.merchant_profiles.merchant_name,
+            description: value.merchant_profiles.description,
             station_name: value.station_name,
             station_url: value.station_url,
             group_name: value.group_name,
@@ -885,6 +890,7 @@ impl From<CloudMerchantRateShare> for MerchantRateShare {
 struct CloudMerchantFreeOffer {
     id: String,
     merchant_name: String,
+    description: Option<String>,
     station_name: String,
     station_url: String,
     quota: f64,
@@ -897,6 +903,7 @@ impl From<CloudMerchantFreeOffer> for MerchantFreeOffer {
         Self {
             id: value.id,
             merchant_name: value.merchant_name,
+            description: value.description,
             station_name: value.station_name,
             station_url: value.station_url,
             quota: value.quota,

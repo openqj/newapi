@@ -45,7 +45,7 @@ export type DemoMerchantState = {
 
 const demoProfile = (index: number): AdminMerchantProfile => {
   const number = String(index + 1).padStart(2, "0");
-  return { userId: `demo-merchant-${number}`, merchantName: `模拟商家 ${number}`, qq: `1000${String(index + 1).padStart(4, "0")}`, qqLink: `https://qm.qq.com/demo-${number}`, wechatQrUrl: `https://demo-${number}.example.com/wechat-qr.png`, tier: demoTiers[index % demoTiers.length] };
+  return { userId: `demo-merchant-${number}`, merchantName: `模拟商家 ${number}`, description: `商家自定义说明 ${number} · 稳定高速`, qq: `1000${String(index + 1).padStart(4, "0")}`, qqLink: `https://qm.qq.com/demo-${number}`, wechatQrUrl: `https://demo-${number}.example.com/wechat-qr.png`, tier: demoTiers[index % demoTiers.length] };
 };
 
 export function createDemoMerchantState(): DemoMerchantState {
@@ -67,7 +67,7 @@ export function loadDemoMerchantState(): DemoMerchantState {
     const fallback = createDemoMerchantState();
     return {
       ...parsed,
-      profiles: parsed.profiles.map((profile, index) => ({ ...profile, tier: profile.tier ?? demoTiers[index % demoTiers.length] })),
+      profiles: parsed.profiles.map((profile, index) => ({ ...profile, description: profile.description ?? fallback.profiles[index % fallback.profiles.length].description, tier: profile.tier ?? demoTiers[index % demoTiers.length] })),
       accounts: parsed.accounts.map((account, index) => ({ ...account, redeemCode: account.redeemCode ?? fallback.accounts[index % fallback.accounts.length].redeemCode })),
     };
   } catch {
@@ -85,11 +85,11 @@ export function demoMarketplaceData(state = loadDemoMerchantState()): { rates: M
   return {
     rates: state.rates.map((item) => {
       const profile = profiles.get(item.merchantId);
-    return { ...item, merchantName: profile?.merchantName ?? item.merchantName, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl, tier: profile?.tier };
+    return { ...item, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl, tier: profile?.tier };
     }),
     offers: state.accounts.filter((item) => !item.claimed).map((item) => {
       const profile = profiles.get(item.merchantId);
-    return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned: item.pinned, model: item.model, tier: profile?.tier, publishedAt: item.createdAt };
+    return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned: item.pinned, model: item.model, tier: profile?.tier, publishedAt: item.createdAt };
     }),
   };
 }

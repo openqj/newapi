@@ -4,6 +4,7 @@ export type MerchantTier = "diamond" | "gold" | "silver";
 
 export type MerchantProfile = {
   merchantName: string;
+  description?: string;
   qq?: string;
   qqLink?: string;
   wechatQrUrl?: string;
@@ -38,6 +39,7 @@ export type MerchantFreeCodeInput = {
 export type MerchantFreeOffer = {
   id: string;
   merchantName: string;
+  description?: string;
   stationName: string;
   stationUrl: string;
   quota: number;
@@ -50,6 +52,7 @@ export type MerchantFreeOffer = {
 export type AdminMerchantProfile = {
   userId: string;
   merchantName: string;
+  description?: string;
   qq?: string;
   qqLink?: string;
   wechatQrUrl?: string;
