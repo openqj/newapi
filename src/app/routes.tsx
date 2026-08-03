@@ -17,7 +17,7 @@ import type { AccountRow } from "../features/accounts";
 import type { KeyRow } from "../features/api-keys";
 import type { Offer } from "../features/offers";
 import type { AccountRole } from "../features/merchant";
-import type { CloudAuthStatus } from "../features/settings";
+import type { CloudAuthStatus, SettingsTab } from "../features/settings";
 import type { NotificationPreferences } from "../features/personal-center";
 import type { LoginProfile } from "../features/profiles";
 import type { RateRow } from "../features/rates";
@@ -31,7 +31,6 @@ const ApiKeysPage = lazy(() => import("../features/api-keys/pages/ApiKeysPage").
 const DashboardPage = lazy(() => import("../features/dashboard/pages/DashboardPage").then(({ DashboardPage }) => ({ default: DashboardPage })));
 const OffersPage = lazy(() => import("../features/offers/pages/OffersPage").then(({ OffersPage }) => ({ default: OffersPage })));
 const PersonalCenterPage = lazy(() => import("../features/personal-center/pages/PersonalCenterPage").then(({ PersonalCenterPage }) => ({ default: PersonalCenterPage })));
-const LoginProfilesPage = lazy(() => import("../features/profiles/pages/LoginProfilesPage").then(({ LoginProfilesPage }) => ({ default: LoginProfilesPage })));
 const MerchantCenterPage = lazy(() => import("../features/merchant/pages/MerchantCenterPage").then(({ MerchantCenterPage }) => ({ default: MerchantCenterPage })));
 const RatesPage = lazy(() => import("../features/rates/pages/RatesPage").then(({ RatesPage }) => ({ default: RatesPage })));
 const RemoteConfigPage = lazy(() => import("../features/remote/pages/RemoteConfigPage").then(({ RemoteConfigPage }) => ({ default: RemoteConfigPage })));
@@ -46,7 +45,6 @@ export type AppView =
   | "usage"
   | "apiDetection"
   | "remote"
-  | "profiles"
   | "offers"
   | "merchantCenter"
   | "personalCenter"
@@ -68,6 +66,8 @@ export type AppRouteContext = {
   usageLogs: UsageLog[];
   remoteServers: RemoteServer[];
   demoLoginProfiles: LoginProfile[];
+  settingsTab: SettingsTab;
+  onSettingsTabChange: (tab: SettingsTab) => void;
   personalCenterNotificationPreferences: NotificationPreferences;
   accountRole: AccountRole;
   onPersonalCenterAuthChanged: (status: CloudAuthStatus) => void;
@@ -107,7 +107,7 @@ export type AppRoute = {
 };
 
 export type NavigationItem = {
-  view: Exclude<AppView, "profiles">;
+  view: AppView;
   label: string;
   Icon: LucideIcon;
 };
@@ -183,12 +183,6 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
       <RemoteConfigPage servers={remoteServers} keyRows={keyRows} onChanged={onRefreshRemoteServers} />
     ),
   },
-  profiles: {
-    view: "profiles",
-    createPage: ({ demoLoginProfiles }) => (
-      <LoginProfilesPage demoProfiles={demoLoginProfiles} />
-    ),
-  },
   offers: {
     view: "offers",
     navigation: { label: "优惠中心", Icon: Tags },
@@ -215,7 +209,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   settings: {
     view: "settings",
     navigation: { label: "设置", Icon: Settings },
-    createPage: ({ demoLoginProfiles }) => <SettingsPage demoProfiles={demoLoginProfiles} />,
+    createPage: ({ demoLoginProfiles, settingsTab, onSettingsTabChange }) => <SettingsPage demoProfiles={demoLoginProfiles} activeTab={settingsTab} onActiveTabChange={onSettingsTabChange} />,
   },
 };
 
@@ -231,9 +225,9 @@ export function createRoutePage(view: AppView): ReactNode {
 export function getPrimaryNavigation(context?: AppRouteContext): readonly NavigationItem[] {
   return (Object.values(appRoutes) as AppRoute[])
     .filter((route): route is AppRoute & { navigation: NonNullable<AppRoute["navigation"]> } => Boolean(route.navigation))
-    .filter((route) => route.view !== "merchantCenter")
+    .filter((route) => route.view !== "merchantCenter" && route.view !== "offers")
     .filter((route) => !route.navigation.roles || route.navigation.roles.includes(context?.accountRole ?? "member"))
-    .map(({ view, navigation }) => ({ view: view as Exclude<AppView, "profiles">, ...navigation }));
+    .map(({ view, navigation }) => ({ view, ...navigation }));
 }
 
 /** Backwards-compatible static navigation for consumers without route context. */

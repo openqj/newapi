@@ -40,7 +40,10 @@ document.documentElement.dataset.appMounted = "true";
 const isMerchantWindow = new URLSearchParams(window.location.search).get("window") === "merchant-market";
 const isRegisterWindow = new URLSearchParams(window.location.search).get("window") === "register-account";
 if (isMerchantWindow) document.body.classList.add("merchant-market-body");
-if (isRegisterWindow) document.body.classList.add("register-account-body");
+if (isRegisterWindow) {
+  document.body.classList.add("register-account-body");
+  document.title = "自动注册站点账号";
+}
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

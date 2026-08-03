@@ -12,11 +12,19 @@ export interface MailOAuthStatus {
   clientId: string | null;
 }
 
+export interface MailCodeResult {
+  code: string;
+  subject: string | null;
+  from: string | null;
+  receivedAt: string | null;
+  content: string;
+}
+
 export const registrationApi = {
   mailStatus: (provider: MailProvider) => invokeDesktop<MailOAuthStatus>("get_mail_oauth_status", { provider }),
   saveMailConfig: (provider: MailProvider, clientId: string, clientSecret?: string) => invokeDesktop<MailOAuthStatus>("save_mail_oauth_config", { request: { provider, clientId, clientSecret: clientSecret || null } }),
   connectMail: (provider: MailProvider) => invokeDesktop<MailOAuthStatus>("start_mail_oauth", { provider }),
   disconnectMail: (provider: MailProvider) => invokeDesktop<void>("disconnect_mail_oauth", { provider }),
   saveMailPassword: (provider: MailProvider, email: string, password: string) => invokeDesktop<MailOAuthStatus>("save_mail_password_config", { request: { provider, email, password } }),
-  pollCode: (provider: MailProvider, email: string, stationUrl: string, startedAt: number) => invokeDesktop<string>("poll_registration_code", { request: { provider, email, stationUrl, startedAt } }),
+  pollCode: (provider: MailProvider, email: string, stationUrl: string, startedAt: number) => invokeDesktop<MailCodeResult>("poll_registration_code", { request: { provider, email, stationUrl, startedAt } }),
 };

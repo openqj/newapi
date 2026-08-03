@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@tauri-apps/api/event";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, ScrollText } from "lucide-react";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
 import { normalizeStationBaseUrl } from "../../stations/components/AddStationWithProfiles";
-import { stationApi } from "../../stations/api";
+import { stationApi, STATIONS_CHANGED_EVENT } from "../../stations/api";
 import type { StationSaveResult } from "../../stations/types";
-import { registrationApi, type MailProvider } from "../api";
+import { registrationApi, type MailCodeResult, type MailProvider } from "../api";
 import "./RegisterAccountPage.css";
 
 const mailProviders: MailProvider[] = ["gmail", "outlook", "qq"];
@@ -120,6 +121,7 @@ export function RegisterAccountPage() {
         password: draft.password,
         verificationCode: code,
       });
+      await emit(STATIONS_CHANGED_EVENT).catch(() => undefined);
       appendLog("站点账号注册成功", "success");
       appendLog("正在保存站点凭据和常用登录…");
       const profileUsername = result.station.kind === "newapi" ? draft.username : draft.email;
@@ -250,7 +252,13 @@ export function RegisterAccountPage() {
         await stationApi.sendVerificationCode(normalized, resolvedEmail);
         appendLog("验证码已发送，正在从收件箱读取…", "success");
         try {
-          code = await registrationApi.pollCode(mailbox.provider, mailbox.email, normalized, startedAt);
+          const mailResult: MailCodeResult = await registrationApi.pollCode(mailbox.provider, mailbox.email, normalized, startedAt);
+          code = mailResult.code;
+          appendLog("已收到验证码邮件", "success");
+          if (mailResult.subject) appendLog(`邮件主题：${mailResult.subject}`);
+          if (mailResult.from) appendLog(`发件人：${mailResult.from}`);
+          if (mailResult.receivedAt) appendLog(`收到时间：${mailResult.receivedAt}`);
+          appendLog(mailResult.content ? `邮件内容：${mailResult.content}` : "邮件内容：未提取到正文", mailResult.content ? "info" : "warning");
           setVerificationCode(code);
           appendLog("已自动识别并填充验证码输入框", "success");
         } catch (reason) {
@@ -281,64 +289,65 @@ export function RegisterAccountPage() {
   const submitLabel = submitting ? "注册中…" : state === "waiting-code" ? "继续注册" : state === "error" ? "重新注册" : "注册";
 
   return <main className="register-account-page">
-    <form className="register-account-form" onSubmit={submit}>
-      <section className="register-card">
-        <header className="register-heading">
-          <div>
-            <h1>自动注册站点账号</h1>
-            <p>自动填充账号信息；验证码识别失败时可手工填写后继续。</p>
-          </div>
-          {state === "running" && <Loader2 size={18} className="register-spin" aria-label="注册进行中" />}
-        </header>
-
-        <div className="register-fields">
-          <label className="register-field register-field-full">
-            <span>中转站网址</span>
-            <input className="input" required type="text" inputMode="url" autoComplete="url" placeholder="https://relay.example.com" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={submitting || state === "waiting-code"} />
-          </label>
-          <label className="register-field">
-            <span>用户名</span>
-            <input className="input" type="text" autoComplete="username" placeholder="自动生成或手工填写" value={username} onChange={(event) => setUsername(event.target.value)} disabled={submitting} />
-          </label>
-          <label className="register-field">
-            <span>邮箱</span>
-            <input className="input" type="email" autoComplete="email" placeholder="自动填充已连接邮箱" value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} />
-          </label>
-          <label className="register-field">
-            <span>密码</span>
-            <span className="register-password-input">
-              <input className="input" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="自动生成或手工填写" value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
-              <button type="button" className="icon-button register-password-toggle" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)} disabled={submitting}>
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </span>
-          </label>
-          <label className="register-field">
-            <span>邮箱验证码</span>
-            <input ref={verificationInputRef} className="input" type="text" inputMode="text" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} placeholder="自动识别或手工填写" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} disabled={submitting} aria-invalid={state === "waiting-code" || undefined} />
-          </label>
+    <form className="register-account-form" onSubmit={submit} noValidate>
+      <header className="register-account-header">
+        <div>
+          <h1>自动注册站点账号</h1>
+          <p>自动填充账号信息；验证码识别失败时可手工填写后继续。</p>
         </div>
+        {state === "running" && <Loader2 size={17} className="register-spin" aria-label="注册进行中" />}
+      </header>
 
-        {state === "waiting-code" && <p className="register-manual-hint" role="status"><AlertCircle size={15} />自动验证码不可用，请核对邮箱中的验证码后继续。</p>}
+      <div className="register-account-content">
+      <div className="register-fields">
+        <label>
+          中转站网址
+          <input className="input mt-1" required type="text" inputMode="url" autoComplete="url" placeholder="https://relay.example.com" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={submitting || state === "waiting-code"} />
+        </label>
+        <label>
+          用户名
+          <input className="input mt-1" type="text" autoComplete="username" placeholder="自动生成或手工填写" value={username} onChange={(event) => setUsername(event.target.value)} disabled={submitting} />
+        </label>
+        <label>
+          邮箱
+          <input className="input mt-1" type="email" autoComplete="email" placeholder="自动填充已连接邮箱" value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} />
+        </label>
+        <label>
+          密码
+          <span className="register-password-input mt-1">
+            <input className="input" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="自动生成或手工填写" value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
+            <button type="button" className="icon-button register-password-toggle" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)} disabled={submitting}>
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </span>
+        </label>
+        <label>
+          邮箱验证码
+          <input ref={verificationInputRef} className="input mt-1" type="text" inputMode="text" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} placeholder="自动识别或手工填写" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} disabled={submitting} aria-invalid={state === "waiting-code" || undefined} />
+        </label>
+      </div>
 
-        {logs.length > 0 && <section className="register-log-panel" aria-label="注册日志">
-          <header className="register-log-heading"><span><ScrollText size={15} />注册日志</span><small>{logs.length} 条</small></header>
-          <ol className="register-log" role="log" aria-live="polite">
-            {logs.map((entry, index) => <li key={entry.id} ref={index === logs.length - 1 ? logEndRef : undefined} className={`register-log-entry ${entry.level}`}>
-              <span className="register-log-index">{String(index + 1).padStart(2, "0")}</span>
-              <time>{entry.time}</time>
-              {entry.level === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : entry.level === "warning" || entry.level === "error" ? <AlertCircle size={14} aria-hidden="true" /> : <i aria-hidden="true" />}
-              <span>{entry.message}</span>
-            </li>)}
-          </ol>
-        </section>}
+      {state === "waiting-code" && <p className="register-manual-hint" role="status"><AlertCircle size={15} />自动验证码不可用，请核对邮箱中的验证码后继续。</p>}
 
-        {resultMessage && <p className={`register-result ${state}`} role={state === "error" ? "alert" : "status"}>{resultMessage}</p>}
-        <footer className="register-account-actions">
-          <button type="button" className="button-secondary" onClick={close} disabled={submitting}>取消</button>
-          <button type="submit" className="button-primary" disabled={submitting || !baseUrl.trim()}>{submitLabel}</button>
-        </footer>
-      </section>
+      {logs.length > 0 && <section className="register-log-panel" aria-label="注册日志">
+        <header className="register-log-heading"><span><ScrollText size={15} />注册日志</span><small>{logs.length} 条</small></header>
+        <ol className="register-log" role="log" aria-live="polite">
+          {logs.map((entry, index) => <li key={entry.id} ref={index === logs.length - 1 ? logEndRef : undefined} className={`register-log-entry ${entry.level}`}>
+            <span className="register-log-index">{String(index + 1).padStart(2, "0")}</span>
+            <time>{entry.time}</time>
+            {entry.level === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : entry.level === "warning" || entry.level === "error" ? <AlertCircle size={14} aria-hidden="true" /> : <i aria-hidden="true" />}
+            <span>{entry.message}</span>
+          </li>)}
+        </ol>
+      </section>}
+
+      {resultMessage && <div className={`register-result ${state}`} role={state === "error" ? "alert" : "status"}>{resultMessage}</div>}
+      </div>
+
+      <footer className="register-account-actions">
+        <button type="button" className="button-secondary" onClick={close} disabled={submitting}>取消</button>
+        <button type="submit" className="button-primary" disabled={submitting || !baseUrl.trim()}>{submitLabel}</button>
+      </footer>
     </form>
   </main>;
 }

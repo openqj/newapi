@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown, Eye, EyeOff, Settings } from "lucide-react";
 import { FormDialog, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
@@ -7,7 +7,7 @@ import { profileApi } from "../../profiles";
 import type { LoginProfile } from "../../profiles";
 import type { ClaimedMerchantCode } from "../../merchant";
 import { stationApi } from "../api";
-import type { StationAccountDraft, StationCodeImportResult, StationConnectionResult, StationSaveResult } from "../types";
+import type { StationAccountCredentials, StationAccountDraft, StationCodeImportResult, StationConnectionResult, StationSaveResult } from "../types";
 import "./AddStationWithProfiles.css";
 
 export function normalizeStationBaseUrl(value: string) {
@@ -46,6 +46,9 @@ export function AddStationWithProfiles({
   const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? merchantImport?.stationUrl ?? ""));
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loadingCredentials, setLoadingCredentials] = useState(Boolean(initial && !merchantImport));
+  const [credentialError, setCredentialError] = useState("");
   const [kind, setKind] = useState(initial?.kind ?? "auto");
   const [totp, setTotp] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
@@ -68,6 +71,37 @@ export function AddStationWithProfiles({
   useEffect(() => {
     void loadProfiles();
   }, []);
+  useEffect(() => {
+    if (!initial || merchantImport) {
+      setLoadingCredentials(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCredentials(true);
+    setCredentialError("");
+    const loadCredentials = async () => {
+      if (!isTauri()) {
+        setUsername(initial.username ?? "");
+        setPassword("demo-password");
+        setLoadingCredentials(false);
+        return;
+      }
+      try {
+        const credentials = await stationApi.credentials<StationAccountCredentials>(initial.id);
+        if (cancelled) return;
+        setUsername(credentials.username);
+        setPassword(credentials.password);
+      } catch (reason) {
+        if (!cancelled) setCredentialError(errorMessage(reason, "读取已保存的账号和密码失败，请手动输入后重试。"));
+      } finally {
+        if (!cancelled) setLoadingCredentials(false);
+      }
+    };
+    void loadCredentials();
+    return () => {
+      cancelled = true;
+    };
+  }, [initial, merchantImport]);
   useEffect(() => {
     if (!showProfileMenu) return;
     const closeProfileMenu = (event: PointerEvent) => {
@@ -147,6 +181,7 @@ export function AddStationWithProfiles({
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (loadingCredentials) return;
     const keepOpen = !merchantImport &&
       ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)
         ?.value === "continue";
@@ -208,14 +243,14 @@ export function AddStationWithProfiles({
       contentClassName="space-y-4"
       footer={
         <>
-          {!merchantImport && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting}>
-            {submitting ? "正在连接" : initial ? "保存并继续" : "添加并继续"}
+          {!merchantImport && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting || loadingCredentials}>
+            {submitting ? "正在连接" : loadingCredentials ? "正在读取" : initial ? "保存并继续" : "添加并继续"}
           </button>}
           <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
             {redemptionResult?.success ? "关闭" : "取消"}
           </button>
-          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || redemptionResult?.success}>
-            {redemptionResult?.success ? "已导入" : submitting ? (merchantImport ? "正在导入" : "正在连接") : merchantImport ? "导入" : "保存"}
+          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || loadingCredentials || redemptionResult?.success}>
+            {redemptionResult?.success ? "已导入" : submitting ? (merchantImport ? "正在导入" : "正在连接") : loadingCredentials ? "正在读取" : merchantImport ? "导入" : "保存"}
           </button>
         </>
       }
@@ -262,6 +297,7 @@ export function AddStationWithProfiles({
                 <input
                   className="input"
                   value={username}
+                  disabled={loadingCredentials}
                   onChange={(event) => {
                     setUsername(event.target.value);
                     setFieldErrors((current) => ({ ...current, username: "" }));
@@ -273,6 +309,7 @@ export function AddStationWithProfiles({
                 <button
                   type="button"
                   className="account-profile-trigger"
+                  disabled={loadingCredentials}
                   aria-expanded={showProfileMenu}
                   title="选择常用登录"
                   onClick={() => setShowProfileMenu((visible) => !visible)}
@@ -312,6 +349,7 @@ export function AddStationWithProfiles({
                   aria-label="选择常用登录"
                   defaultValue=""
                   title="选择常用登录"
+                  disabled={loadingCredentials}
                   onChange={(event) => void selectProfile(event.target.value)}
                 >
                   <option value="">手动输入</option>
@@ -327,6 +365,7 @@ export function AddStationWithProfiles({
                   className="account-profile-manage"
                   title="管理常用登录"
                   aria-label="管理常用登录"
+                  disabled={loadingCredentials}
                   onClick={onManageProfiles}
                 >
                   <Settings size={15} />
@@ -336,18 +375,36 @@ export function AddStationWithProfiles({
             </label>
             <label>
               密码
-              <input
-                className="input mt-1"
-                value={password}
-                onChange={(event) => {
-                  setPassword(event.target.value);
-                  setFieldErrors((current) => ({ ...current, password: "" }));
-                }}
-                aria-invalid={Boolean(fieldErrors.password)}
-                type="password"
-                autoComplete={merchantImport ? "new-password" : "current-password"}
-                placeholder={merchantImport ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
-              />
+              <div className="password-input-actions mt-1">
+                <input
+                  className="input"
+                  value={password}
+                  disabled={loadingCredentials}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setCredentialError("");
+                    setFieldErrors((current) => ({ ...current, password: "" }));
+                  }}
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  aria-describedby={credentialError ? "station-credential-error" : undefined}
+                  type={showPassword ? "text" : "password"}
+                  autoComplete={merchantImport ? "new-password" : "current-password"}
+                  placeholder={merchantImport ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
+                />
+                <button
+                  type="button"
+                  className="password-visibility-toggle"
+                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  aria-pressed={showPassword}
+                  title={showPassword ? "隐藏密码" : "显示密码"}
+                  disabled={loadingCredentials}
+                  onClick={() => setShowPassword((visible) => !visible)}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+              {loadingCredentials && <p className="field-message" role="status">正在读取已保存的账号和密码…</p>}
+              {credentialError && <p id="station-credential-error" className="field-error" role="alert">{credentialError}</p>}
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </label>
             {merchantImport && <label>

@@ -547,7 +547,9 @@ fn decode_quoted_printable(text: &str) -> String {
                 continue;
             }
             if index + 2 < bytes.len() {
-                if let (Some(high), Some(low)) = (decode_hex(bytes[index + 1]), decode_hex(bytes[index + 2])) {
+                if let (Some(high), Some(low)) =
+                    (decode_hex(bytes[index + 1]), decode_hex(bytes[index + 2]))
+                {
                     output.push(high * 16 + low);
                     index += 3;
                     continue;
@@ -625,7 +627,10 @@ fn optional_text(value: Option<&Value>) -> Option<String> {
 
 fn decode_mime_header(value: &str) -> String {
     let value = value.trim();
-    let Some(encoded) = value.strip_prefix("=?UTF-8?B?").and_then(|value| value.strip_suffix("?=")) else {
+    let Some(encoded) = value
+        .strip_prefix("=?UTF-8?B?")
+        .and_then(|value| value.strip_suffix("?="))
+    else {
         return value.to_string();
     };
     general_purpose::STANDARD
@@ -697,7 +702,10 @@ fn collect_mail_body_text(value: &Value, output: &mut String) {
             .iter()
             .for_each(|item| collect_mail_body_text(item, output)),
         Value::Object(map) => map.iter().for_each(|(key, item)| {
-            if matches!(key.as_str(), "headers" | "filename" | "mimeType" | "attachmentId") {
+            if matches!(
+                key.as_str(),
+                "headers" | "filename" | "mimeType" | "attachmentId"
+            ) {
                 return;
             }
             if key == "data" {
@@ -971,9 +979,7 @@ async fn poll_gmail(
                     code,
                     subject: gmail_header(&value, "Subject"),
                     from: gmail_header(&value, "From"),
-                    received_at: value
-                        .get("internalDate")
-                        .and_then(received_at_from_millis),
+                    received_at: value.get("internalDate").and_then(received_at_from_millis),
                     content: summarize_mail_content(&body),
                 }));
             }
@@ -1033,7 +1039,9 @@ async fn poll_outlook(
                                 let address = optional_text(value.get("address"));
                                 let name = optional_text(value.get("name"));
                                 match (name, address) {
-                                    (Some(name), Some(address)) => Some(format!("{name} <{address}>")),
+                                    (Some(name), Some(address)) => {
+                                        Some(format!("{name} <{address}>"))
+                                    }
                                     (Some(name), None) => Some(name),
                                     (None, Some(address)) => Some(address),
                                     (None, None) => None,
@@ -1186,7 +1194,7 @@ pub(crate) async fn poll_registration_code(
 mod tests {
     use base64::Engine;
 
-    use super::{relevant, scan_code};
+    use super::{relevant, scan_code, summarize_mail_content};
     #[test]
     fn finds_common_codes() {
         assert_eq!(
@@ -1234,6 +1242,24 @@ mod tests {
             "mailbox@example.com",
             "https://api.nexarelay.com"
         ));
+    }
+
+    #[test]
+    fn summarizes_received_mail_for_registration_log() {
+        let text = concat!(
+            "From: NexaRelay Notice <noreply@nexarelay.com>\r\n",
+            "Subject: [NexaRelay] Email verification code\r\n",
+            "Content-Transfer-Encoding: quoted-printable\r\n\r\n",
+            "<p>Hello 3650430,</p><p>Your verification code is:</p>",
+            "<p style=3D\"font-size: 32px\">850403</p>",
+            "<p>This code expires in <strong>15</strong> minutes.</p>"
+        );
+        let summary = summarize_mail_content(text);
+        assert!(summary.contains("Hello 3650430"));
+        assert!(summary.contains("Your verification code is:"));
+        assert!(summary.contains("850403"));
+        assert!(!summary.contains("Content-Transfer-Encoding"));
+        assert!(!summary.contains("font-size"));
     }
 
     #[test]

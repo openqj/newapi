@@ -25,8 +25,8 @@ use crate::{
     station_store::StationStore,
     support::station_base,
     AddStationRequest, AppState, ImportStationWithCodeRequest, RegisterStationAccountRequest,
-    StationCodeImportResult, StationConnectionResult, StationProbe, StationSaveResult,
-    SyncProgress, SyncResult, UpdateStationRequest,
+    StationAccountCredentials, StationCodeImportResult, StationConnectionResult, StationProbe,
+    StationSaveResult, SyncProgress, SyncResult, UpdateStationRequest,
 };
 use uuid::Uuid;
 
@@ -153,6 +153,23 @@ pub(crate) async fn send_station_verification_code(
         last_error: None,
     };
     send_registration_verification_code(&state.client, &station, email).await
+}
+
+#[tauri::command]
+pub(crate) async fn get_station_credentials(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<StationAccountCredentials, String> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .get_station(&id)?;
+    let secret = load_secret(&id)?;
+    Ok(StationAccountCredentials {
+        username: secret.username,
+        password: secret.password,
+    })
 }
 
 #[tauri::command]

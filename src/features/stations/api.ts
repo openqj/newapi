@@ -1,5 +1,7 @@
 import { invokeDesktop } from "../../lib/tauri";
 
+export const STATIONS_CHANGED_EVENT = "relayhub:stations-changed";
+
 export const stationApi = {
   list: <T>() => invokeDesktop<T>("list_stations"),
   snapshot: <T>(id: string) => invokeDesktop<T | null>("get_snapshot", { id }),
@@ -15,4 +17,5 @@ export const stationApi = {
   registerAccount: <T>(request: Record<string, unknown>) => invokeDesktop<T>("register_station_account", { request }),
   importWithCode: <T>(request: Record<string, unknown>) => invokeDesktop<T>("import_station_with_code", { request }),
   update: <T>(request: Record<string, unknown>) => invokeDesktop<T>("update_station", { request }),
+  credentials: <T>(id: string) => invokeDesktop<T>("get_station_credentials", { id }),
 };

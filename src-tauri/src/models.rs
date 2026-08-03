@@ -62,6 +62,13 @@ pub(crate) struct AccountRow {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct StationAccountCredentials {
+    pub(crate) username: String,
+    pub(crate) password: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ModelTestResult {
     pub(crate) model: String,
     pub(crate) available: bool,
@@ -389,6 +396,25 @@ pub(crate) struct RemoteConnectionResult {
     pub(crate) reason: Option<String>,
     pub(crate) host_key_fingerprint: Option<String>,
     pub(crate) requires_host_key_confirmation: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GenerateSshKeyRequest {
+    pub(crate) host: String,
+    #[serde(default = "default_ssh_port")]
+    pub(crate) port: u16,
+    pub(crate) username: String,
+    pub(crate) password: String,
+    pub(crate) host_key_fingerprint: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GenerateSshKeyResult {
+    pub(crate) private_key_path: Option<String>,
+    pub(crate) public_key_path: Option<String>,
+    pub(crate) connection: RemoteConnectionResult,
 }
 
 #[derive(Serialize)]

@@ -11,7 +11,7 @@ import { AutoRegistrationSettings } from "../components/AutoRegistrationSettings
 import type { LoginProfile } from "../../profiles";
 import "./SettingsPage.css";
 
-type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "autoRegistration" | "codex" | "updates";
+export type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "autoRegistration" | "codex" | "updates";
 
 const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "常规" },
@@ -23,8 +23,8 @@ const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "updates", label: "更新" },
 ];
 
-export function SettingsPage({ demoProfiles }: { demoProfiles: LoginProfile[] }) {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+export function SettingsPage({ demoProfiles, activeTab = "general", onActiveTabChange }: { demoProfiles: LoginProfile[]; activeTab?: SettingsTab; onActiveTabChange?: (tab: SettingsTab) => void }) {
+  const selectTab = (tab: SettingsTab) => onActiveTabChange?.(tab);
 
   return <>
     <PageHeader title="设置" description="本地应用设置" />
@@ -34,7 +34,7 @@ export function SettingsPage({ demoProfiles }: { demoProfiles: LoginProfile[] })
         type="button"
         aria-current={activeTab === tab.id ? "page" : undefined}
         className={`settings-tab ${activeTab === tab.id ? "active" : ""}`}
-        onClick={() => setActiveTab(tab.id)}
+        onClick={() => selectTab(tab.id)}
       >{tab.label}</button>)}
     </nav>
     <section>

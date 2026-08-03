@@ -666,7 +666,13 @@ pub(crate) fn mask_api_key(value: &str) -> String {
 pub(crate) fn parse_balance(value: &Value) -> Option<f64> {
     number(
         data(value),
-        &["quota", "balance", "remain_quota", "remaining_quota"],
+        &[
+            "quota",
+            "balance",
+            "remaining",
+            "remain_quota",
+            "remaining_quota",
+        ],
     )
 }
 
@@ -1088,7 +1094,7 @@ pub(crate) async fn load_authenticated_secret(
 }
 
 pub(crate) fn is_unauthorized(error: &str) -> bool {
-    error.starts_with("HTTP 401:")
+    error.starts_with("HTTP 401 ") || error.starts_with("HTTP 401:")
 }
 
 pub(crate) async fn refresh_session(
@@ -1348,8 +1354,8 @@ mod tests {
 
     use super::{
         describe_changes, is_unauthorized, map_rates, map_sub2_group_rates, mask_api_key,
-        model_response_text, newapi_display_balance, parse_keys, pricing_group_ratio,
-        session_cookie, usage_from_logs,
+        model_response_text, newapi_display_balance, parse_balance, parse_keys,
+        pricing_group_ratio, session_cookie, usage_from_logs,
     };
     use crate::{
         models::{Offer, StationSnapshot},
@@ -1380,6 +1386,11 @@ mod tests {
         let balance = newapi_display_balance(&profile, Some(&status)).unwrap();
 
         assert!((balance - 0.203462).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parses_cc_switch_usage_remaining_balance() {
+        assert_eq!(parse_balance(&json!({"remaining": 4.72})), Some(4.72));
     }
 
     #[test]
@@ -1563,6 +1574,7 @@ mod tests {
         assert_eq!(mask_api_key("sk-1234567890abcdef"), "sk-12...cdef");
         assert_eq!(mask_api_key("sk-12...cdef"), "sk-12...cdef");
         assert!(is_unauthorized("HTTP 401: Unauthorized"));
+        assert!(is_unauthorized("HTTP 401 Unauthorized: Token has expired"));
         assert!(!is_unauthorized("HTTP 403: Forbidden"));
     }
 }

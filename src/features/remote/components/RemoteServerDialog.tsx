@@ -5,7 +5,7 @@ import { isTauri } from "../../../lib/platform";
 import { remoteApi } from "../api";
 import { RemoteConnectionStatus } from "../components/RemoteConnectionStatus";
 import { RemoteServerFields } from "../components/RemoteServerFields";
-import type { RemoteConnectionResult, RemoteServer, RemoteServerSaveResult } from "../types";
+import type { GenerateSshKeyResult, RemoteConnectionResult, RemoteServer, RemoteServerSaveResult } from "../types";
 
 export function RemoteServerDialog({
   server,
@@ -23,6 +23,7 @@ export function RemoteServerDialog({
   const [password, setPassword] = useState("");
   const [privateKeyPath, setPrivateKeyPath] = useState(server?.privateKeyPath ?? "");
   const [saving, setSaving] = useState(false);
+  const [generatingKey, setGeneratingKey] = useState(false);
   const [connectionResult, setConnectionResult] = useState<RemoteConnectionResult | null>(null);
   const [pendingHostKeyFingerprint, setPendingHostKeyFingerprint] = useState<string | null>(null);
   const [hostKeyConfirmed, setHostKeyConfirmed] = useState(false);
@@ -34,6 +35,51 @@ export function RemoteServerDialog({
       if (path) setPrivateKeyPath(path);
     } catch (reason) {
       notify(errorMessage(reason), "error");
+    }
+  };
+  const generateKey = async (form: HTMLFormElement | null) => {
+    if (!form) return;
+    const values = new FormData(form);
+    const host = String(values.get("host") ?? "").trim();
+    const username = String(values.get("username") ?? "").trim();
+    if (!host || !username || !password) {
+      notify("请先填写服务器主机、用户名和密码。", "error");
+      return;
+    }
+    setGeneratingKey(true);
+    setConnectionResult(null);
+    try {
+      const trustedHostKeyFingerprint = server?.hostKeyFingerprint
+        ?? (hostKeyConfirmed ? pendingHostKeyFingerprint : null);
+      const result = isTauri()
+        ? await remoteApi.generateSshKey<GenerateSshKeyResult>({
+            host,
+            port: Number(values.get("port") || 22),
+            username,
+            password,
+            hostKeyFingerprint: trustedHostKeyFingerprint,
+          })
+        : {
+            privateKeyPath: `C:\\Users\\me\\.ssh\\relayhub_${host}_ed25519`,
+            connection: { success: true, status: "online" } as RemoteConnectionResult,
+          };
+      setConnectionResult(result.connection);
+      if (result.connection.requiresHostKeyConfirmation && result.connection.hostKeyFingerprint) {
+        setPendingHostKeyFingerprint(result.connection.hostKeyFingerprint);
+        setHostKeyConfirmed(false);
+        return;
+      }
+      if (result.connection.success && result.privateKeyPath) {
+        setPrivateKeyPath(result.privateKeyPath);
+        setAuthType("key");
+        setPassword("");
+        if (result.connection.hostKeyFingerprint) setHostKeyConfirmed(true);
+        notify(`SSH 密钥已生成并安装，私钥已保存到 ${result.privateKeyPath}`, "success");
+      }
+    } catch (reason) {
+      notify(errorMessage(reason), "error");
+    } finally {
+      setGeneratingKey(false);
     }
   };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -110,6 +156,8 @@ export function RemoteServerDialog({
             onPasswordChange={setPassword}
             privateKeyPath={privateKeyPath}
             onChoosePrivateKey={() => void choosePrivateKey()}
+            onGenerateKey={(form) => void generateKey(form)}
+            generatingKey={generatingKey}
           />
           <RemoteConnectionStatus
             server={server}

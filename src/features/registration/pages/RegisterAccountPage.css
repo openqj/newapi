@@ -1,27 +1,25 @@
-.register-account-body { width: 100%; height: 100%; min-width: 0; max-height: 100%; overflow: hidden; background: #fff; }
-.register-account-body #root { display: flex; width: 100%; height: 100%; min-height: 0; max-height: 100%; overflow: hidden; }
-.register-account-page { display: flex; width: 100%; height: 100%; min-height: 0; max-height: 100%; flex: 1 1 auto; background: #fff; color: #111827; overflow: hidden; }
-.register-account-form { display: flex; width: 100%; height: 100%; min-height: 0; max-height: 100%; flex: 1 1 auto; margin: 0; padding: 0; overflow: hidden; }
-.register-card { display: flex; width: 100%; height: 100%; min-height: 0; max-height: 100%; flex: 1 1 auto; flex-direction: column; gap: .75rem; overflow: hidden; border: 0; border-radius: 0; background: transparent; padding: 0; box-shadow: none; }
-.register-heading, .register-fields, .register-log-panel, .register-manual-hint, .register-result, .register-account-actions { width: 100%; margin-right: 0; margin-left: 0; }
-.register-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
-.register-heading h1 { margin: 0; color: #111827; font-size: 1rem; font-weight: 650; line-height: 1.35; }
-.register-heading p { margin: .25rem 0 0; color: #6b7280; font-size: .75rem; line-height: 1.45; }
-.register-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem .75rem; }
-.register-field { display: grid; min-width: 0; gap: .35rem; color: #374151; font-size: .78rem; font-weight: 600; }
-.register-field-full { grid-column: 1 / -1; }
-.register-card .input { min-height: 2.7rem; }
+.register-account-body { width: 100%; height: 100%; min-width: 0; overflow: hidden; background: #fff; }
+.register-account-body #root { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
+.register-account-page { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #fff; color: #0f172a; }
+.register-account-form { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; background: #fff; }
+.register-account-header { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: .75rem; border-bottom: 1px solid #e7edf4; padding: .9rem 1.25rem .75rem; }
+.register-account-header h1 { margin: 0; color: #1f2937; font-size: 1.0625rem; font-weight: 600; line-height: 1.35; }
+.register-account-header p { margin: .2rem 0 0; color: #64748b; font-size: .75rem; line-height: 1.1rem; }
+.register-account-content { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 1rem; overflow: hidden; padding: 1rem 1.25rem; }
+.register-fields { display: grid; min-width: 0; grid-template-columns: 1fr; gap: 1rem; }
+.register-fields label { min-width: 0; }
 .register-password-input { position: relative; display: block; }
 .register-password-input .input { padding-right: 2.75rem; }
-.register-password-toggle { position: absolute; top: 50%; right: .25rem; height: 2.15rem; width: 2.15rem; transform: translateY(-50%); }
+.register-password-toggle { position: absolute; top: 50%; right: .25rem; height: 2rem; width: 2rem; transform: translateY(-50%); }
 .register-password-toggle:hover { box-shadow: none; }
-.register-manual-hint { display: flex; align-items: center; gap: .4rem; margin-top: -.1rem; border: 1px solid #f5d0a8; border-radius: 7px; background: #fff7ed; padding: .55rem .65rem; color: #9a3412; font-size: .75rem; line-height: 1.4; }
-.register-log-panel { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 7px; background: #f8fafc; }
-.register-log-heading { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e5e7eb; padding: .45rem .6rem; color: #374151; font-size: .75rem; font-weight: 650; }
+.register-manual-hint { display: flex; align-items: center; gap: .4rem; margin: -.25rem 0 0; border: 1px solid #fed7aa; border-radius: 7px; background: #fff7ed; padding: .55rem .65rem; color: #9a3412; font-size: .75rem; line-height: 1.4; }
+.register-log-panel { display: flex; min-height: 7rem; flex: 1 1 auto; flex-direction: column; overflow: hidden; border: 1px solid #e7edf4; border-radius: 7px; background: #f8fafc; }
+.register-log-heading { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e7edf4; padding: .45rem .6rem; color: #374151; font-size: .75rem; font-weight: 650; }
 .register-log-heading span { display: inline-flex; align-items: center; gap: .35rem; }
 .register-log-heading small { color: #94a3b8; font-size: .68rem; font-weight: 500; }
 .register-log { min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: .25rem .6rem .4rem; list-style: none; scrollbar-width: thin; }
 .register-log-entry { display: grid; grid-template-columns: 1.5rem 4.25rem 1rem minmax(0, 1fr); align-items: start; gap: .4rem; padding: .3rem 0; color: #475569; font-size: .72rem; line-height: 1.4; }
+.register-log-entry > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .register-log-entry time { color: #94a3b8; font-variant-numeric: tabular-nums; }
 .register-log-entry svg { margin-top: .1rem; }
 .register-log-entry > i { width: .4rem; height: .4rem; margin: .35rem .3rem 0; border-radius: 50%; background: #94a3b8; }
@@ -37,14 +35,15 @@
 .register-result.waiting-code { color: #9a3412; }
 .register-result.success { color: #166534; }
 .register-result.error { color: #be123c; }
-.register-account-actions { display: flex; align-items: center; justify-content: flex-end; gap: .6rem; margin-top: auto; }
-.register-account-actions button { min-width: 5.25rem; min-height: 2.45rem; }
-.register-spin { animation: register-spin 1s linear infinite; }
+.register-account-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: .5rem; border-top: 1px solid #e7edf4; padding: .75rem 1.25rem; background: #fff; }
+.register-account-actions button { min-height: 1.9rem; padding: .4rem .7rem; }
+.register-spin { animation: register-spin 1s linear infinite; color: #64748b; }
 @keyframes register-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 560px) {
-  .register-fields { grid-template-columns: 1fr; }
-  .register-field-full { grid-column: auto; }
+  .register-account-header,
+  .register-account-content,
+  .register-account-actions { padding-left: 1rem; padding-right: 1rem; }
   .register-log-entry { grid-template-columns: 1.4rem 3.85rem 1rem minmax(0, 1fr); }
 }
 

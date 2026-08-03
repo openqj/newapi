@@ -6,10 +6,10 @@ describe("application route registry", () => {
     const navigation = getPrimaryNavigation();
 
     expect(Object.keys(appRoutes)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "profiles", "offers", "merchantCenter", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "merchantCenter", "personalCenter", "settings",
     ]);
     expect(navigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "personalCenter", "settings",
     ]);
     navigation.forEach(({ view }) => expect(appRoutes[view].createPage).toBeTypeOf("function"));
   });
@@ -17,11 +17,11 @@ describe("application route registry", () => {
   it("shows remote configuration to every role", () => {
     const proNavigation = getPrimaryNavigation({ accountRole: "pro" } as AppRouteContext);
     expect(proNavigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "personalCenter", "settings",
     ]);
     const navigation = getPrimaryNavigation({ accountRole: "merchant" } as AppRouteContext);
     expect(navigation.map((item) => item.view)).toEqual([
-      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "offers", "personalCenter", "settings",
+      "overview", "accounts", "rates", "keys", "usage", "apiDetection", "remote", "personalCenter", "settings",
     ]);
   });
 });

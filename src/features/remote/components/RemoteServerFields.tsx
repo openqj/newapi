@@ -1,4 +1,5 @@
-import { FolderOpen } from "lucide-react";
+import { useRef } from "react";
+import { FolderOpen, KeyRound } from "lucide-react";
 import type { RemoteServer } from "../types";
 
 type RemoteServerFieldsProps = {
@@ -9,7 +10,21 @@ type RemoteServerFieldsProps = {
   onPasswordChange: (password: string) => void;
   privateKeyPath: string;
   onChoosePrivateKey: () => void;
+  onGenerateKey: (form: HTMLFormElement | null) => void;
+  generatingKey: boolean;
 };
+
+export function parseSshHostInput(value: string): { username: string; host: string } | null {
+  const trimmed = value.trim();
+  const separatorIndex = trimmed.indexOf("@");
+  if (separatorIndex <= 0 || separatorIndex === trimmed.length - 1 || trimmed.indexOf("@", separatorIndex + 1) !== -1) {
+    return null;
+  }
+
+  const username = trimmed.slice(0, separatorIndex).trim();
+  const host = trimmed.slice(separatorIndex + 1).trim();
+  return username && host ? { username, host } : null;
+}
 
 export function RemoteServerFields({
   server,
@@ -19,7 +34,31 @@ export function RemoteServerFields({
   onPasswordChange,
   privateKeyPath,
   onChoosePrivateKey,
+  onGenerateKey,
+  generatingKey,
 }: RemoteServerFieldsProps) {
+  const autoFilledUsername = useRef<string | null>(null);
+  const handleHostBlur = (event: React.FocusEvent<HTMLInputElement>) => {
+    const parsed = parseSshHostInput(event.currentTarget.value);
+    if (!parsed) return;
+
+    const usernameInput = event.currentTarget.form?.elements.namedItem("username");
+    if (usernameInput instanceof HTMLInputElement) {
+      const currentUsername = usernameInput.value.trim();
+      const initialUsername = server?.username?.trim() ?? "";
+      if (!currentUsername || currentUsername === initialUsername || currentUsername === autoFilledUsername.current) {
+        usernameInput.value = parsed.username;
+        autoFilledUsername.current = parsed.username;
+        usernameInput.setCustomValidity("");
+      } else {
+        autoFilledUsername.current = null;
+      }
+    }
+
+    event.currentTarget.value = parsed.host;
+    event.currentTarget.setCustomValidity("");
+  };
+
   return (
     <>
       <label className="remote-name-field">
@@ -33,7 +72,8 @@ export function RemoteServerFields({
           name="host"
           required
           defaultValue={server?.host}
-          placeholder="host.com 或 user@host.com"
+          placeholder="host.com、IP 地址或 user@host.com"
+          onBlur={handleHostBlur}
           onInvalid={(event) => event.currentTarget.setCustomValidity("请添加服务器 IP")}
           onInput={(event) => event.currentTarget.setCustomValidity("")}
         />
@@ -51,7 +91,10 @@ export function RemoteServerFields({
           defaultValue={server?.username}
           autoComplete="username"
           onInvalid={(event) => event.currentTarget.setCustomValidity("请添加用户名")}
-          onInput={(event) => event.currentTarget.setCustomValidity("")}
+          onInput={(event) => {
+            if (event.currentTarget.value.trim() !== autoFilledUsername.current) autoFilledUsername.current = null;
+            event.currentTarget.setCustomValidity("");
+          }}
         />
       </label>
       <input type="hidden" name="relayProvider" value={server?.relayProvider ?? ""} />
@@ -62,17 +105,29 @@ export function RemoteServerFields({
       {authType === "password" ? (
         <label className="remote-credential-field">
           密码
-          <input
-            className="input mt-1"
-            value={password}
-            onChange={(event) => onPasswordChange(event.target.value)}
-            required={!server || server.authType !== authType}
-            type="password"
-            autoComplete="current-password"
-            placeholder={server ? "留空保留已保存密码；需更新时重新输入" : "输入密码"}
-            onInvalid={(event) => event.currentTarget.setCustomValidity("请添加密码")}
-            onInput={(event) => event.currentTarget.setCustomValidity("")}
-          />
+          <div className="secret-input-wrap mt-1">
+            <input
+              className="input password-input"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              required={!server || server.authType !== authType}
+              type="password"
+              autoComplete="current-password"
+              placeholder={server ? "留空保留已保存密码；需更新时重新输入" : "输入密码"}
+              onInvalid={(event) => event.currentTarget.setCustomValidity("请添加密码")}
+              onInput={(event) => event.currentTarget.setCustomValidity("")}
+            />
+            <button
+              className="secret-file-button"
+              type="button"
+              title="使用密码生成 SSH 密钥"
+              aria-label="使用密码生成 SSH 密钥"
+              disabled={generatingKey || !password}
+              onClick={(event) => onGenerateKey(event.currentTarget.form)}
+            >
+              <KeyRound size={17} />
+            </button>
+          </div>
         </label>
       ) : (
         <label className="remote-credential-field">

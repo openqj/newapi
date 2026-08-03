@@ -37,6 +37,12 @@ export type RemoteServerSaveResult = {
   connection: RemoteConnectionResult;
 };
 
+export type GenerateSshKeyResult = {
+  privateKeyPath?: string;
+  publicKeyPath?: string;
+  connection: RemoteConnectionResult;
+};
+
 export type RemoteSyncLog = {
   id: number;
   serverId: string;

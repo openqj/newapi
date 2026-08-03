@@ -11,6 +11,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "register_station_account",
     "import_station_with_code",
     "update_station",
+    "get_station_credentials",
     "list_stations",
     "list_login_profiles",
     "get_login_profile",
@@ -21,6 +22,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "cancel_remote_server_operation",
     "install_or_update_remote_codex_command",
     "choose_private_key_file",
+    "generate_ssh_key",
     "add_remote_server",
     "update_remote_server",
     "delete_remote_server",
@@ -115,7 +117,7 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 103);
+        assert_eq!(COMMAND_NAMES.len(), 105);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
         assert!(COMMAND_NAMES.contains(&"diagnose_station"));

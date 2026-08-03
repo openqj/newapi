@@ -61,9 +61,10 @@ use commands::queries::{
 };
 use commands::remote::{
     add_remote_server, assign_remote_relay_key, cancel_remote_server_operation,
-    choose_private_key_file, delete_remote_server, install_or_update_remote_codex_command,
-    list_remote_servers, list_remote_sync_logs, test_remote_server, update_remote_relay,
-    update_remote_server, verify_remote_codex_session_command,
+    choose_private_key_file, delete_remote_server, generate_ssh_key,
+    install_or_update_remote_codex_command, list_remote_servers, list_remote_sync_logs,
+    test_remote_server, update_remote_relay, update_remote_server,
+    verify_remote_codex_session_command,
 };
 use commands::settings::{
     backup_database, cloud_complete_password_reset, cloud_request_password_reset, cloud_sign_in,
@@ -73,10 +74,10 @@ use commands::settings::{
     set_codex_preserve_official_login,
 };
 use commands::stations::{
-    add_station, cancel_sync, clear_station_session, delete_station, get_sync_progress,
-    import_station_with_code, list_stations, probe_station, reauthenticate_station,
-    redeem_station_code, refresh_all, refresh_station, register_station_account,
-    send_station_verification_code, update_station,
+    add_station, cancel_sync, clear_station_session, delete_station, get_station_credentials,
+    get_sync_progress, import_station_with_code, list_stations, probe_station,
+    reauthenticate_station, redeem_station_code, refresh_all, refresh_station,
+    register_station_account, send_station_verification_code, update_station,
 };
 use commands::usage::{list_usage_logs, refresh_usage_logs};
 use mail_oauth::{
@@ -101,6 +102,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         import_station_with_code,
         redeem_station_code,
         update_station,
+        get_station_credentials,
         list_stations,
         list_login_profiles,
         get_login_profile,
@@ -143,6 +145,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         cancel_remote_server_operation,
         install_or_update_remote_codex_command,
         choose_private_key_file,
+        generate_ssh_key,
         add_remote_server,
         update_remote_server,
         delete_remote_server,

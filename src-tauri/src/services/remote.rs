@@ -1,8 +1,9 @@
 use std::{
     collections::HashMap,
+    fs,
     io::{Read, Write},
     net::{SocketAddr, TcpStream, ToSocketAddrs},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -20,8 +21,8 @@ use uuid::Uuid;
 use crate::{
     keyring_store::{remote_key_passphrase_entry, remote_relay_key_entry, remote_server_entry},
     models::{
-        AddRemoteServerRequest, RemoteConnectionResult, RemoteServer, RemoteServerSaveResult,
-        UpdateRemoteServerRequest,
+        AddRemoteServerRequest, GenerateSshKeyRequest, GenerateSshKeyResult,
+        RemoteConnectionResult, RemoteServer, RemoteServerSaveResult, UpdateRemoteServerRequest,
     },
     remote_store::RemoteServerStore,
     remote_sync_logs::RemoteSyncLogStore,
@@ -802,6 +803,39 @@ pub(crate) fn ensure_active(operation: Option<&RemoteOperationGuard>) -> Result<
     Ok(())
 }
 
+fn session_transport(
+    host: &str,
+    port: u16,
+    expected_host_key_fingerprint: Option<&str>,
+    operation: Option<&RemoteOperationGuard>,
+) -> Result<Session, String> {
+    ensure_active(operation)?;
+    let socket = remote_socket(host, port)?;
+    let tcp = TcpStream::connect_timeout(&socket, Duration::from_secs(15))
+        .map_err(|error| format!("SSH TCP 连接失败：{error}"))?;
+    ensure_active(operation)?;
+    tcp.set_read_timeout(Some(Duration::from_secs(20)))
+        .map_err(|error| error.to_string())?;
+    tcp.set_write_timeout(Some(Duration::from_secs(20)))
+        .map_err(|error| error.to_string())?;
+    let mut session = Session::new().map_err(|error| format!("无法创建 SSH 会话：{error}"))?;
+    session.set_tcp_stream(tcp);
+    session.set_timeout(20_000);
+    session
+        .handshake()
+        .map_err(|error| format!("SSH 握手失败：{error}"))?;
+    ensure_active(operation)?;
+    let fingerprint = libssh_host_key_fingerprint(&session)?;
+    if let Some(expected) = expected_host_key_fingerprint {
+        if expected != fingerprint {
+            return Err(format!(
+                "SSH 主机指纹不匹配：预期 {expected}，实际 {fingerprint}"
+            ));
+        }
+    }
+    Ok(session)
+}
+
 fn userauth_ssh_agent(session: &Session, username: &str) -> Result<(), String> {
     let mut agent = session.agent().map_err(|error| error.to_string())?;
     agent.connect().map_err(|error| error.to_string())?;
@@ -829,30 +863,12 @@ fn session_once(
     server: &RemoteServer,
     operation: Option<&RemoteOperationGuard>,
 ) -> Result<Session, String> {
-    ensure_active(operation)?;
-    let socket = remote_socket(&server.host, server.port)?;
-    let tcp = TcpStream::connect_timeout(&socket, Duration::from_secs(15))
-        .map_err(|error| format!("SSH TCP 连接失败：{error}"))?;
-    ensure_active(operation)?;
-    tcp.set_read_timeout(Some(Duration::from_secs(20)))
-        .map_err(|error| error.to_string())?;
-    tcp.set_write_timeout(Some(Duration::from_secs(20)))
-        .map_err(|error| error.to_string())?;
-    let mut session = Session::new().map_err(|error| format!("无法创建 SSH 会话：{error}"))?;
-    session.set_tcp_stream(tcp);
-    session.set_timeout(20_000);
-    session
-        .handshake()
-        .map_err(|error| format!("SSH 握手失败：{error}"))?;
-    ensure_active(operation)?;
-    let fingerprint = libssh_host_key_fingerprint(&session)?;
-    if let Some(expected) = &server.host_key_fingerprint {
-        if expected != &fingerprint {
-            return Err(format!(
-                "SSH 主机指纹不匹配：预期 {expected}，实际 {fingerprint}"
-            ));
-        }
-    }
+    let session = session_transport(
+        &server.host,
+        server.port,
+        server.host_key_fingerprint.as_deref(),
+        operation,
+    )?;
 
     if server.auth_type == "password" {
         let password = remote_server_entry(&server.id)?
@@ -956,6 +972,278 @@ pub(crate) fn command(session: &RemoteSession, command: &str) -> Result<(i32, St
         #[cfg(windows)]
         RemoteSession::OpenSsh(server) => system_ssh(server, command, Duration::from_secs(180)),
     }
+}
+
+fn password_session(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    expected_host_key_fingerprint: Option<&str>,
+) -> Result<Session, String> {
+    let session = session_transport(host, port, expected_host_key_fingerprint, None)?;
+    session
+        .userauth_password(username, password)
+        .map_err(|error| format!("SSH 密码认证失败：{error}"))?;
+    if session.authenticated() {
+        Ok(session)
+    } else {
+        Err("SSH 身份验证失败".into())
+    }
+}
+
+fn private_key_session(
+    host: &str,
+    port: u16,
+    username: &str,
+    private_key_path: &Path,
+    expected_host_key_fingerprint: Option<&str>,
+) -> Result<Session, String> {
+    let session = session_transport(host, port, expected_host_key_fingerprint, None)?;
+    session
+        .userauth_pubkey_file(username, None, private_key_path, None)
+        .map_err(|error| format!("生成的 SSH 私钥认证失败：{error}"))?;
+    if session.authenticated() {
+        Ok(session)
+    } else {
+        Err("生成的 SSH 私钥未获服务器接受".into())
+    }
+}
+
+fn local_ssh_directory() -> Result<PathBuf, String> {
+    let home = std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .ok_or("无法确定本机用户目录")?;
+    Ok(PathBuf::from(home).join(".ssh"))
+}
+
+fn safe_key_component(host: &str) -> String {
+    let component: String = host
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || matches!(*character, '-' | '_' | '.')
+        })
+        .take(64)
+        .collect();
+    if component.is_empty() {
+        "server".into()
+    } else {
+        component
+    }
+}
+
+fn remove_generated_keypair(private_key_path: &Path, public_key_path: &Path) {
+    let _ = fs::remove_file(private_key_path);
+    let _ = fs::remove_file(public_key_path);
+}
+
+fn generate_local_keypair(host: &str) -> Result<(PathBuf, PathBuf, String), String> {
+    let directory = local_ssh_directory()?;
+    fs::create_dir_all(&directory).map_err(|error| format!("无法创建本机 SSH 目录：{error}"))?;
+
+    let key_id = Uuid::new_v4().simple().to_string();
+    let filename = format!(
+        "relayhub_{}_{}_ed25519",
+        safe_key_component(host),
+        &key_id[..8]
+    );
+    let private_key_path = directory.join(filename);
+    let public_key_path = PathBuf::from(format!("{}.pub", private_key_path.display()));
+    let comment = format!("relayhub-{key_id}");
+    let output = Command::new("ssh-keygen")
+        .arg("-q")
+        .arg("-t")
+        .arg("ed25519")
+        .arg("-N")
+        .arg("")
+        .arg("-C")
+        .arg(comment)
+        .arg("-f")
+        .arg(&private_key_path)
+        .output()
+        .map_err(|error| format!("本机未找到 ssh-keygen，请先安装 OpenSSH 客户端：{error}"))?;
+    if !output.status.success() {
+        remove_generated_keypair(&private_key_path, &public_key_path);
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if detail.is_empty() {
+            "本地 SSH 密钥生成失败".into()
+        } else {
+            format!("本地 SSH 密钥生成失败：{detail}")
+        });
+    }
+    if !private_key_path.is_file() || !public_key_path.is_file() {
+        remove_generated_keypair(&private_key_path, &public_key_path);
+        return Err("本地 SSH 密钥生成失败：未找到生成的密钥文件".into());
+    }
+
+    let public_key = fs::read_to_string(&public_key_path)
+        .map_err(|error| format!("无法读取本地 SSH 公钥：{error}"))?;
+    let public_key = public_key.trim();
+    if public_key.is_empty()
+        || public_key.lines().count() != 1
+        || !public_key.starts_with("ssh-ed25519 ")
+    {
+        remove_generated_keypair(&private_key_path, &public_key_path);
+        return Err("本地 SSH 公钥格式无效".into());
+    }
+    Ok((private_key_path, public_key_path, public_key.to_string()))
+}
+
+fn install_public_key(
+    session: &RemoteSession,
+    remote_home: &str,
+    public_key: &str,
+) -> Result<(), String> {
+    let ssh_directory = format!("{remote_home}/.ssh");
+    let authorized_keys = format!("{ssh_directory}/authorized_keys");
+    let public_key = public_key.trim();
+    let script = format!(
+        "set -eu\nmkdir -p -- {ssh_directory}\nchmod 700 -- {ssh_directory}\ntouch -- {authorized_keys}\nchmod 600 -- {authorized_keys}\nif ! grep -Fqx -- {public_key} {authorized_keys}; then\n  printf '%s\\n' {public_key} >> {authorized_keys}\nfi\nchmod 600 -- {authorized_keys}\n",
+        ssh_directory = shell_quote(&ssh_directory),
+        authorized_keys = shell_quote(&authorized_keys),
+        public_key = shell_quote(public_key),
+    );
+    let (status, output) = command(session, &script)?;
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!("无法把 SSH 公钥写入服务器：{}", output.trim()))
+    }
+}
+
+fn remove_public_key(
+    session: &RemoteSession,
+    remote_home: &str,
+    public_key: &str,
+) -> Result<(), String> {
+    let authorized_keys = format!("{remote_home}/.ssh/authorized_keys");
+    let temporary = format!("{authorized_keys}.relayhub-{}.tmp", Uuid::new_v4());
+    let script = format!(
+        "set -eu\nif [ -f {authorized_keys} ]; then\n  grep -Fvx -- {public_key} {authorized_keys} > {temporary} || true\n  chmod 600 -- {temporary}\n  mv -f -- {temporary} {authorized_keys}\nfi\n",
+        authorized_keys = shell_quote(&authorized_keys),
+        public_key = shell_quote(public_key.trim()),
+        temporary = shell_quote(&temporary),
+    );
+    let (status, output) = command(session, &script)?;
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "无法回滚服务器上的临时 SSH 公钥：{}",
+            output.trim()
+        ))
+    }
+}
+
+fn key_generation_failure(
+    reason: String,
+    host_key_fingerprint: Option<String>,
+) -> GenerateSshKeyResult {
+    GenerateSshKeyResult {
+        private_key_path: None,
+        public_key_path: None,
+        connection: RemoteConnectionResult {
+            success: false,
+            status: "error".into(),
+            code: None,
+            reason: Some(reason),
+            host_key_fingerprint,
+            requires_host_key_confirmation: false,
+        },
+    }
+}
+
+pub(crate) fn generate_ssh_key(
+    request: GenerateSshKeyRequest,
+) -> Result<GenerateSshKeyResult, String> {
+    let host = request.host.trim();
+    let username = request.username.trim();
+    if host.is_empty() || username.is_empty() {
+        return Err("请先填写服务器主机和用户名".into());
+    }
+    if request.port == 0 {
+        return Err("SSH 端口必须介于 1 和 65535 之间".into());
+    }
+    if request.password.is_empty() {
+        return Err("请先输入服务器密码".into());
+    }
+
+    let expected_fingerprint = request
+        .host_key_fingerprint
+        .as_deref()
+        .filter(|value| !value.trim().is_empty());
+    let session = match password_session(
+        host,
+        request.port,
+        username,
+        &request.password,
+        expected_fingerprint,
+    ) {
+        Ok(session) => session,
+        Err(reason) => return Ok(key_generation_failure(reason, None)),
+    };
+    let observed_fingerprint = libssh_host_key_fingerprint(&session)?;
+    if expected_fingerprint.is_none() {
+        return Ok(GenerateSshKeyResult {
+            private_key_path: None,
+            public_key_path: None,
+            connection: RemoteConnectionResult {
+                success: false,
+                status: "warning".into(),
+                code: None,
+                reason: Some("请先确认 SSH 主机指纹后再生成密钥".into()),
+                host_key_fingerprint: Some(observed_fingerprint),
+                requires_host_key_confirmation: true,
+            },
+        });
+    }
+
+    let remote_session = RemoteSession::Libssh(session);
+    let remote_home = home(&remote_session)?;
+    let (private_key_path, public_key_path, public_key) = match generate_local_keypair(host) {
+        Ok(keypair) => keypair,
+        Err(reason) => {
+            return Ok(key_generation_failure(
+                reason,
+                expected_fingerprint.map(str::to_string),
+            ))
+        }
+    };
+    if let Err(reason) = install_public_key(&remote_session, &remote_home, &public_key) {
+        remove_generated_keypair(&private_key_path, &public_key_path);
+        return Ok(key_generation_failure(
+            reason,
+            expected_fingerprint.map(str::to_string),
+        ));
+    }
+
+    if let Err(reason) = private_key_session(
+        host,
+        request.port,
+        username,
+        &private_key_path,
+        expected_fingerprint,
+    ) {
+        let _ = remove_public_key(&remote_session, &remote_home, &public_key);
+        remove_generated_keypair(&private_key_path, &public_key_path);
+        return Ok(key_generation_failure(
+            reason,
+            expected_fingerprint.map(str::to_string),
+        ));
+    }
+
+    Ok(GenerateSshKeyResult {
+        private_key_path: Some(private_key_path.to_string_lossy().into_owned()),
+        public_key_path: Some(public_key_path.to_string_lossy().into_owned()),
+        connection: RemoteConnectionResult {
+            success: true,
+            status: "online".into(),
+            code: None,
+            reason: None,
+            host_key_fingerprint: expected_fingerprint.map(str::to_string),
+            requires_host_key_confirmation: false,
+        },
+    })
 }
 
 pub(crate) fn home(session: &RemoteSession) -> Result<String, String> {

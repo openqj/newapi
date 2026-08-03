@@ -108,26 +108,48 @@ async fn fetch_config_balance(
     base_url: &str,
     api_key: Option<&str>,
 ) -> Result<Option<f64>, String> {
-    let base_url = base_url
-        .trim_end_matches('/')
-        .trim_end_matches("/v1")
-        .trim_end_matches('/');
+    let base_url = base_url.trim_end_matches('/').to_string();
     let api_key = api_key
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or("当前 config.toml 没有 API 密钥，无法查询余额".to_string())?;
+    // CC Switch's generic balance script queries `/v1/usage` and reads the
+    // returned `remaining`/`balance` field. Preserve a configured `/v1` path
+    // so providers that already include it do not receive `/v1/v1/usage`.
+    let usage_path = if base_url.ends_with("/v1") {
+        "/usage"
+    } else {
+        "/v1/usage"
+    };
+    let api_base = base_url
+        .strip_suffix("/v1")
+        .unwrap_or(&base_url)
+        .trim_end_matches('/');
     let endpoints = [
-        ("/api/user/self", true),
-        ("/api/v1/user/profile", false),
-        ("/user/balance", false),
-        ("/api/user/balance", false),
-        ("/api/v1/user/balance", false),
+        (format!("{base_url}{usage_path}"), "/v1/usage", false),
+        (format!("{api_base}/api/user/self"), "/api/user/self", true),
+        (
+            format!("{api_base}/api/v1/user/profile"),
+            "/api/v1/user/profile",
+            false,
+        ),
+        (format!("{api_base}/user/balance"), "/user/balance", false),
+        (
+            format!("{api_base}/api/user/balance"),
+            "/api/user/balance",
+            false,
+        ),
+        (
+            format!("{api_base}/api/v1/user/balance"),
+            "/api/v1/user/balance",
+            false,
+        ),
     ];
     let mut last_error = None;
-    for (path, newapi) in endpoints {
+    for (url, path, newapi) in endpoints {
         let response = state
             .client
-            .get(format!("{base_url}{path}"))
+            .get(url)
             .bearer_auth(api_key)
             .header("Content-Type", "application/json")
             .timeout(Duration::from_secs(10))

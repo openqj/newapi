@@ -17,7 +17,7 @@ export function RemoteConnectionStatus({
 }: RemoteConnectionStatusProps) {
   return (
     <>
-      {pendingHostKeyFingerprint && !server && (
+      {pendingHostKeyFingerprint && (!server || !server.hostKeyFingerprint) && (
         <label className="remote-credential-field text-xs text-slate-600 break-all">
           SSH 主机指纹: {pendingHostKeyFingerprint}
           <span className="mt-2 flex items-center gap-2 text-sm text-slate-700">

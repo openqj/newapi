@@ -80,7 +80,9 @@
 .remote-server-form > .test-result { order: 9; }
 .remote-optional-label { color: #94a3b8; font-size: .75rem; font-weight: 400; }
 .secret-input-wrap { position: relative; }
-.private-key-input { min-height: 2.5rem; max-height: 9.75rem; padding-right: 3rem; line-height: 1.35rem; cursor: pointer; resize: none; }
+.private-key-input,
+.password-input { min-height: 2.5rem; padding-right: 3rem; line-height: 1.35rem; }
+.private-key-input { max-height: 9.75rem; cursor: pointer; resize: none; }
 .secret-file-button { position: absolute; top: 50%; right: .35rem; display: grid; height: 2.25rem; width: 2.25rem; place-items: center; transform: translateY(-50%); border-radius: 5px; color: #6b7280; }
 .secret-file-button:hover { background: #f3f4f6; color: #374151; }
 .secret-file-button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 1px; }

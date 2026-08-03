@@ -9,10 +9,12 @@ const mocks = vi.hoisted(() => ({
   sendVerificationCode: vi.fn(),
   registerAccount: vi.fn(),
   saveProfile: vi.fn(),
+  emit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../../lib/platform", () => ({ isTauri: () => true }));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ close: vi.fn() }) }));
+vi.mock("@tauri-apps/api/event", () => ({ emit: mocks.emit }));
 vi.mock("../api", () => ({
   registrationApi: {
     mailStatus: mocks.mailStatus,
@@ -46,7 +48,13 @@ describe("RegisterAccountPage", () => {
       email: provider === "qq" ? "mailbox@example.test" : null,
     }));
     mocks.sendVerificationCode.mockResolvedValue("验证码已发送");
-    mocks.pollCode.mockResolvedValue("wrong-code");
+    mocks.pollCode.mockResolvedValue({
+      code: "wrong-code",
+      subject: "[NexaRelay] Email verification code",
+      from: "NexaRelay Notice <noreply@nexarelay.com>",
+      receivedAt: "2026-08-03T12:00:00Z",
+      content: "Your verification code is: wrong-code",
+    });
     mocks.registerAccount
       .mockRejectedValueOnce(new Error("invalid or expired verification code"))
       .mockResolvedValueOnce({ station: { name: "测试站点", kind: "sub2api" } });
@@ -63,6 +71,9 @@ describe("RegisterAccountPage", () => {
     expect(screen.getByLabelText("密码")).not.toHaveValue("");
     expect(screen.getByLabelText("邮箱验证码")).toHaveValue("wrong-code");
     expect(screen.getByRole("log")).toHaveTextContent("验证码校验失败");
+    expect(screen.getByRole("log")).toHaveTextContent("邮件主题：[NexaRelay] Email verification code");
+    expect(screen.getByRole("log")).toHaveTextContent("发件人：NexaRelay Notice <noreply@nexarelay.com>");
+    expect(screen.getByRole("log")).toHaveTextContent("邮件内容：Your verification code is: wrong-code");
     expect(screen.getByRole("log")).toHaveTextContent("已自动识别并填充验证码输入框");
 
     fireEvent.change(screen.getByLabelText("邮箱验证码"), { target: { value: "right-code" } });
@@ -70,6 +81,7 @@ describe("RegisterAccountPage", () => {
 
     await waitFor(() => expect(screen.getByText("注册并导入成功：测试站点")).toBeInTheDocument());
     expect(mocks.registerAccount).toHaveBeenLastCalledWith(expect.objectContaining({ verificationCode: "right-code" }));
+    expect(mocks.emit).toHaveBeenCalledWith("relayhub:stations-changed");
     expect(mocks.saveProfile).toHaveBeenCalledWith(expect.objectContaining({ username: "mailbox@example.test" }));
     expect(screen.getByRole("log")).toHaveTextContent("正在使用手工填写的验证码继续注册");
     expect(screen.getByRole("log")).toHaveTextContent("已导入站点账号和常用登录");

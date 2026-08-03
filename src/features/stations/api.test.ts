@@ -27,4 +27,10 @@ describe("stationApi command contract", () => {
     expect(invokeDesktop).toHaveBeenNthCalledWith(2, "add_station", { request: { name: "Relay", baseUrl: "https://relay.example.com" } });
     expect(invokeDesktop).toHaveBeenNthCalledWith(3, "update_station", { request: { id: "station-1", name: "Relay", baseUrl: "https://relay.example.com" } });
   });
+
+  it("loads station credentials only for the requested station", async () => {
+    await stationApi.credentials("station-1");
+
+    expect(invokeDesktop).toHaveBeenCalledWith("get_station_credentials", { id: "station-1" });
+  });
 });

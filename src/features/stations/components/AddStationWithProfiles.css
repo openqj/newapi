@@ -1,6 +1,11 @@
 .account-input-actions { position: relative; }
 .add-station-continue { margin-right: auto; }
 .account-input-actions .input { padding-right: 4.5rem; }
+.password-input-actions { position: relative; }
+.password-input-actions .input { padding-right: 3rem; }
+.password-visibility-toggle { position: absolute; top: 0; right: 0; display: inline-flex; height: 100%; width: 2.5rem; align-items: center; justify-content: center; border: 0; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; }
+.password-visibility-toggle:hover:not(:disabled) { background: #f0ecea; color: #2f2c2c; }
+.password-visibility-toggle:focus-visible { outline: 2px solid #0f766e; outline-offset: -2px; }
 .account-profile-picker, .account-profile-chevron { display: none; }
 .account-profile-trigger { position: absolute; top: 0; right: 2rem; display: inline-grid; height: 100%; width: 2rem; place-items: center; border: 0; background: transparent; color: #7c7370; }
 .account-profile-trigger:hover { background: #f0ecea; color: #2f2c2c; }

@@ -6,6 +6,7 @@ import { WindowControls } from "./components/WindowControls";
 import {
   AddStationWithProfiles,
   EmptyWorkspace,
+  STATIONS_CHANGED_EVENT,
 } from "./features/stations";
 import type { StationAccountDraft } from "./features/stations";
 import { AppRouteProvider, createRoutePage, getPrimaryNavigation, type AppRouteContext, type AppView } from "./app/routes";
@@ -25,7 +26,7 @@ import { getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/ap
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { merchantApi, MERCHANT_IMPORT_REQUEST_EVENT, MERCHANT_OFFERS_CHANGED_EVENT } from "./features/merchant";
 import type { AccountRole, ClaimedMerchantCode } from "./features/merchant";
-import type { ActiveCodexRelayStatus, CloudAuthStatus } from "./features/settings";
+import type { ActiveCodexRelayStatus, CloudAuthStatus, SettingsTab } from "./features/settings";
 import {
   Bell,
   RefreshCw,
@@ -39,6 +40,7 @@ const openStationUrl = (url: string) =>
 function App() {
   const personalCenterNotifications = useNotificationPreferences();
   const [view, setView] = useState<AppView>("overview");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [showAdd, setShowAdd] = useState(false);
   const [editingStation, setEditingStation] = useState<StationAccountDraft | null>(null);
   const [merchantImport, setMerchantImport] = useState<{ claim: ClaimedMerchantCode; completed: boolean } | null>(null);
@@ -46,6 +48,14 @@ function App() {
   const [activeRelay, setActiveRelay] = useState<ActiveCodexRelayStatus | null>(null);
   const [activeRelayRefreshing, setActiveRelayRefreshing] = useState(false);
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
+  const navigate = useCallback((nextView: AppView) => {
+    if (nextView === "settings") setSettingsTab("general");
+    setView(nextView);
+  }, []);
+  const openLoginProfiles = useCallback(() => {
+    setSettingsTab("profiles");
+    setView("settings");
+  }, []);
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
     setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
   }, []);
@@ -61,7 +71,7 @@ function App() {
   }, []);
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
-    remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadAccountRows,
+    remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadKeyRows, loadAccountRows,
     loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
@@ -104,12 +114,14 @@ function App() {
     usageSummary,
     usageLogs,
     remoteServers,
+    settingsTab,
+    onSettingsTabChange: setSettingsTab,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
     accountRole,
     onPersonalCenterAuthChanged: handlePersonalCenterAuthChanged,
     onSavePersonalCenterNotificationPreferences: personalCenterNotifications.saveNotificationPreferences,
     demoLoginProfiles,
-    navigate: setView,
+    navigate,
     onAddStation: () => {
       setEditingStation(null);
       setShowAdd(true);
@@ -166,9 +178,9 @@ function App() {
     const onAuthChanged = (event: Event) => applyAuth((event as CustomEvent<CloudAuthStatus>).detail ?? { configured: true });
     window.addEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged);
     let unlisten: (() => void) | undefined;
-    void listen("relayhub:stations-changed", () => void Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()])).then((value) => { unlisten = value; });
+    void listen(STATIONS_CHANGED_EVENT, () => void Promise.all([loadStations(), loadKeyRows(), loadAccountRows(), loadUsageSummary()])).then((value) => { unlisten = value; });
     return () => { window.removeEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged); unlisten?.(); };
-  }, [loadAccountRows, loadStations, loadUsageSummary]);
+  }, [loadAccountRows, loadKeyRows, loadStations, loadUsageSummary]);
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
@@ -197,8 +209,8 @@ function App() {
           <button
             type="button"
             className="window-action-button window-relay-refresh-button"
-            aria-label="刷新当前中转站与余额"
-            title="刷新当前中转站与余额"
+            aria-label="刷新当前中转站与剩余"
+            title="刷新当前中转站与剩余"
             disabled={activeRelayRefreshing}
             onClick={() => void loadActiveRelay()}
           >
@@ -214,10 +226,10 @@ function App() {
           </button>
           {activeRelay.balance != null && <span
             className="window-station-balance"
-            title={`当前余额 ${activeRelay.balance.toFixed(2)} USD`}
-            aria-label={`余额 ${activeRelay.balance.toFixed(2)} USD`}
+            title={`当前剩余 ${activeRelay.balance.toFixed(2)} USD`}
+            aria-label={`剩余 ${activeRelay.balance.toFixed(2)} USD`}
           >
-            <span>余额</span>
+            <span>剩余：</span>
             <strong>{activeRelay.balance.toFixed(2)}</strong>
             <span>USD</span>
           </span>}</>}
@@ -241,7 +253,7 @@ function App() {
         </div>
       </header>
       <div className="app-content flex min-h-screen">
-        <AppSidebar view={view} navigation={navigation} usage={usageScope === "current" ? (snapshot.usage ?? emptyUsageSummary) : usageSummary} usageScope={usageScope} onScopeChange={setUsageScope} onNavigate={setView} onAddStation={() => { setEditingStation(null); setShowAdd(true); }} />
+        <AppSidebar view={view} navigation={navigation} usage={usageScope === "current" ? (snapshot.usage ?? emptyUsageSummary) : usageSummary} usageScope={usageScope} onScopeChange={setUsageScope} onNavigate={navigate} onAddStation={() => { setEditingStation(null); setShowAdd(true); }} />
         <main className="min-w-0 flex-1">
           <section className="content-surface">
             {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
@@ -273,7 +285,7 @@ function App() {
           onManageProfiles={() => {
             setEditingStation(null);
             setShowAdd(false);
-            setView("profiles");
+            openLoginProfiles();
           }}
           onAdded={async (keepOpen) => {
             if (!keepOpen) {
@@ -300,7 +312,7 @@ function App() {
           onManageProfiles={() => {
             const current = merchantImport;
             setMerchantImport(null);
-            setView("profiles");
+            openLoginProfiles();
             void (async () => {
               if (!current.completed) await merchantApi.releaseCode(current.claim.id).catch(() => undefined);
               await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);

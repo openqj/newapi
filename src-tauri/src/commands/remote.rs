@@ -4,8 +4,9 @@ use url::Url;
 use crate::services::remote::{
     acquire_operation as acquire_remote_operation, add_server as add_remote_server_service,
     cancel_operation as cancel_remote_operation, delete_server as delete_remote_server_service,
-    install_or_update_server_codex, test_server as test_remote_server_service,
-    update_server as update_remote_server_service, verify_server_codex_session, write_server_relay,
+    generate_ssh_key as generate_ssh_key_service, install_or_update_server_codex,
+    test_server as test_remote_server_service, update_server as update_remote_server_service,
+    verify_server_codex_session, write_server_relay,
 };
 use crate::{
     commands::audit::{
@@ -14,8 +15,9 @@ use crate::{
     },
     keyring_store::remote_relay_key_entry,
     models::{
-        AddRemoteServerRequest, RemoteConnectionResult, RemoteServer, RemoteServerSaveResult,
-        RemoteSyncLog, UpdateRemoteRelayRequest, UpdateRemoteServerRequest,
+        AddRemoteServerRequest, GenerateSshKeyRequest, GenerateSshKeyResult,
+        RemoteConnectionResult, RemoteServer, RemoteServerSaveResult, RemoteSyncLog,
+        UpdateRemoteRelayRequest, UpdateRemoteServerRequest,
     },
     remote_store::RemoteServerStore,
     remote_sync_logs::RemoteSyncLogStore,
@@ -277,6 +279,13 @@ pub(crate) async fn verify_remote_codex_session_command(
     id: String,
 ) -> Result<RemoteConnectionResult, String> {
     verify_server_codex_session(&state, &id)
+}
+
+#[tauri::command]
+pub(crate) async fn generate_ssh_key(
+    request: GenerateSshKeyRequest,
+) -> Result<GenerateSshKeyResult, String> {
+    generate_ssh_key_service(request)
 }
 
 #[tauri::command]
