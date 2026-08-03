@@ -7,6 +7,7 @@ mod command_contract;
 mod commands;
 mod keyring_store;
 mod login_profiles;
+mod mail_oauth;
 mod model_discovery_store;
 mod models;
 mod personal_center_store;
@@ -31,25 +32,23 @@ use commands::audit::{list_audit_events, rollback_audit_event};
 use commands::detection::{detect_model_authenticity, discover_api_models, test_api_models};
 use commands::gateway::{
     get_gateway_credentials, get_gateway_status, import_to_cc_switch, rotate_gateway_token,
-    set_active_gateway_route, set_gateway_port, set_routing_mode, start_gateway, stop_gateway,
+    set_active_gateway_route, set_active_gateway_routes, set_gateway_port, set_routing_mode,
+    start_gateway, stop_gateway,
 };
 use commands::personal_center::{
-    claim_merchant_free_code, delete_admin_merchant_free_code,
-    delete_admin_merchant_rate_share, delete_personal_center_membership,
-    delete_personal_center_notification, get_merchant_profile,
+    claim_merchant_free_code, delete_admin_merchant_free_code, delete_admin_merchant_rate_share,
+    delete_personal_center_membership, delete_personal_center_notification, get_merchant_profile,
     get_personal_center_notification_preferences, get_personal_center_realtime_session,
-    import_merchant_free_codes, list_admin_merchant_free_codes,
-    list_admin_merchant_profiles, list_admin_merchant_rate_shares,
-    list_merchant_free_offers, list_merchant_rate_shares,
+    import_merchant_free_codes, list_admin_merchant_free_codes, list_admin_merchant_profiles,
+    list_admin_merchant_rate_shares, list_merchant_free_offers, list_merchant_rate_shares,
     list_personal_center_audit_history, list_personal_center_login_events,
     list_personal_center_memberships, list_personal_center_notifications,
     list_sent_personal_center_notifications, mark_personal_center_notification,
     publish_merchant_rate_share, publish_personal_center_notification,
     refresh_personal_center_notification_preferences, release_merchant_free_code,
-    revoke_personal_center_notification, save_personal_center_membership,
-    save_admin_merchant_free_code, save_admin_merchant_profile,
-    save_admin_merchant_rate_share,
-    save_merchant_profile, save_personal_center_notification_preferences,
+    revoke_personal_center_notification, save_admin_merchant_free_code,
+    save_admin_merchant_profile, save_admin_merchant_rate_share, save_merchant_profile,
+    save_personal_center_membership, save_personal_center_notification_preferences,
     update_personal_center_notification,
 };
 use commands::profiles::{
@@ -75,11 +74,15 @@ use commands::settings::{
 };
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_sync_progress,
-    import_station_with_code,
-    list_stations, probe_station, reauthenticate_station, refresh_all, refresh_station,
-    redeem_station_code, send_station_verification_code, update_station,
+    import_station_with_code, list_stations, probe_station, reauthenticate_station,
+    redeem_station_code, refresh_all, refresh_station, register_station_account,
+    send_station_verification_code, update_station,
 };
 use commands::usage::{list_usage_logs, refresh_usage_logs};
+use mail_oauth::{
+    disconnect_mail_oauth, get_mail_oauth_status, poll_registration_code, save_mail_oauth_config,
+    save_mail_password_config, start_mail_oauth,
+};
 use models::*;
 use serde_json::Value;
 use store::Store;
@@ -94,6 +97,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         evaluate_alerts,
         list_alert_history,
         add_station,
+        register_station_account,
         import_station_with_code,
         redeem_station_code,
         update_station,
@@ -175,6 +179,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         start_gateway,
         stop_gateway,
         set_active_gateway_route,
+        set_active_gateway_routes,
         get_gateway_credentials,
         rotate_gateway_token,
         import_to_cc_switch,
@@ -198,6 +203,12 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         get_active_codex_relay_status,
         get_codex_integration,
         set_codex_preserve_official_login,
+        get_mail_oauth_status,
+        save_mail_oauth_config,
+        save_mail_password_config,
+        start_mail_oauth,
+        disconnect_mail_oauth,
+        poll_registration_code,
     ])
 }
 

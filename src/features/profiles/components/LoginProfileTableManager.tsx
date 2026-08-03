@@ -11,10 +11,11 @@ type LoginProfileRow = {
   id?: string;
   name: string;
   username: string;
+  email: string;
   password: string;
 };
 
-type LoginProfileField = keyof Omit<LoginProfileRow, "id">;
+type LoginProfileField = "username" | "email" | "password";
 
 type LoginProfileTableManagerProps = {
   profiles: LoginProfile[];
@@ -31,7 +32,7 @@ export function LoginProfileTableManager({
 }: LoginProfileTableManagerProps) {
   const { notify } = useToast();
   const [rows, setRows] = useState<LoginProfileRow[]>([
-    { name: "", username: "", password: "" },
+    { name: "", username: "", email: "", password: "" },
   ]);
   const [editingCell, setEditingCell] = useState<{
     index: number;
@@ -44,13 +45,13 @@ export function LoginProfileTableManager({
         profiles.map(async (profile) => {
           const secret = isTauri()
             ? await profileApi
-                .get<{ username: string; password: string }>(profile.id)
-                .catch(() => ({ username: profile.username, password: "" }))
-            : { username: profile.username, password: "demo-password" };
-          return { id: profile.id, name: profile.name, ...secret };
+                .get<{ username: string; email?: string; password: string }>(profile.id)
+                .catch(() => ({ username: profile.username, email: profile.email ?? "", password: "" }))
+            : { username: profile.username, email: profile.email ?? "", password: "demo-password" };
+          return { id: profile.id, name: profile.name, email: profile.email ?? secret.email ?? "", ...secret };
         }),
       );
-      setRows([...savedRows, { name: "", username: "", password: "" }]);
+      setRows([...savedRows, { name: "", username: "", email: "", password: "" }]);
     } catch (reason) {
       notify(errorMessage(reason), "error");
     }
@@ -69,13 +70,17 @@ export function LoginProfileTableManager({
   };
 
   const saveRow = async (index: number, row: LoginProfileRow) => {
-    if (!row.name.trim() || !row.username.trim() || !row.password) return;
+    if (!row.username.trim() || !row.password) return;
     try {
       if (isTauri()) {
-        const saved = await profileApi.save<LoginProfile>(row);
+        const payload = {
+          ...row,
+          name: row.name.trim() || row.email.trim() || row.username.trim(),
+        };
+        const saved = await profileApi.save<LoginProfile>(payload);
         setRows((current) =>
           current.map((currentRow, rowIndex) =>
-            rowIndex === index ? { ...row, id: saved.id } : currentRow,
+            rowIndex === index ? { ...payload, id: saved.id } : currentRow,
           ),
         );
       }
@@ -97,11 +102,13 @@ export function LoginProfileTableManager({
           autoFocus
           className="input profile-cell-input"
           value={row[field]}
-          type={field === "password" ? "password" : "text"}
-          autoComplete={field === "username" ? "username" : "new-password"}
+          type={field === "password" ? "password" : field === "email" ? "email" : "text"}
+          autoComplete={field === "username" ? "username" : field === "email" ? "email" : "new-password"}
           placeholder={
             field === "username"
-              ? "请输入登录账号"
+              ? "请输入用户名"
+              : field === "email"
+                ? "请输入邮箱"
               : field === "password"
                 ? "请输入登录密码"
                 : ""
@@ -121,9 +128,9 @@ export function LoginProfileTableManager({
 
     const value = field === "password" && row.password ? "••••••••" : row[field];
     const labels: Record<LoginProfileField, string> = {
-      name: "账号名称",
-      username: "登录账号",
-      password: "登录密码",
+      email: "邮箱",
+      username: "用户名",
+      password: "密码",
     };
     return (
       <button
@@ -148,7 +155,7 @@ export function LoginProfileTableManager({
         const next = current.filter((_, rowIndex) => rowIndex !== index);
         return next.some((item) => !item.id)
           ? next
-          : [...next, { name: "", username: "", password: "" }];
+          : [...next, { name: "", username: "", email: "", password: "" }];
       });
     } catch (reason) {
       notify(errorMessage(reason), "error");
@@ -180,17 +187,17 @@ export function LoginProfileTableManager({
               <table>
                 <thead>
                   <tr>
-                    <th>账号名称</th>
-                    <th>登录账号</th>
-                    <th>登录密码</th>
+                    <th>用户名</th>
+                    <th>邮箱</th>
+                    <th>密码</th>
                     <th className="profile-delete-heading">管理</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((row, index) => (
                     <tr key={row.id ?? `new-${index}`}>
-                      <td>{renderCell(row, index, "name")}</td>
                       <td>{renderCell(row, index, "username")}</td>
+                      <td>{renderCell(row, index, "email")}</td>
                       <td>{renderCell(row, index, "password")}</td>
                       <td className="profile-delete-cell">
                         <button

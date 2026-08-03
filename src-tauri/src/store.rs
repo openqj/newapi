@@ -65,7 +65,7 @@ impl Store {
                 status TEXT NOT NULL, updated_at INTEGER NOT NULL
              );
              CREATE TABLE IF NOT EXISTS login_profiles (
-                id TEXT PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, username TEXT NOT NULL, email TEXT NOT NULL DEFAULT ''
              );
              CREATE TABLE IF NOT EXISTS remote_servers (
                 id TEXT PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 22, username TEXT NOT NULL,
@@ -122,6 +122,10 @@ impl Store {
         );
         let _ = connection.execute("ALTER TABLE audit_events ADD COLUMN payload TEXT", []);
         let _ = connection.execute("ALTER TABLE personal_center_memberships ADD COLUMN user_email TEXT NOT NULL DEFAULT ''", []);
+        let _ = connection.execute(
+            "ALTER TABLE login_profiles ADD COLUMN email TEXT NOT NULL DEFAULT ''",
+            [],
+        );
         Ok(Self { connection, path })
     }
 

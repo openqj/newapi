@@ -56,8 +56,14 @@ pub(crate) async fn save_login_profile(
             .unwrap_or_else(|| Uuid::new_v4().to_string()),
         name: request.name.trim().to_string(),
         username: request.username.trim().to_string(),
+        email: request.email.trim().to_string(),
     };
-    save_login_profile_secret(&profile.id, &profile.username, &request.password)?;
+    save_login_profile_secret(
+        &profile.id,
+        &profile.username,
+        &profile.email,
+        &request.password,
+    )?;
     state
         .store
         .lock()

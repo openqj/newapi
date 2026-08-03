@@ -1,5 +1,6 @@
 export type Rate = {
   group: string;
+  groupDescription?: string;
   model: string;
   multiplier: number;
   inputMultiplier?: number;

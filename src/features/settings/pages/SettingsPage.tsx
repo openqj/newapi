@@ -7,16 +7,18 @@ import { AlertSettings } from "../../alerts";
 import { AlertHistoryPage } from "../../alerts/pages/AlertHistoryPage";
 import { LoginProfilesPage } from "../../profiles";
 import { settingsApi } from "../api";
+import { AutoRegistrationSettings } from "../components/AutoRegistrationSettings";
 import type { LoginProfile } from "../../profiles";
 import "./SettingsPage.css";
 
-type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "codex" | "updates";
+type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "autoRegistration" | "codex" | "updates";
 
 const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "常规" },
   { id: "alerts", label: "通知与告警" },
   { id: "alertHistory", label: "告警历史与趋势" },
   { id: "profiles", label: "常用登录" },
+  { id: "autoRegistration", label: "自动注册" },
   { id: "codex", label: "Codex" },
   { id: "updates", label: "更新" },
 ];
@@ -40,6 +42,7 @@ export function SettingsPage({ demoProfiles }: { demoProfiles: LoginProfile[] })
       {activeTab === "alerts" && <AlertSettingsPanel />}
       {activeTab === "alertHistory" && <AlertHistoryPage />}
       {activeTab === "profiles" && <ProfilesSettings demoProfiles={demoProfiles} />}
+      {activeTab === "autoRegistration" && <AutoRegistrationSettings />}
       {activeTab === "codex" && <CodexEnhancement />}
       {activeTab === "updates" && <Panel className="settings-panel"><UpdateSettings /></Panel>}
     </section>

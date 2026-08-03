@@ -1,11 +1,11 @@
 .profile-manager-modal { width: min(100%, 52rem); }
 .profile-manager-panel { width: min(100%, 52rem); margin-top: 1.25rem; }
 .profile-editor-table { border-color: #e5e7eb; border-radius: 12px; }
-.profile-editor-table table { width: 100%; min-width: 42rem; table-layout: fixed; }
+.profile-editor-table table { width: 100%; min-width: 34rem; table-layout: fixed; }
 .profile-editor-table th, .profile-editor-table td { vertical-align: middle; }
 .profile-editor-table th { padding: .7rem .75rem; }
-.profile-editor-table th:nth-child(1) { width: 24%; }
-.profile-editor-table th:nth-child(2), .profile-editor-table th:nth-child(3) { width: 34%; }
+.profile-editor-table th:nth-child(1), .profile-editor-table th:nth-child(2) { width: 36%; }
+.profile-editor-table th:nth-child(3) { width: 24%; }
 .profile-editor-table td { height: 3.35rem; padding: .55rem .65rem; }
 .profile-editor-table tbody tr:last-child td { background: #fcfcfd; }
 .profile-editor-table .input { width: 100%; min-width: 0; min-height: 2.35rem; padding: .45rem .55rem; font-size: .8125rem; }

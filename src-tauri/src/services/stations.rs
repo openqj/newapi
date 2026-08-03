@@ -416,6 +416,7 @@ pub(crate) fn map_rates(value: &Value) -> Vec<GroupRate> {
             if let Some(multiplier) = item.as_f64() {
                 output.push(GroupRate {
                     group: group.clone(),
+                    group_description: None,
                     model: "全部模型".into(),
                     multiplier,
                     input_multiplier: None,
@@ -427,6 +428,7 @@ pub(crate) fn map_rates(value: &Value) -> Vec<GroupRate> {
                     if let Some(multiplier) = rate.as_f64() {
                         output.push(GroupRate {
                             group: group.clone(),
+                            group_description: None,
                             model: model.clone(),
                             multiplier,
                             input_multiplier: None,
@@ -479,8 +481,11 @@ pub(crate) fn map_sub2_group_rates(groups: &Value, overrides: &Value) -> Vec<Gro
                         .and_then(rate_multiplier)
                         .or_else(|| rate_multiplier(item))
                         .unwrap_or(1.0);
+                    let group_description =
+                        optional_scalar_string(item, &["description", "desc", "remark"]);
                     Some(GroupRate {
                         group,
+                        group_description,
                         model: "全部模型".into(),
                         multiplier,
                         input_multiplier: None,
@@ -824,6 +829,16 @@ pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, St
         last_synced_at: None,
         last_error: None,
     };
+    if let Ok(response) = client
+        .get(endpoint(&temp, "/api/status"))
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+    {
+        if response.headers().contains_key("x-new-api-version") {
+            return Ok("newapi".into());
+        }
+    }
     if request(
         client,
         &temp,
@@ -855,6 +870,39 @@ pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, St
         return Ok("newapi".into());
     }
     Err("未识别为 New API 或 Sub2API，请确认网址和站点可访问性".into())
+}
+
+pub(crate) async fn registration_requires_email_verification(
+    client: &Client,
+    url: &str,
+    kind: &str,
+) -> Option<bool> {
+    let path = match kind {
+        "newapi" => "/api/status",
+        "sub2api" => return Some(true),
+        _ => return None,
+    };
+    let response = client
+        .get(format!("{}{}", base(url), path))
+        .timeout(Duration::from_secs(15))
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let value = response.json::<Value>().await.ok()?;
+    let payload = value.get("data").unwrap_or(&value);
+    [
+        "email_verification",
+        "email_verification_enabled",
+        "email_verify_enabled",
+        "emailVerification",
+        "emailVerificationEnabled",
+        "emailVerifyEnabled",
+    ]
+    .iter()
+    .find_map(|key| payload.get(*key).and_then(Value::as_bool))
 }
 
 pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
@@ -903,6 +951,7 @@ pub(crate) async fn register(
     client: &Client,
     station: &Station,
     email: &str,
+    username: &str,
     password: &str,
     verification_code: &str,
 ) -> Result<(), String> {
@@ -911,7 +960,7 @@ pub(crate) async fn register(
         client,
         station,
         adapter.register_path(),
-        adapter.register_body(email, password, verification_code),
+        adapter.register_body(email, username, password, verification_code),
     )
     .await
     .map(|_| ())
@@ -924,9 +973,13 @@ pub(crate) async fn send_registration_verification_code(
 ) -> Result<String, String> {
     let adapter = StationAdapter::for_station(station)?;
     let request = if let Some(body) = adapter.register_verification_body(email) {
-        client.post(endpoint(station, adapter.register_verification_path())).json(&body)
+        client
+            .post(endpoint(station, adapter.register_verification_path()))
+            .json(&body)
     } else {
-        client.get(endpoint(station, adapter.register_verification_path())).query(&[("email", email)])
+        client
+            .get(endpoint(station, adapter.register_verification_path()))
+            .query(&[("email", email)])
     };
     let response = request
         .timeout(std::time::Duration::from_secs(15))
@@ -1350,7 +1403,7 @@ mod tests {
     #[test]
     fn merges_sub2_available_groups_with_user_rate_overrides() {
         let groups = json!({"data": [
-            {"id": 1, "name": "standard", "rate_multiplier": 1.0},
+            {"id": 1, "name": "standard", "description": "标准通道", "rate_multiplier": 1.0},
             {"id": 2, "name": "vip", "rate_multiplier": 0.8}
         ]});
         let overrides = json!({"data": {"2": 0.5}});
@@ -1359,6 +1412,7 @@ mod tests {
 
         assert_eq!(rates.len(), 2);
         assert_eq!(rates[0].group, "standard");
+        assert_eq!(rates[0].group_description.as_deref(), Some("标准通道"));
         assert_eq!(rates[0].multiplier, 1.0);
         assert_eq!(rates[1].group, "vip");
         assert_eq!(rates[1].multiplier, 0.5);
@@ -1367,7 +1421,7 @@ mod tests {
     #[test]
     fn accepts_wrapped_sub2_groups_and_string_multipliers() {
         let groups = json!({"data": {"groups": [
-            {"id": "standard", "name": "standard", "rateMultiplier": "1.25"},
+            {"id": "standard", "name": "standard", "description": "高速通道", "rateMultiplier": "1.25"},
             "vip"
         ]}});
         let overrides = json!({"data": {"rates": {"vip": {"multiplier": "0.5"}}}});
@@ -1376,6 +1430,7 @@ mod tests {
 
         assert_eq!(rates.len(), 2);
         assert_eq!(rates[0].multiplier, 1.25);
+        assert_eq!(rates[0].group_description.as_deref(), Some("高速通道"));
         assert_eq!(rates[1].group, "vip");
         assert_eq!(rates[1].multiplier, 0.5);
     }

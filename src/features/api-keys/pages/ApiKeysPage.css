@@ -67,3 +67,5 @@
 .sub2-source-key-dialog .form-dialog-content.sub2-dialog-body { gap: .9rem; padding: .75rem 1.25rem 1rem; }
 .sub2-source-key-dialog .form-dialog-footer { min-height: 0; padding: .75rem 1.25rem; border: 0; }
 .sub2-source-key-dialog .sub2-toggle-row button, .sub2-source-key-dialog .sub2-toggle-row button i { transition: none; }
+.sub2-key-name-presets { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: -.35rem; }
+.sub2-key-name-presets button { min-height: 2rem; padding: .35rem .7rem; font-size: .75rem; }

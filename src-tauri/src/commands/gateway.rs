@@ -1,6 +1,8 @@
 use tauri::{AppHandle, State};
 
-use crate::services::gateway::{self, GatewayCredentials, GatewayStatus, RoutingMode};
+use crate::services::gateway::{
+    self, GatewayCredentials, GatewayRouteSelection, GatewayStatus, RoutingMode,
+};
 use crate::AppState;
 
 #[tauri::command]
@@ -50,6 +52,15 @@ pub(crate) async fn set_active_gateway_route(
     key_id: String,
 ) -> Result<GatewayStatus, String> {
     gateway::set_gateway_route(&state, station_id, key_id).await?;
+    gateway::get_status(&state).await
+}
+
+#[tauri::command]
+pub(crate) async fn set_active_gateway_routes(
+    state: State<'_, AppState>,
+    routes: Vec<GatewayRouteSelection>,
+) -> Result<GatewayStatus, String> {
+    gateway::set_gateway_routes(&state, routes).await?;
     gateway::get_status(&state).await
 }
 

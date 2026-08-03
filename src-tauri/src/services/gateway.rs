@@ -1,6 +1,8 @@
 use std::{
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -27,6 +29,13 @@ use crate::{
 
 pub(crate) const DEFAULT_GATEWAY_PORT: u16 = 18765;
 pub(crate) const GATEWAY_TOKEN_ID: &str = "local-gateway-token";
+const ACTIVE_GATEWAY_ROUTES_SETTING: &str = "activeGatewayRoutes";
+const DEFAULT_CIRCUIT_FAILURE_THRESHOLD: u32 = 4;
+const DEFAULT_CIRCUIT_SUCCESS_THRESHOLD: u32 = 2;
+const DEFAULT_CIRCUIT_RECOVERY: Duration = Duration::from_secs(60);
+const DEFAULT_CIRCUIT_ERROR_RATE_THRESHOLD: f64 = 0.6;
+const DEFAULT_CIRCUIT_MIN_REQUESTS: u32 = 10;
+const GATEWAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +54,7 @@ pub(crate) struct GatewayStatus {
     pub(crate) active_station_id: Option<String>,
     pub(crate) active_key_id: Option<String>,
     pub(crate) has_active_route: bool,
+    pub(crate) route_queue: Vec<GatewayRouteSelection>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -62,23 +72,171 @@ pub(crate) struct GatewayRoute {
     pub(crate) api_key: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GatewayRouteSelection {
+    pub(crate) station_id: String,
+    pub(crate) key_id: String,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct GatewayRuntime {
     pub(crate) token: String,
     pub(crate) port: u16,
+    /// The currently successful route, retained for compatibility with existing callers.
     pub(crate) route: Option<GatewayRoute>,
+    /// Ordered failover queue. The gateway tries these routes in order for each request.
+    pub(crate) routes: Vec<GatewayRoute>,
 }
 
 #[derive(Clone)]
 struct GatewayServiceState {
     runtime: Arc<RwLock<GatewayRuntime>>,
     client: Client,
+    circuit_breakers: Arc<Mutex<HashMap<String, GatewayCircuitBreaker>>>,
+    circuit_config: GatewayCircuitConfig,
 }
 
 pub(crate) struct GatewayController {
     runtime: Arc<RwLock<GatewayRuntime>>,
     client: Client,
+    circuit_breakers: Arc<Mutex<HashMap<String, GatewayCircuitBreaker>>>,
+    circuit_config: GatewayCircuitConfig,
     shutdown: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GatewayCircuitConfig {
+    failure_threshold: u32,
+    success_threshold: u32,
+    recovery_after: Duration,
+    error_rate_threshold: f64,
+    min_requests: u32,
+}
+
+impl Default for GatewayCircuitConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: DEFAULT_CIRCUIT_FAILURE_THRESHOLD,
+            success_threshold: DEFAULT_CIRCUIT_SUCCESS_THRESHOLD,
+            recovery_after: DEFAULT_CIRCUIT_RECOVERY,
+            error_rate_threshold: DEFAULT_CIRCUIT_ERROR_RATE_THRESHOLD,
+            min_requests: DEFAULT_CIRCUIT_MIN_REQUESTS,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GatewayCircuitState {
+    Closed,
+    Open,
+    HalfOpen,
+}
+
+#[derive(Clone, Debug)]
+struct GatewayCircuitBreaker {
+    state: GatewayCircuitState,
+    consecutive_failures: u32,
+    consecutive_successes: u32,
+    total_requests: u32,
+    failed_requests: u32,
+    opened_at: Option<Instant>,
+    half_open_probe_in_flight: bool,
+}
+
+impl GatewayCircuitBreaker {
+    fn new() -> Self {
+        Self {
+            state: GatewayCircuitState::Closed,
+            consecutive_failures: 0,
+            consecutive_successes: 0,
+            total_requests: 0,
+            failed_requests: 0,
+            opened_at: None,
+            half_open_probe_in_flight: false,
+        }
+    }
+
+    fn allow_request(&mut self, config: GatewayCircuitConfig) -> Option<bool> {
+        match self.state {
+            GatewayCircuitState::Closed => Some(false),
+            GatewayCircuitState::Open => {
+                let recovered = self
+                    .opened_at
+                    .is_some_and(|opened_at| opened_at.elapsed() >= config.recovery_after);
+                if !recovered {
+                    return None;
+                }
+                self.state = GatewayCircuitState::HalfOpen;
+                self.consecutive_successes = 0;
+                self.half_open_probe_in_flight = false;
+                self.allow_request(config)
+            }
+            GatewayCircuitState::HalfOpen => {
+                if self.half_open_probe_in_flight {
+                    return None;
+                }
+                self.half_open_probe_in_flight = true;
+                Some(true)
+            }
+        }
+    }
+
+    fn record_success(&mut self, used_half_open_probe: bool, config: GatewayCircuitConfig) {
+        if used_half_open_probe {
+            self.half_open_probe_in_flight = false;
+        }
+        self.total_requests = self.total_requests.saturating_add(1);
+        self.consecutive_failures = 0;
+
+        if self.state == GatewayCircuitState::HalfOpen {
+            self.consecutive_successes = self.consecutive_successes.saturating_add(1);
+            if self.consecutive_successes >= config.success_threshold {
+                self.close();
+            }
+        }
+    }
+
+    fn record_failure(&mut self, used_half_open_probe: bool, config: GatewayCircuitConfig) {
+        if used_half_open_probe {
+            self.half_open_probe_in_flight = false;
+        }
+        self.total_requests = self.total_requests.saturating_add(1);
+        self.failed_requests = self.failed_requests.saturating_add(1);
+        self.consecutive_successes = 0;
+
+        if self.state == GatewayCircuitState::HalfOpen {
+            self.open();
+            return;
+        }
+
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        let error_rate = self.failed_requests as f64 / self.total_requests.max(1) as f64;
+        if self.consecutive_failures >= config.failure_threshold
+            || (self.total_requests >= config.min_requests
+                && error_rate >= config.error_rate_threshold)
+        {
+            self.open();
+        }
+    }
+
+    fn open(&mut self) {
+        self.state = GatewayCircuitState::Open;
+        self.opened_at = Some(Instant::now());
+        self.consecutive_failures = 0;
+        self.consecutive_successes = 0;
+        self.half_open_probe_in_flight = false;
+    }
+
+    fn close(&mut self) {
+        self.state = GatewayCircuitState::Closed;
+        self.opened_at = None;
+        self.consecutive_failures = 0;
+        self.consecutive_successes = 0;
+        self.total_requests = 0;
+        self.failed_requests = 0;
+        self.half_open_probe_in_flight = false;
+    }
 }
 
 pub(crate) fn load_or_create_gateway_token() -> Result<String, String> {
@@ -133,6 +291,89 @@ pub(crate) fn current_routing_mode(state: &AppState) -> Result<RoutingMode, Stri
     Ok(routing_mode_from_setting(store.setting("routingMode")?))
 }
 
+fn route_selection_key(selection: &GatewayRouteSelection) -> String {
+    format!("{}\u{0}{}", selection.station_id, selection.key_id)
+}
+
+fn normalize_route_selections(
+    selections: Vec<GatewayRouteSelection>,
+) -> Result<Vec<GatewayRouteSelection>, String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::with_capacity(selections.len());
+    for mut selection in selections {
+        selection.station_id = selection.station_id.trim().to_string();
+        selection.key_id = selection.key_id.trim().to_string();
+        if selection.station_id.is_empty() || selection.key_id.is_empty() {
+            return Err("本地网关路由必须同时包含中转站和 API 密钥".into());
+        }
+        if seen.insert(route_selection_key(&selection)) {
+            normalized.push(selection);
+        }
+    }
+    Ok(normalized)
+}
+
+fn load_persisted_route_selections(store: &Store) -> Result<Vec<GatewayRouteSelection>, String> {
+    if let Some(raw) = store.setting(ACTIVE_GATEWAY_ROUTES_SETTING)? {
+        if let Ok(selections) = serde_json::from_str::<Vec<GatewayRouteSelection>>(&raw) {
+            return normalize_route_selections(selections);
+        }
+    }
+
+    let legacy = match (
+        store.setting("activeGatewayStationId")?,
+        store.setting("activeGatewayKeyId")?,
+    ) {
+        (Some(station_id), Some(key_id))
+            if !station_id.trim().is_empty() && !key_id.trim().is_empty() =>
+        {
+            vec![GatewayRouteSelection { station_id, key_id }]
+        }
+        _ => Vec::new(),
+    };
+    normalize_route_selections(legacy)
+}
+
+fn persist_route_selections(
+    store: &Store,
+    selections: &[GatewayRouteSelection],
+) -> Result<(), String> {
+    let serialized = serde_json::to_string(selections).map_err(|error| error.to_string())?;
+    store.save_setting(ACTIVE_GATEWAY_ROUTES_SETTING, &serialized)?;
+    if let Some(first) = selections.first() {
+        store.save_setting("activeGatewayStationId", &first.station_id)?;
+        store.save_setting("activeGatewayKeyId", &first.key_id)?;
+    } else {
+        store.save_setting("activeGatewayStationId", "")?;
+        store.save_setting("activeGatewayKeyId", "")?;
+    }
+    Ok(())
+}
+
+async fn resolve_route_selections(
+    state: &AppState,
+    selections: &[GatewayRouteSelection],
+) -> Result<Vec<GatewayRoute>, String> {
+    let mut routes = Vec::with_capacity(selections.len());
+    for selection in selections {
+        let (station, api_key) =
+            read_api_key(state, &selection.station_id, &selection.key_id).await?;
+        if api_key.trim().is_empty() {
+            return Err(format!(
+                "API 密钥 {} 为空，无法启用本地网关",
+                selection.key_id
+            ));
+        }
+        routes.push(GatewayRoute {
+            station_id: selection.station_id.clone(),
+            key_id: selection.key_id.clone(),
+            upstream_base_url: api_base_url(&station.base_url),
+            api_key,
+        });
+    }
+    Ok(routes)
+}
+
 pub(crate) async fn set_tray_routing_mode(app: AppHandle, mode: RoutingMode) -> Result<(), String> {
     let state = app.state::<AppState>();
     match mode {
@@ -160,26 +401,28 @@ pub(crate) async fn set_gateway_route(
     station_id: String,
     key_id: String,
 ) -> Result<(), String> {
+    set_gateway_routes(state, vec![GatewayRouteSelection { station_id, key_id }]).await
+}
+
+pub(crate) async fn set_gateway_routes(
+    state: &AppState,
+    selections: Vec<GatewayRouteSelection>,
+) -> Result<(), String> {
     if current_routing_mode(state)? != RoutingMode::LocalGateway {
-        return Err("请先切换到本地稳定入口模式".into());
+        return Err("请先切换到本地网关模式".into());
     }
-    let (station, api_key) = read_api_key(state, &station_id, &key_id).await?;
-    state
-        .gateway
-        .set_route(GatewayRoute {
-            station_id: station_id.clone(),
-            key_id: key_id.clone(),
-            upstream_base_url: api_base_url(&station.base_url),
-            api_key,
-        })
-        .await;
+    let selections = normalize_route_selections(selections)?;
+    if selections.is_empty() {
+        return Err("至少需要启用一个 API 密钥作为本地网关路由".into());
+    }
+    let routes = resolve_route_selections(state, &selections).await?;
+    state.gateway.set_routes(routes).await;
     {
         let store = state
             .store
             .lock()
             .map_err(|_| "本地数据库不可用".to_string())?;
-        store.save_setting("activeGatewayStationId", &station_id)?;
-        store.save_setting("activeGatewayKeyId", &key_id)?;
+        persist_route_selections(&store, &selections)?;
     }
     state.gateway.start().await
 }
@@ -195,6 +438,14 @@ pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String
         active_station_id: runtime.route.as_ref().map(|route| route.station_id.clone()),
         active_key_id: runtime.route.as_ref().map(|route| route.key_id.clone()),
         has_active_route: runtime.route.is_some(),
+        route_queue: runtime
+            .routes
+            .iter()
+            .map(|route| GatewayRouteSelection {
+                station_id: route.station_id.clone(),
+                key_id: route.key_id.clone(),
+            })
+            .collect(),
     })
 }
 
@@ -312,13 +563,25 @@ pub(crate) async fn import_to_cc_switch(
 
 impl GatewayController {
     pub(crate) fn new(client: Client, token: String, port: u16) -> Self {
+        Self::new_with_circuit_config(client, token, port, GatewayCircuitConfig::default())
+    }
+
+    fn new_with_circuit_config(
+        client: Client,
+        token: String,
+        port: u16,
+        circuit_config: GatewayCircuitConfig,
+    ) -> Self {
         Self {
             runtime: Arc::new(RwLock::new(GatewayRuntime {
                 token,
                 port,
                 route: None,
+                routes: Vec::new(),
             })),
             client,
+            circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
+            circuit_config,
             shutdown: Mutex::new(None),
         }
     }
@@ -355,6 +618,8 @@ impl GatewayController {
             .with_state(GatewayServiceState {
                 runtime: self.runtime.clone(),
                 client: self.client.clone(),
+                circuit_breakers: self.circuit_breakers.clone(),
+                circuit_config: self.circuit_config,
             });
         tauri::async_runtime::spawn(async move {
             let _ = axum::serve(listener, app)
@@ -378,12 +643,23 @@ impl GatewayController {
         self.runtime.write().await.port = port;
     }
 
-    pub(crate) async fn set_route(&self, route: GatewayRoute) {
-        self.runtime.write().await.route = Some(route);
+    pub(crate) async fn set_routes(&self, routes: Vec<GatewayRoute>) {
+        if let Ok(mut breakers) = self.circuit_breakers.lock() {
+            breakers.clear();
+        }
+        let active = routes.first().cloned();
+        let mut runtime = self.runtime.write().await;
+        runtime.route = active;
+        runtime.routes = routes;
     }
 
     pub(crate) async fn clear_route(&self) {
-        self.runtime.write().await.route = None;
+        if let Ok(mut breakers) = self.circuit_breakers.lock() {
+            breakers.clear();
+        }
+        let mut runtime = self.runtime.write().await;
+        runtime.route = None;
+        runtime.routes.clear();
     }
 
     pub(crate) async fn rotate_token(&self, token: String) {
@@ -443,6 +719,74 @@ fn gateway_upstream_url(upstream_base_url: &str, uri: &axum::http::Uri) -> Resul
     Ok(target)
 }
 
+#[derive(Debug)]
+struct BufferedGatewayResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Vec<u8>,
+}
+
+fn gateway_route_key(route: &GatewayRoute) -> String {
+    format!("{}\u{0}{}", route.station_id, route.key_id)
+}
+
+fn allow_gateway_route(state: &GatewayServiceState, route: &GatewayRoute) -> Option<bool> {
+    let key = gateway_route_key(route);
+    let mut breakers = state.circuit_breakers.lock().ok()?;
+    let breaker = breakers
+        .entry(key)
+        .or_insert_with(GatewayCircuitBreaker::new);
+    breaker.allow_request(state.circuit_config)
+}
+
+fn record_gateway_route_result(
+    state: &GatewayServiceState,
+    route: &GatewayRoute,
+    used_half_open_probe: bool,
+    success: bool,
+) {
+    let key = gateway_route_key(route);
+    if let Ok(mut breakers) = state.circuit_breakers.lock() {
+        let breaker = breakers
+            .entry(key)
+            .or_insert_with(GatewayCircuitBreaker::new);
+        if success {
+            breaker.record_success(used_half_open_probe, state.circuit_config);
+        } else {
+            breaker.record_failure(used_half_open_probe, state.circuit_config);
+        }
+    }
+}
+
+fn is_retryable_upstream_status(status: StatusCode) -> bool {
+    matches!(
+        status,
+        StatusCode::UNAUTHORIZED
+            | StatusCode::FORBIDDEN
+            | StatusCode::REQUEST_TIMEOUT
+            | StatusCode::TOO_MANY_REQUESTS
+    ) || status.is_server_error()
+}
+
+fn build_gateway_response(status: StatusCode, headers: &HeaderMap, body: Body) -> Response {
+    let mut response = Response::builder().status(status);
+    if let Some(output_headers) = response.headers_mut() {
+        for (name, value) in headers {
+            if name == header::CONTENT_LENGTH || is_hop_by_hop_header(name) {
+                continue;
+            }
+            output_headers.append(name.clone(), value.clone());
+        }
+    }
+    response.body(body).unwrap_or_else(|_| {
+        gateway_error(
+            StatusCode::BAD_GATEWAY,
+            "response_build_failed",
+            "无法创建上游响应",
+        )
+    })
+}
+
 async fn gateway_proxy(
     AxumState(state): AxumState<GatewayServiceState>,
     OriginalUri(uri): OriginalUri,
@@ -457,22 +801,20 @@ async fn gateway_proxy(
             "本地网关令牌无效或缺失",
         );
     }
-    let route = match snapshot.route {
-        Some(route) => route,
-        None => {
-            return gateway_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "no_active_route",
-                "尚未为本地网关选择活动路由",
-            )
-        }
+
+    let routes = if snapshot.routes.is_empty() {
+        snapshot.route.into_iter().collect()
+    } else {
+        snapshot.routes
     };
-    let target = match gateway_upstream_url(&route.upstream_base_url, &uri) {
-        Ok(target) => target,
-        Err(error) => {
-            return gateway_error(StatusCode::SERVICE_UNAVAILABLE, "invalid_route", error)
-        }
-    };
+    if routes.is_empty() {
+        return gateway_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no_active_route",
+            "尚未为本地网关选择活动路由",
+        );
+    }
+
     let payload = match to_bytes(body, 64 * 1024 * 1024).await {
         Ok(payload) => payload,
         Err(_) => {
@@ -483,76 +825,380 @@ async fn gateway_proxy(
             )
         }
     };
-    let mut outbound = state
-        .client
-        .request(parts.method, target)
-        .bearer_auth(route.api_key)
-        .body(payload);
-    for (name, value) in &parts.headers {
-        if name == header::AUTHORIZATION
-            || name == header::HOST
-            || name == header::CONTENT_LENGTH
-            || is_hop_by_hop_header(name)
-        {
+
+    let mut attempted = false;
+    let mut last_error = None;
+    let mut last_response = None;
+
+    for route in routes {
+        let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
             continue;
-        }
-        outbound = outbound.header(name.clone(), value.clone());
-    }
-    let upstream = match outbound.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            return gateway_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_unavailable",
-                format!("上游请求失败：{error}"),
-            )
-        }
-    };
-    let status = upstream.status();
-    let headers = upstream.headers().clone();
-    let mut response = Response::builder().status(status);
-    if let Some(output_headers) = response.headers_mut() {
-        for (name, value) in &headers {
-            if name == header::CONTENT_LENGTH || is_hop_by_hop_header(name) {
+        };
+        attempted = true;
+
+        let target = match gateway_upstream_url(&route.upstream_base_url, &uri) {
+            Ok(target) => target,
+            Err(error) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                last_error = Some(error);
                 continue;
             }
-            output_headers.append(name.clone(), value.clone());
+        };
+
+        let mut outbound = state
+            .client
+            .request(parts.method.clone(), target)
+            .timeout(GATEWAY_REQUEST_TIMEOUT)
+            .bearer_auth(&route.api_key)
+            .body(payload.clone());
+        for (name, value) in &parts.headers {
+            if name == header::AUTHORIZATION
+                || name == header::HOST
+                || name == header::CONTENT_LENGTH
+                || is_hop_by_hop_header(name)
+            {
+                continue;
+            }
+            outbound = outbound.header(name.clone(), value.clone());
         }
+
+        let upstream = match outbound.send().await {
+            Ok(response) => response,
+            Err(error) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                last_error = Some(format!("上游请求失败：{error}"));
+                continue;
+            }
+        };
+
+        let status = upstream.status();
+        if is_retryable_upstream_status(status) {
+            let headers = upstream.headers().clone();
+            match upstream.bytes().await {
+                Ok(body) => {
+                    last_response = Some(BufferedGatewayResponse {
+                        status,
+                        headers,
+                        body: body.to_vec(),
+                    });
+                }
+                Err(error) => {
+                    last_error = Some(format!("上游错误响应读取失败：{error}"));
+                }
+            }
+            record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            continue;
+        }
+
+        record_gateway_route_result(&state, &route, used_half_open_probe, true);
+        state.runtime.write().await.route = Some(route);
+        let response_headers = upstream.headers().clone();
+        let response_body = Body::from_stream(upstream.bytes_stream());
+        return build_gateway_response(status, &response_headers, response_body);
     }
-    response
-        .body(Body::from_stream(upstream.bytes_stream()))
-        .unwrap_or_else(|_| {
-            gateway_error(
-                StatusCode::BAD_GATEWAY,
-                "response_build_failed",
-                "无法创建上游响应",
-            )
-        })
+
+    if let Some(response) = last_response {
+        return build_gateway_response(
+            response.status,
+            &response.headers,
+            Body::from(response.body),
+        );
+    }
+    if !attempted {
+        return gateway_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "all_routes_circuit_open",
+            "所有本地网关路由均处于熔断状态",
+        );
+    }
+    gateway_error(
+        StatusCode::BAD_GATEWAY,
+        "all_upstreams_failed",
+        last_error.unwrap_or_else(|| "所有上游路由均请求失败".into()),
+    )
 }
 
 pub(crate) async fn restore_persisted_gateway_route(state: &AppState) -> Result<(), String> {
-    let (station_id, key_id) = {
+    restore_persisted_gateway_routes(state).await
+}
+
+async fn restore_persisted_gateway_routes(state: &AppState) -> Result<(), String> {
+    let selections = {
         let store = state
             .store
             .lock()
             .map_err(|_| "本地数据库不可用".to_string())?;
-        (
-            store.setting("activeGatewayStationId")?,
-            store.setting("activeGatewayKeyId")?,
-        )
+        load_persisted_route_selections(&store)?
     };
-    let (Some(station_id), Some(key_id)) = (station_id, key_id) else {
+    if selections.is_empty() {
         return Ok(());
-    };
-    let (station, api_key) = read_api_key(state, &station_id, &key_id).await?;
-    state
-        .gateway
-        .set_route(GatewayRoute {
-            station_id,
-            key_id,
+    }
+
+    let mut routes = Vec::with_capacity(selections.len());
+    for selection in &selections {
+        let Ok((station, api_key)) =
+            read_api_key(state, &selection.station_id, &selection.key_id).await
+        else {
+            continue;
+        };
+        if api_key.trim().is_empty() {
+            continue;
+        }
+        routes.push(GatewayRoute {
+            station_id: selection.station_id.clone(),
+            key_id: selection.key_id.clone(),
             upstream_base_url: api_base_url(&station.base_url),
             api_key,
-        })
-        .await;
+        });
+    }
+    if routes.is_empty() {
+        return Err("已保存的本地网关 API 密钥均无法恢复".into());
+    }
+    state.gateway.set_routes(routes).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct TestUpstreamState {
+        count: Arc<AtomicUsize>,
+        status: StatusCode,
+    }
+
+    async fn test_upstream_handler(
+        AxumState(state): AxumState<TestUpstreamState>,
+    ) -> (StatusCode, &'static str) {
+        state.count.fetch_add(1, Ordering::SeqCst);
+        (state.status, "upstream")
+    }
+
+    async fn spawn_test_upstream(
+        status: StatusCode,
+    ) -> (String, Arc<AtomicUsize>, oneshot::Sender<()>) {
+        let count = Arc::new(AtomicUsize::new(0));
+        let app = Router::new()
+            .route("/v1/{*path}", any(test_upstream_handler))
+            .with_state(TestUpstreamState {
+                count: count.clone(),
+                status,
+            });
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test upstream");
+        let address = listener.local_addr().expect("get test upstream address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
+        });
+        (format!("http://{address}/v1"), count, shutdown_tx)
+    }
+
+    async fn spawn_test_gateway(state: GatewayServiceState) -> (String, oneshot::Sender<()>) {
+        let app = Router::new()
+            .route("/v1", any(gateway_proxy))
+            .route("/v1/{*path}", any(gateway_proxy))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test gateway");
+        let address = listener.local_addr().expect("get test gateway address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
+        });
+        (format!("http://{address}"), shutdown_tx)
+    }
+
+    fn test_route(station_id: &str, key_id: &str, upstream_base_url: String) -> GatewayRoute {
+        GatewayRoute {
+            station_id: station_id.into(),
+            key_id: key_id.into(),
+            upstream_base_url,
+            api_key: format!("key-{key_id}"),
+        }
+    }
+
+    fn test_gateway_state(
+        routes: Vec<GatewayRoute>,
+        circuit_config: GatewayCircuitConfig,
+    ) -> GatewayServiceState {
+        GatewayServiceState {
+            runtime: Arc::new(RwLock::new(GatewayRuntime {
+                token: "gateway-token".into(),
+                port: 0,
+                route: routes.first().cloned(),
+                routes,
+            })),
+            client: Client::new(),
+            circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
+            circuit_config,
+        }
+    }
+
+    async fn send_test_request(client: &Client, gateway_url: &str) -> StatusCode {
+        client
+            .post(format!("{gateway_url}/v1/chat/completions"))
+            .bearer_auth("gateway-token")
+            .body("{}")
+            .send()
+            .await
+            .expect("send gateway request")
+            .status()
+    }
+
+    #[tokio::test]
+    async fn gateway_uses_first_route_when_it_succeeds() {
+        let (a_url, a_count, a_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let (b_url, b_count, b_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let (c_url, c_count, c_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let state = test_gateway_state(
+            vec![
+                test_route("station-a", "key-a", a_url),
+                test_route("station-b", "key-b", b_url),
+                test_route("station-c", "key-c", c_url),
+            ],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        assert_eq!(
+            send_test_request(&Client::new(), &gateway_url).await,
+            StatusCode::OK
+        );
+        assert_eq!(a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(b_count.load(Ordering::SeqCst), 0);
+        assert_eq!(c_count.load(Ordering::SeqCst), 0);
+
+        let _ = gateway_shutdown.send(());
+        let _ = a_shutdown.send(());
+        let _ = b_shutdown.send(());
+        let _ = c_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_fails_over_from_a_to_b() {
+        let (a_url, a_count, a_shutdown) =
+            spawn_test_upstream(StatusCode::INTERNAL_SERVER_ERROR).await;
+        let (b_url, b_count, b_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let state = test_gateway_state(
+            vec![
+                test_route("station-a", "key-a", a_url),
+                test_route("station-b", "key-b", b_url),
+            ],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        assert_eq!(
+            send_test_request(&Client::new(), &gateway_url).await,
+            StatusCode::OK
+        );
+        assert_eq!(a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(b_count.load(Ordering::SeqCst), 1);
+
+        let _ = gateway_shutdown.send(());
+        let _ = a_shutdown.send(());
+        let _ = b_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_fails_over_through_a_b_to_c() {
+        let (a_url, a_count, a_shutdown) = spawn_test_upstream(StatusCode::BAD_GATEWAY).await;
+        let (b_url, b_count, b_shutdown) =
+            spawn_test_upstream(StatusCode::SERVICE_UNAVAILABLE).await;
+        let (c_url, c_count, c_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let state = test_gateway_state(
+            vec![
+                test_route("station-a", "key-a", a_url),
+                test_route("station-b", "key-b", b_url),
+                test_route("station-c", "key-c", c_url),
+            ],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        assert_eq!(
+            send_test_request(&Client::new(), &gateway_url).await,
+            StatusCode::OK
+        );
+        assert_eq!(a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(b_count.load(Ordering::SeqCst), 1);
+        assert_eq!(c_count.load(Ordering::SeqCst), 1);
+
+        let _ = gateway_shutdown.send(());
+        let _ = a_shutdown.send(());
+        let _ = b_shutdown.send(());
+        let _ = c_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_does_not_fail_over_for_client_errors() {
+        let (a_url, a_count, a_shutdown) = spawn_test_upstream(StatusCode::BAD_REQUEST).await;
+        let (b_url, b_count, b_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let state = test_gateway_state(
+            vec![
+                test_route("station-a", "key-a", a_url),
+                test_route("station-b", "key-b", b_url),
+            ],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        assert_eq!(
+            send_test_request(&Client::new(), &gateway_url).await,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(b_count.load(Ordering::SeqCst), 0);
+
+        let _ = gateway_shutdown.send(());
+        let _ = a_shutdown.send(());
+        let _ = b_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_skips_a_after_its_circuit_opens() {
+        let (a_url, a_count, a_shutdown) =
+            spawn_test_upstream(StatusCode::INTERNAL_SERVER_ERROR).await;
+        let (b_url, b_count, b_shutdown) = spawn_test_upstream(StatusCode::OK).await;
+        let state = test_gateway_state(
+            vec![
+                test_route("station-a", "key-a", a_url),
+                test_route("station-b", "key-b", b_url),
+            ],
+            GatewayCircuitConfig {
+                failure_threshold: 1,
+                ..GatewayCircuitConfig::default()
+            },
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+        let client = Client::new();
+
+        assert_eq!(
+            send_test_request(&client, &gateway_url).await,
+            StatusCode::OK
+        );
+        assert_eq!(
+            send_test_request(&client, &gateway_url).await,
+            StatusCode::OK
+        );
+        assert_eq!(a_count.load(Ordering::SeqCst), 1);
+        assert_eq!(b_count.load(Ordering::SeqCst), 2);
+
+        let _ = gateway_shutdown.send(());
+        let _ = a_shutdown.send(());
+        let _ = b_shutdown.send(());
+    }
 }

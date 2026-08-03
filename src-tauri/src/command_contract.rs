@@ -8,6 +8,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "send_station_verification_code",
     "diagnose_station",
     "add_station",
+    "register_station_account",
     "import_station_with_code",
     "update_station",
     "list_stations",
@@ -56,6 +57,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "start_gateway",
     "stop_gateway",
     "set_active_gateway_route",
+    "set_active_gateway_routes",
     "get_gateway_credentials",
     "rotate_gateway_token",
     "import_to_cc_switch",
@@ -79,6 +81,12 @@ pub const COMMAND_NAMES: &[&str] = &[
     "get_active_codex_relay_status",
     "get_codex_integration",
     "set_codex_preserve_official_login",
+    "get_mail_oauth_status",
+    "save_mail_oauth_config",
+    "save_mail_password_config",
+    "start_mail_oauth",
+    "disconnect_mail_oauth",
+    "poll_registration_code",
     "get_alert_policy",
     "save_alert_policy",
     "evaluate_alerts",
@@ -107,7 +115,7 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 95);
+        assert_eq!(COMMAND_NAMES.len(), 103);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
         assert!(COMMAND_NAMES.contains(&"diagnose_station"));

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
@@ -15,6 +15,7 @@ import "./ApiKeysPage.css";
 
 const isActive = (status: string) => status === "active" || status === "有效";
 const rowId = (row: KeyRow) => `${row.stationId}:${row.key.id}`;
+const missingStationCredentialMessage = "未找到该站点的安全凭据";
 
 export function ApiKeysPage({
   rows,
@@ -43,11 +44,34 @@ export function ApiKeysPage({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [testRunning, setTestRunning] = useState(false);
   const [testStates, setTestStates] = useState<Record<string, ApiKeyTestState>>({});
+  const stationRefreshes = useRef(new Map<string, Promise<void>>());
   const refreshStationGroups = useCallback(async (stationId: string) => {
     if (!isTauri()) return;
-    await stationApi.refresh(stationId);
-    await onUpdated();
-  }, [onUpdated]);
+    const existing = stationRefreshes.current.get(stationId);
+    if (existing) return existing;
+    const selectedStation = stations.find((item) => item.id === stationId);
+    const refresh = (async () => {
+      try {
+        if (selectedStation && !["online", "partial"].includes(selectedStation.status)) {
+          await stationApi.reauthenticate(stationId, null);
+        } else {
+          await stationApi.refresh(stationId);
+        }
+      } catch (reason) {
+        // Cached groups are still usable when the station's OS credential is
+        // missing; suppress only this expected refresh failure.
+        if (!errorMessage(reason).includes(missingStationCredentialMessage)) throw reason;
+        return;
+      }
+      await onUpdated();
+    })();
+    stationRefreshes.current.set(stationId, refresh);
+    const clearRefresh = () => {
+      if (stationRefreshes.current.get(stationId) === refresh) stationRefreshes.current.delete(stationId);
+    };
+    void refresh.then(clearRefresh, clearRefresh);
+    return refresh;
+  }, [onUpdated, stations]);
   const filtered = rows.filter((row) => (
     (station === "all" || row.stationId === station)
     && (status === "all" || (status === "active" ? isActive(row.key.status) : !isActive(row.key.status)))

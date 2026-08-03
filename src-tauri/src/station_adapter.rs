@@ -79,10 +79,31 @@ impl StationAdapter {
         }
     }
 
-    pub(crate) fn register_body(self, email: &str, password: &str, verification_code: &str) -> Value {
+    pub(crate) fn register_body(
+        self,
+        email: &str,
+        username: &str,
+        password: &str,
+        verification_code: &str,
+    ) -> Value {
         match self {
-            Self::Sub2Api => json!({"email": email, "password": password, "verification_code": verification_code, "username": email}),
-            Self::NewApi => json!({"email": email, "username": email, "password": password, "verification_code": verification_code, "aff_code": ""}),
+            Self::Sub2Api => {
+                json!({"email": email, "password": password, "verify_code": verification_code, "username": email})
+            }
+            Self::NewApi => {
+                let mut body = json!({
+                    "username": if username.trim().is_empty() { email } else { username },
+                    "password": password,
+                    "aff_code": ""
+                });
+                if !email.trim().is_empty() {
+                    body["email"] = json!(email);
+                }
+                if !verification_code.trim().is_empty() {
+                    body["verification_code"] = json!(verification_code);
+                }
+                body
+            }
         }
     }
 
@@ -184,16 +205,45 @@ mod tests {
     #[test]
     fn builds_source_specific_redemption_requests() {
         assert_eq!(StationAdapter::Sub2Api.redeem_path(), "/api/v1/redeem");
-        assert_eq!(StationAdapter::Sub2Api.redeem_body("sub2-code")["code"], "sub2-code");
+        assert_eq!(
+            StationAdapter::Sub2Api.redeem_body("sub2-code")["code"],
+            "sub2-code"
+        );
         assert_eq!(StationAdapter::NewApi.redeem_path(), "/api/user/topup");
-        assert_eq!(StationAdapter::NewApi.redeem_body("newapi-code")["key"], "newapi-code");
+        assert_eq!(
+            StationAdapter::NewApi.redeem_body("newapi-code")["key"],
+            "newapi-code"
+        );
     }
 
     #[test]
     fn builds_source_specific_registration_requests() {
-        assert_eq!(StationAdapter::Sub2Api.register_body("a@b.com", "secret", "123456")["email"], "a@b.com");
-        assert_eq!(StationAdapter::NewApi.register_body("a@b.com", "secret", "123456")["verification_code"], "123456");
-        assert_eq!(StationAdapter::Sub2Api.register_verification_body("a@b.com").unwrap()["email"], "a@b.com");
-        assert!(StationAdapter::NewApi.register_verification_body("a@b.com").is_none());
+        assert_eq!(
+            StationAdapter::Sub2Api.register_body("a@b.com", "user", "secret", "123456")["email"],
+            "a@b.com"
+        );
+        assert_eq!(
+            StationAdapter::Sub2Api.register_body("a@b.com", "user", "secret", "123456")
+                ["verify_code"],
+            "123456"
+        );
+        assert_eq!(
+            StationAdapter::NewApi.register_body("a@b.com", "user", "secret", "123456")
+                ["verification_code"],
+            "123456"
+        );
+        let no_email = StationAdapter::NewApi.register_body("", "user", "secret", "");
+        assert_eq!(no_email["username"], "user");
+        assert!(no_email.get("email").is_none());
+        assert!(no_email.get("verification_code").is_none());
+        assert_eq!(
+            StationAdapter::Sub2Api
+                .register_verification_body("a@b.com")
+                .unwrap()["email"],
+            "a@b.com"
+        );
+        assert!(StationAdapter::NewApi
+            .register_verification_body("a@b.com")
+            .is_none());
     }
 }

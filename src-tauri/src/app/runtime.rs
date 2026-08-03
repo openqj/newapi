@@ -102,7 +102,9 @@ pub(crate) fn run() {
                 let mut x = main_position.x + main_size.width as i32;
                 if let Some(monitor) = main.current_monitor()? {
                     let work_area = monitor.work_area();
-                    if x + market_size.width as i32 > work_area.position.x + work_area.size.width as i32 {
+                    if x + market_size.width as i32
+                        > work_area.position.x + work_area.size.width as i32
+                    {
                         x = main_position.x - market_size.width as i32;
                     }
                 }
@@ -400,7 +402,8 @@ pub(crate) fn run() {
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
-                    if let Some(market) = window.app_handle().get_webview_window("merchant-market") {
+                    if let Some(market) = window.app_handle().get_webview_window("merchant-market")
+                    {
                         let _ = market.hide();
                     }
                 }

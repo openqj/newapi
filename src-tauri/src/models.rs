@@ -136,6 +136,7 @@ pub(crate) struct GroupOption {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GroupRate {
     pub(crate) group: String,
+    pub(crate) group_description: Option<String>,
     pub(crate) model: String,
     pub(crate) multiplier: f64,
     pub(crate) input_multiplier: Option<f64>,
@@ -219,6 +220,18 @@ pub(crate) struct AddStationRequest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct RegisterStationAccountRequest {
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) email: String,
+    pub(crate) username: Option<String>,
+    pub(crate) password: String,
+    pub(crate) verification_code: String,
+    pub(crate) kind: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct ImportStationWithCodeRequest {
     pub(crate) name: String,
     pub(crate) base_url: String,
@@ -288,6 +301,7 @@ pub(crate) struct StationCodeImportResult {
 pub(crate) struct StationProbe {
     pub(crate) name: String,
     pub(crate) kind: Option<String>,
+    pub(crate) requires_email_verification: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize)]

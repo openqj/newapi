@@ -52,12 +52,17 @@ pub(crate) async fn active_relay_status(
             .find(|station| station_base(&station.base_url) == relay_root)
     };
     if let Some(station) = managed_station {
-        let balance_result = match fetch_config_balance(state, &relay_url, relay_key.as_deref()).await {
-            Ok(balance) => Ok(balance),
-            Err(config_error) => fetch_station_balance(state, &station)
-                .await
-                .map_err(|session_error| format!("{config_error}；登录会话查询失败：{session_error}")),
-        };
+        let balance_result =
+            match fetch_config_balance(state, &relay_url, relay_key.as_deref()).await {
+                Ok(balance) => Ok(balance),
+                Err(config_error) => {
+                    fetch_station_balance(state, &station)
+                        .await
+                        .map_err(|session_error| {
+                            format!("{config_error}；登录会话查询失败：{session_error}")
+                        })
+                }
+            };
         let (balance, balance_error) = match balance_result {
             Ok(balance) => (balance, None),
             Err(error) => (None, Some(error)),
@@ -90,7 +95,11 @@ pub(crate) async fn active_relay_status(
             Ok(balance) => (balance, None),
             Err(error) => (None, Some(error)),
         };
-        ActiveCodexRelayStatus { name, balance, balance_error }
+        ActiveCodexRelayStatus {
+            name,
+            balance,
+            balance_error,
+        }
     }))
 }
 
@@ -131,7 +140,9 @@ async fn fetch_config_balance(
             .await
             .map_err(|error| format!("余额响应读取失败：{error}"))?;
         let Ok(value) = serde_json::from_str::<Value>(&body) else {
-            last_error = Some(format!("余额接口 {path} 返回了非 JSON 数据（HTTP {status}）"));
+            last_error = Some(format!(
+                "余额接口 {path} 返回了非 JSON 数据（HTTP {status}）"
+            ));
             continue;
         };
         if !status.is_success() {
@@ -151,10 +162,7 @@ async fn fetch_config_balance(
     Err(last_error.unwrap_or_else(|| "余额接口不可用".into()))
 }
 
-async fn fetch_station_balance(
-    state: &AppState,
-    station: &Station,
-) -> Result<Option<f64>, String> {
+async fn fetch_station_balance(state: &AppState, station: &Station) -> Result<Option<f64>, String> {
     let adapter = StationAdapter::for_station(station)?;
     let mut secret = load_authenticated_secret(state, station).await?;
     let profile = station_request(
@@ -232,15 +240,12 @@ fn active_relay_credentials(config: &str) -> Option<(String, Option<String>)> {
     let document = config.parse::<toml::Value>().ok()?;
     let root = document.as_table()?;
     let provider_name = root.get("model_provider")?.as_str()?;
-    let provider = root.get("model_providers")?
+    let provider = root
+        .get("model_providers")?
         .as_table()?
         .get(provider_name)?
         .as_table()?;
-    let url = provider
-        .get("base_url")?
-        .as_str()?
-        .trim()
-        .to_string();
+    let url = provider.get("base_url")?.as_str()?.trim().to_string();
     if url.is_empty() {
         return None;
     }

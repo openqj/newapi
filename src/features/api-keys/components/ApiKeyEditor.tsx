@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { FormDialog } from "../../../components/FormDialog";
 import { isTauri } from "../../../lib/platform";
@@ -17,6 +17,8 @@ type ApiKeyEditorProps = {
   onSaved: () => Promise<void>;
   onError: (reason: unknown) => void;
 };
+
+const keyNamePresets = ["Codex", "CC Switch", "开发测试", "日常使用"];
 
 const formatMoney = (value?: number) => value == null ? "-" : `${value.toFixed(4)} 额度`;
 
@@ -43,6 +45,13 @@ export function ApiKeyEditor({ row, rows, stations, onRefreshStation, onClose, o
   const fallbackGroups = Array.from(new Map(stationRows.flatMap((item) => item.groups.map((entry) => [entry.name, entry]))).values());
   const [groups, setGroups] = useState(fallbackGroups);
   const { saving, submit: saveApiKey } = useApiKeyEditorSubmit({ row, onSaved, onError });
+  const onRefreshStationRef = useRef(onRefreshStation);
+  const onErrorRef = useRef(onError);
+
+  useEffect(() => {
+    onRefreshStationRef.current = onRefreshStation;
+    onErrorRef.current = onError;
+  }, [onError, onRefreshStation]);
 
   useEffect(() => {
     let active = true;
@@ -50,15 +59,17 @@ export function ApiKeyEditor({ row, rows, stations, onRefreshStation, onClose, o
     if (!stationId || !isTauri()) return () => { active = false; };
     void (async () => {
       try {
-        await onRefreshStation?.(stationId);
+        await onRefreshStationRef.current?.(stationId);
         const result = await apiKeyApi.groups<GroupOption[]>(stationId);
         if (active) setGroups(result);
       } catch (reason) {
-        if (active) onError(reason);
+        if (active) onErrorRef.current(reason);
       }
     })();
     return () => { active = false; };
-  }, [stationId, rows, onError, onRefreshStation]);
+  // The refresh updates `rows` in the parent.  Do not include it here: doing
+  // so starts the same station refresh again after every successful update.
+  }, [stationId]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -83,6 +94,7 @@ export function ApiKeyEditor({ row, rows, stations, onRefreshStation, onClose, o
     >
       {!row && <label>来源站点<select value={stationId} disabled={saving} onChange={(event) => { setStationId(event.target.value); setGroup(""); }}>{stations.map((station) => <option value={station.id} key={station.id}>{station.name} / {station.baseUrl}</option>)}</select></label>}
       <label>密钥名称<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="请输入密钥名称" /></label>
+      {!row && <div className="sub2-key-name-presets" aria-label="密钥名称预设">{keyNamePresets.map((preset) => <button type="button" className={name === preset ? "button-primary" : "button-secondary"} onClick={() => setName(preset)} key={preset}>{preset}</button>)}</div>}
       <label>分组<GroupRateSelect className="sub2-editor-group-rate-select" value={group} groups={groups} onChange={setGroup} disabled={saving} allowEmpty /></label>
       {!row && !isNewApi && <section className="sub2-editor-section"><ToggleRow label="自定义密钥" checked={useCustomKey} onChange={setUseCustomKey} />{useCustomKey && <><input value={customKey} onChange={(event) => setCustomKey(event.target.value)} className="sub2-mono-input" placeholder="请输入自定义密钥" /><small>至少 8 个字符，仅允许字母、数字、连字符和下划线。</small></>}</section>}
       {row && <label>状态<select value={status} onChange={(event) => setStatus(event.target.value)}><option value="active">启用</option><option value="inactive">停用</option></select></label>}

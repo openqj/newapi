@@ -223,12 +223,21 @@ export function useRemoteServerActions({
   };
   const saveRelay = async (server: RemoteServer) => {
     const draft = relayDraft(server);
+    const savedField = editingRelay?.serverId === server.id ? editingRelay.field : null;
     setSavingRelay(server.id);
     try {
       if (isTauri()) await remoteApi.updateRelay(server.id, draft.url, draft.key || null);
       setRelayDrafts((current) => ({ ...current, [server.id]: { url: draft.url, key: "" } }));
       setEditingRelay(null);
       await onChanged();
+      notify(
+        savedField === "key"
+          ? `服务器“${server.name}”的 API 密钥已保存。`
+          : savedField === "url"
+            ? `服务器“${server.name}”的中转站网址已保存。`
+            : `服务器“${server.name}”的中转配置已保存。`,
+        "success",
+      );
     } catch (reason) {
       showError(reason);
     } finally {

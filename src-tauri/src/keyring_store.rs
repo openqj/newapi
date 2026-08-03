@@ -18,6 +18,8 @@ pub(crate) struct Secret {
 pub(crate) struct LoginProfileSecret {
     pub(crate) username: String,
     pub(crate) password: String,
+    #[serde(default)]
+    pub(crate) email: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -31,6 +33,20 @@ pub(crate) struct CloudSession {
     pub(crate) is_admin: bool,
     #[serde(default = "default_cloud_role")]
     pub(crate) role: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct MailOAuthToken {
+    pub(crate) access_token: String,
+    pub(crate) refresh_token: Option<String>,
+    pub(crate) expires_at: i64,
+    pub(crate) email: Option<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct MailPasswordSecret {
+    pub(crate) email: String,
+    pub(crate) password: String,
 }
 
 fn default_cloud_role() -> String {
@@ -65,6 +81,59 @@ pub(crate) fn remote_relay_rollback_entry(id: &str) -> Result<Entry, String> {
 
 pub(crate) fn cloud_session_entry() -> Result<Entry, String> {
     Entry::new("api-assistant-cloud-session", "current").map_err(|error| error.to_string())
+}
+
+pub(crate) fn mail_oauth_entry(provider: &str) -> Result<Entry, String> {
+    Entry::new("api-assistant-mail-oauth", provider).map_err(|error| error.to_string())
+}
+
+pub(crate) fn mail_password_entry(provider: &str) -> Result<Entry, String> {
+    Entry::new("api-assistant-mail-password", provider).map_err(|error| error.to_string())
+}
+
+pub(crate) fn save_mail_password(
+    provider: &str,
+    secret: &MailPasswordSecret,
+) -> Result<(), String> {
+    mail_password_entry(provider)?
+        .set_password(&serde_json::to_string(secret).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn load_mail_password(provider: &str) -> Result<MailPasswordSecret, String> {
+    serde_json::from_str(
+        &mail_password_entry(provider)?
+            .get_password()
+            .map_err(|_| "未连接邮箱".to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn clear_mail_password(provider: &str) {
+    if let Ok(entry) = mail_password_entry(provider) {
+        let _ = entry.delete_credential();
+    }
+}
+
+pub(crate) fn save_mail_oauth_token(provider: &str, token: &MailOAuthToken) -> Result<(), String> {
+    mail_oauth_entry(provider)?
+        .set_password(&serde_json::to_string(token).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn load_mail_oauth_token(provider: &str) -> Result<MailOAuthToken, String> {
+    serde_json::from_str(
+        &mail_oauth_entry(provider)?
+            .get_password()
+            .map_err(|_| "未连接邮箱 OAuth".to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
+pub(crate) fn clear_mail_oauth_token(provider: &str) {
+    if let Ok(entry) = mail_oauth_entry(provider) {
+        let _ = entry.delete_credential();
+    }
 }
 
 pub(crate) fn save_cloud_session(session: &CloudSession) -> Result<(), String> {
@@ -112,6 +181,7 @@ pub(crate) fn clear_secret(id: &str) {
 pub(crate) fn save_login_profile_secret(
     id: &str,
     username: &str,
+    email: &str,
     password: &str,
 ) -> Result<(), String> {
     login_profile_entry(id)?
@@ -119,6 +189,7 @@ pub(crate) fn save_login_profile_secret(
             &serde_json::to_string(&LoginProfileSecret {
                 username: username.to_string(),
                 password: password.to_string(),
+                email: email.to_string(),
             })
             .map_err(|error| error.to_string())?,
         )

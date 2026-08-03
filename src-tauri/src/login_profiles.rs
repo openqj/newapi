@@ -8,6 +8,8 @@ pub(crate) struct LoginProfile {
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) username: String,
+    #[serde(default)]
+    pub(crate) email: String,
 }
 
 #[derive(Deserialize)]
@@ -16,6 +18,8 @@ pub(crate) struct LoginProfileRequest {
     pub(crate) id: Option<String>,
     pub(crate) name: String,
     pub(crate) username: String,
+    #[serde(default)]
+    pub(crate) email: String,
     pub(crate) password: String,
 }
 
@@ -29,7 +33,7 @@ impl LoginProfileStore for Store {
     fn list_login_profiles(&self) -> Result<Vec<LoginProfile>, String> {
         let mut statement = self
             .connection
-            .prepare("SELECT id,name,username FROM login_profiles ORDER BY name")
+            .prepare("SELECT id,name,username,email FROM login_profiles ORDER BY name")
             .map_err(|error| error.to_string())?;
         let profiles = statement
             .query_map([], |row| {
@@ -37,6 +41,7 @@ impl LoginProfileStore for Store {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     username: row.get(2)?,
+                    email: row.get(3)?,
                 })
             })
             .map_err(|error| error.to_string())?
@@ -48,8 +53,8 @@ impl LoginProfileStore for Store {
     fn save_login_profile(&self, profile: &LoginProfile) -> Result<(), String> {
         self.connection
             .execute(
-                "INSERT OR REPLACE INTO login_profiles (id,name,username) VALUES (?1,?2,?3)",
-                params![profile.id, profile.name, profile.username],
+                "INSERT OR REPLACE INTO login_profiles (id,name,username,email) VALUES (?1,?2,?3,?4)",
+                params![profile.id, profile.name, profile.username, profile.email],
             )
             .map_err(|error| error.to_string())?;
         Ok(())

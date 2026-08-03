@@ -30,6 +30,7 @@ import {
   Bell,
   RefreshCw,
   Store,
+  UserPlus,
 } from "lucide-react";
 import "./App.css";
 
@@ -47,6 +48,16 @@ function App() {
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
     setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
+  }, []);
+  const openRegistrationWindow = useCallback(async () => {
+    if (!isTauri()) {
+      setShowAdd(true);
+      return;
+    }
+    const registrationWindow = await WebviewWindow.getByLabel("register-account");
+    if (!registrationWindow) return;
+    await registrationWindow.show();
+    await registrationWindow.setFocus();
   }, []);
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
@@ -212,6 +223,9 @@ function App() {
           </span>}</>}
           <button type="button" className="window-action-button window-merchant-button" aria-label="商家信息" title="商家信息" onClick={() => void toggleMerchantWindow()}>
             <Store size={16} />
+          </button>
+          <button type="button" className="window-action-button" aria-label="自动注册站点账号" title="自动注册站点账号" onClick={() => void openRegistrationWindow()}>
+            <UserPlus size={16} />
           </button>
           <button
             type="button"

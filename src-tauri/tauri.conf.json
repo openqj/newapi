@@ -29,6 +29,17 @@
         "height": 840,
         "minWidth": 340,
         "minHeight": 640
+      },
+      {
+        "label": "register-account",
+        "title": "RelayHub 自动注册",
+        "url": "/?window=register-account",
+        "decorations": true,
+        "visible": false,
+        "width": 560,
+        "height": 640,
+        "minWidth": 500,
+        "minHeight": 520
       }
     ],
     "security": {

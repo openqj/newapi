@@ -17,15 +17,16 @@ use crate::{
     commands::alerts::notify as notify_alerts,
     keyring_store::{clear_secret, load_secret, save_secret, Secret},
     services::stations::{
-        authenticate, detect_kind, refresh_session, register, send_registration_verification_code,
+        authenticate, detect_kind, refresh_session, register,
+        registration_requires_email_verification, send_registration_verification_code,
         station_request, sync_one, sync_one_authorized, title_from_html,
     },
     station_adapter::{Station, StationAdapter},
     station_store::StationStore,
     support::station_base,
-    AddStationRequest, AppState, ImportStationWithCodeRequest, StationCodeImportResult,
-    StationConnectionResult, StationProbe, StationSaveResult, SyncProgress, SyncResult,
-    UpdateStationRequest,
+    AddStationRequest, AppState, ImportStationWithCodeRequest, RegisterStationAccountRequest,
+    StationCodeImportResult, StationConnectionResult, StationProbe, StationSaveResult,
+    SyncProgress, SyncResult, UpdateStationRequest,
 };
 use uuid::Uuid;
 
@@ -108,11 +109,18 @@ pub(crate) async fn probe_station(
             .unwrap_or(fallback),
         None => fallback,
     };
+    let normalized = station_base(&base_url);
+    let kind = detect_kind(&state.client, &normalized).await.ok();
+    let requires_email_verification = match kind.as_deref() {
+        Some(kind) => {
+            registration_requires_email_verification(&state.client, &normalized, kind).await
+        }
+        None => None,
+    };
     Ok(StationProbe {
         name,
-        kind: detect_kind(&state.client, &station_base(&base_url))
-            .await
-            .ok(),
+        kind,
+        requires_email_verification,
     })
 }
 
@@ -127,7 +135,11 @@ pub(crate) async fn send_station_verification_code(
         return Err("仅允许 HTTPS 站点地址".into());
     }
     let email = email.trim();
-    if email.is_empty() || !email.contains('@') || email.len() > 254 || email.chars().any(char::is_control) {
+    if email.is_empty()
+        || !email.contains('@')
+        || email.len() > 254
+        || email.chars().any(char::is_control)
+    {
         return Err("请输入有效注册邮箱".into());
     }
     let base_url = station_base(&base_url);
@@ -221,6 +233,113 @@ pub(crate) async fn add_station(
 }
 
 #[tauri::command]
+pub(crate) async fn register_station_account(
+    state: State<'_, AppState>,
+    request: RegisterStationAccountRequest,
+) -> Result<StationSaveResult, String> {
+    let parsed = Url::parse(&request.base_url).map_err(|_| "请输入有效站点地址".to_string())?;
+    if parsed.scheme() != "https" {
+        return Err("仅允许 HTTPS 站点地址".into());
+    }
+    let detected_kind = if request.kind == "auto" {
+        detect_kind(&state.client, &station_base(&request.base_url)).await?
+    } else {
+        request.kind.clone()
+    };
+    let requires_email_verification = registration_requires_email_verification(
+        &state.client,
+        &station_base(&request.base_url),
+        &detected_kind,
+    )
+    .await
+    .unwrap_or(detected_kind == "sub2api");
+    let email = request.email.trim();
+    if requires_email_verification
+        && (email.is_empty()
+            || !email.contains('@')
+            || email.len() > 254
+            || email.chars().any(char::is_control))
+    {
+        return Err("请输入有效注册邮箱".into());
+    }
+    if request.password.is_empty() || request.password.len() > 256 {
+        return Err("请输入有效站点密码".into());
+    }
+    let verification_code = request.verification_code.trim();
+    if requires_email_verification
+        && (verification_code.is_empty()
+            || verification_code.len() > 32
+            || verification_code.chars().any(char::is_control))
+    {
+        return Err("请输入有效邮箱验证码".into());
+    }
+    let kind = detected_kind;
+    if kind != "newapi" && kind != "sub2api" {
+        return Err("仅支持 NewAPI 和 Sub2API".into());
+    }
+    let mut station = Station {
+        id: Uuid::new_v4().to_string(),
+        name: if request.name.trim().is_empty() {
+            parsed.host_str().unwrap_or("未命名站点").to_string()
+        } else {
+            request.name.trim().to_string()
+        },
+        base_url: station_base(&request.base_url),
+        kind: kind.clone(),
+        status: "connecting".into(),
+        last_synced_at: None,
+        last_error: None,
+    };
+    let login_username = if kind == "newapi" {
+        request
+            .username
+            .as_deref()
+            .unwrap_or(email)
+            .trim()
+            .to_string()
+    } else {
+        email.to_string()
+    };
+    if login_username.is_empty() {
+        return Err("NewAPI 需要填写用户名".into());
+    }
+    let mut secret = Secret {
+        username: login_username,
+        password: request.password,
+        access_token: None,
+        refresh_token: None,
+        newapi_user_id: None,
+        newapi_session: None,
+    };
+    register(
+        &state.client,
+        &station,
+        email,
+        &secret.username,
+        &secret.password,
+        verification_code,
+    )
+    .await?;
+    authenticate(&state.client, &station, &mut secret, None).await?;
+    save_secret(&station.id, &secret)?;
+    station.status = "online".into();
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_station(&station)?;
+    let station = sync_one_authorized(&state, &station.id).await?.station;
+    Ok(StationSaveResult {
+        station,
+        connection: StationConnectionResult {
+            success: true,
+            status: "online".into(),
+            reason: None,
+        },
+    })
+}
+
+#[tauri::command]
 pub(crate) async fn import_station_with_code(
     state: State<'_, AppState>,
     request: ImportStationWithCodeRequest,
@@ -242,7 +361,10 @@ pub(crate) async fn import_station_with_code(
     if email.is_empty() || !email.contains('@') {
         return Err("请输入有效注册邮箱".into());
     }
-    if verification_code.is_empty() || verification_code.len() > 32 || verification_code.chars().any(char::is_control) {
+    if verification_code.is_empty()
+        || verification_code.len() > 32
+        || verification_code.chars().any(char::is_control)
+    {
         return Err("请输入有效邮箱验证码".into());
     }
     let mut station = Station {
@@ -266,7 +388,16 @@ pub(crate) async fn import_station_with_code(
         newapi_user_id: None,
         newapi_session: None,
     };
-    let registration_error = register(&state.client, &station, email, &secret.password, verification_code).await.err();
+    let registration_error = register(
+        &state.client,
+        &station,
+        email,
+        email,
+        &secret.password,
+        verification_code,
+    )
+    .await
+    .err();
     if let Err(reason) = authenticate(&state.client, &station, &mut secret, None).await {
         station.status = "error".into();
         return Ok(StationCodeImportResult {
@@ -274,7 +405,9 @@ pub(crate) async fn import_station_with_code(
             connection: StationConnectionResult {
                 success: false,
                 status: "error".into(),
-                reason: Some(registration_error.map_or(reason.clone(), |registration| format!("注册失败：{registration}；登录失败：{reason}"))),
+                reason: Some(registration_error.map_or(reason.clone(), |registration| {
+                    format!("注册失败：{registration}；登录失败：{reason}")
+                })),
             },
             redemption_message: None,
         });

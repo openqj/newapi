@@ -360,7 +360,9 @@ pub(crate) fn write_server_relay(
     action: &str,
     summary: &str,
 ) -> Result<(), String> {
-    server.relay_provider = relay_provider;
+    if relay_provider.is_some() {
+        server.relay_provider = relay_provider;
+    }
     let previous_key = match replace_relay_key(&server.id, relay_key) {
         Ok(key) => key,
         Err(error) => {
@@ -1568,8 +1570,13 @@ pub(crate) fn patch_codex_config(
     };
     let provider_name = requested_provider
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or("custom")
-        .to_string();
+        .map(str::to_string)
+        .or_else(|| {
+            let name = document.get("model_provider").and_then(Item::as_str)?;
+            let providers = document.get("model_providers").and_then(Item::as_table)?;
+            providers.contains_key(name).then(|| name.to_string())
+        })
+        .unwrap_or_else(|| "custom".into());
     document["model_provider"] = toml_value(provider_name.clone());
     if document.get("model_providers").is_none() {
         document["model_providers"] = Item::Table(Table::new());
@@ -1765,6 +1772,18 @@ experimental_bearer_token = "sk-relay-config-token"
         assert!(patched.contains("experimental_bearer_token = \"sk-relay-token\""));
         assert!(!patched.contains("api_key = \"$CUSTOM_KEY\""));
         assert!(!patched.contains("env_key = \"OPENAI_API_KEY\""));
+    }
+
+    #[test]
+    fn preserves_the_existing_codex_provider_without_an_explicit_provider() {
+        let source = "model_provider = \"existing\"\n\n[model_providers.existing]\nbase_url = \"https://old.example\"\n";
+        let (patched, provider) =
+            patch_codex_config(source, None, "https://new.example", "sk-relay-token")
+                .expect("config should be patchable");
+
+        assert_eq!(provider, "existing");
+        assert!(patched.contains("model_provider = \"existing\""));
+        assert!(patched.contains("base_url = \"https://new.example\""));
     }
 
     #[test]

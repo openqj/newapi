@@ -92,6 +92,7 @@
 .data-table-scroll { overflow: auto; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: .8125rem; }
 th { background: #f9fafb; padding: .95rem 1.25rem; color: #6b7280; font-size: .6875rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; white-space: nowrap; }
+th > button { white-space: nowrap; }
 td { padding: .95rem 1.25rem; border-top: 1px solid #eef0f3; color: #374151; vertical-align: middle; }
 tr:hover td { background: #fafafa; }
 
