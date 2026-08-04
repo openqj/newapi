@@ -1,10 +1,15 @@
 pub(crate) mod api_keys;
 pub(crate) mod authorization;
+pub(crate) mod claude_config;
+pub(crate) mod client_backup;
 pub(crate) mod cloud_backup;
 pub(crate) mod codex_config;
+pub(crate) mod config_backups;
 pub(crate) mod detection;
 pub(crate) mod gateway;
+pub(crate) mod gemini_config;
 pub(crate) mod provider_doctor;
 pub(crate) mod remote;
 pub(crate) mod stations;
 pub(crate) mod supabase;
+pub(crate) mod telemetry;

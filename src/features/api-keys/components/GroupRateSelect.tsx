@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { presentGroup } from "../../../lib/groupPresentation";
 import type { GroupOption } from "../types";
 
 type GroupRateSelectProps = {
@@ -14,8 +15,19 @@ type GroupRateSelectProps = {
 };
 
 type MenuPosition = { top: number; left: number; width: number };
+type GroupTone = "neutral" | "green" | "orange" | "blue" | "purple";
 
 const formatMultiplier = (value?: number) => Number.isFinite(value) ? `${value!.toFixed(3)}x` : "-";
+
+export function groupTone(name?: string, description?: string): GroupTone {
+  const text = `${name ?? ""} ${description ?? ""}`.toLowerCase();
+  if (/claude|anthropic/.test(text)) return "orange";
+  if (/grok|xai/.test(text)) return "neutral";
+  if (/chatgpt|openai|kimi|gemini|deepseek|qwen|llama/.test(text)) return "green";
+  if (/通用|default|公共|all/.test(text)) return "blue";
+  if (/pro|plus|premium|高速/.test(text)) return "purple";
+  return "neutral";
+}
 
 export function GroupRateSelect({
   value,
@@ -35,10 +47,11 @@ export function GroupRateSelect({
     ? groups
     : [{ name: value }, ...groups];
   const selected = options.find((option) => option.name === value);
-  const selectedDescription = selected?.description?.trim();
+  const selectedPresentation = selected ? presentGroup(selected) : undefined;
   const selectedLabel = selected
-    ? `${placeholder}: ${selected.name}${selectedDescription ? ` ${selectedDescription}` : ""} ${formatMultiplier(selected.multiplier)}`
+    ? `${placeholder}: ${selectedPresentation?.name}${selectedPresentation?.description ? ` ${selectedPresentation.description}` : ""} ${formatMultiplier(selected.multiplier)}`
     : placeholder;
+  const selectedTone = selectedPresentation ? groupTone(selectedPresentation.name, selectedPresentation.description) : "neutral";
 
   const updatePosition = () => {
     const bounds = triggerRef.current?.getBoundingClientRect();
@@ -85,10 +98,11 @@ export function GroupRateSelect({
 
   const menu = open && menuPosition && createPortal(
     <div ref={menuRef} className="group-rate-select-menu" role="listbox" aria-label={placeholder} style={menuPosition}>
-      {allowEmpty && <button type="button" role="option" aria-label={placeholder} aria-selected={!value} onClick={() => choose("")} disabled={disabled}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{placeholder}</span></span><strong>-</strong></button>}
+      {allowEmpty && <button type="button" className="group-rate-select-option group-rate-select-tone-neutral" role="option" aria-label={placeholder} aria-selected={!value} onClick={() => choose("")} disabled={disabled}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{placeholder}</span></span><strong>-</strong></button>}
       {options.map((option) => {
-        const description = option.description?.trim();
-        return <button type="button" role="option" aria-label={`${option.name}${description ? ` ${description}` : ""} ${formatMultiplier(option.multiplier)}`} aria-selected={option.name === value} onClick={() => choose(option.name)} disabled={disabled} key={option.name}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{option.name}</span>{description && <small title={description}>{description}</small>}</span><strong>{formatMultiplier(option.multiplier)}</strong></button>;
+        const presentation = presentGroup(option);
+        const tone = groupTone(presentation.name, presentation.description);
+        return <button type="button" className={`group-rate-select-option group-rate-select-tone-${tone}`} role="option" aria-label={`${presentation.name}${presentation.description ? ` ${presentation.description}` : ""} ${formatMultiplier(option.multiplier)}`} aria-selected={option.name === value} onClick={() => choose(option.name)} disabled={disabled} key={option.name}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{presentation.name}</span>{presentation.description && <small title={presentation.description}>{presentation.description}</small>}</span><strong>{formatMultiplier(option.multiplier)}</strong></button>;
       })}
     </div>,
     document.body,
@@ -96,8 +110,8 @@ export function GroupRateSelect({
 
   return (
     <div className={`group-rate-select ${className}`.trim()} ref={rootRef}>
-      <button ref={triggerRef} type="button" className="group-rate-select-trigger" aria-label={selectedLabel} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={toggle}>
-        <span>{selected?.name || placeholder}</span>
+      <button ref={triggerRef} type="button" className={`group-rate-select-trigger group-rate-select-tone-${selectedTone}`} aria-label={selectedLabel} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={toggle}>
+        <span className="group-rate-select-trigger-copy"><span>{selectedPresentation?.name || placeholder}</span>{selectedPresentation?.description && <small title={selectedPresentation.description}>{selectedPresentation.description}</small>}</span>
         <strong>{formatMultiplier(selected?.multiplier)}</strong>
         <ChevronDown size={14} aria-hidden="true" />
       </button>

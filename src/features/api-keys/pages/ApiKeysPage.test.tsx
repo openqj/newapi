@@ -4,7 +4,8 @@ import { ConfirmationProvider, ToastProvider } from "../../../components/ui";
 import { ApiKeysPage } from "./ApiKeysPage";
 import type { KeyRow } from "../types";
 
-const { groups, isTauri, reauthenticate, refresh } = vi.hoisted(() => ({
+const { applyToClaude, groups, isTauri, reauthenticate, refresh } = vi.hoisted(() => ({
+  applyToClaude: vi.fn(),
   groups: vi.fn(),
   isTauri: vi.fn(() => false),
   reauthenticate: vi.fn(),
@@ -18,7 +19,7 @@ vi.mock("../../stations", async (importOriginal) => {
 });
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
-  return { apiKeyApi: { ...actual.apiKeyApi, groups } };
+  return { apiKeyApi: { ...actual.apiKeyApi, applyToClaude, groups } };
 });
 
 const row: KeyRow = {
@@ -35,9 +36,36 @@ const row: KeyRow = {
     unlimitedQuota: true,
   },
 };
+const claudeRow: KeyRow = { ...row, key: { ...row.key, id: "key-2", name: "Claude 密钥" }, models: ["claude-sonnet-4-5"] };
 
 describe("ApiKeysPage selection and testing", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it("places the Claude action before import and applies the selected key", async () => {
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[row]}
+            stations={[]}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    const claudeAction = screen.getByRole("button", { name: "Claude" });
+    const importAction = screen.getByRole("button", { name: "导入" });
+    expect(claudeAction.compareDocumentPosition(importAction)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    fireEvent.click(claudeAction);
+
+    await waitFor(() => expect(applyToClaude).toHaveBeenCalledWith("station-1", "key-1"));
+  });
 
   it("automatically logs in before creating a key for a disconnected station", async () => {
     isTauri.mockReturnValue(true);
@@ -102,11 +130,33 @@ describe("ApiKeysPage selection and testing", () => {
       </ToastProvider>,
     );
 
+    expect(screen.getByRole("columnheader", { name: "模型类型" })).toBeInTheDocument();
+    expect(screen.getAllByText("ChatGPT").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "一键测试" })).toBeDisabled();
     fireEvent.click(screen.getAllByRole("checkbox", { name: "选择 API 密钥 测试密钥" })[0]);
     expect(screen.getByRole("button", { name: "一键测试" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "一键测试" }));
 
     await waitFor(() => expect(screen.getAllByText("测试正常").length).toBeGreaterThan(0));
+  });
+
+  it("filters keys by model type", () => {
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[row, claudeRow]}
+            stations={[]}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("模型类型筛选"), { target: { value: "Claude" } });
+
+    expect(screen.queryByText("测试密钥")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
   });
 });

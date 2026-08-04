@@ -105,10 +105,13 @@ pub(crate) async fn list_key_rows(state: State<'_, AppState>) -> Result<Vec<KeyR
         if let Some((_, snapshot)) = store.load_snapshot(&station.id)? {
             let mut groups = Vec::new();
             for rate in &snapshot.rates {
-                if groups
-                    .iter()
-                    .any(|group: &GroupOption| group.name == rate.group)
+                if let Some(existing) = groups
+                    .iter_mut()
+                    .find(|group: &&mut GroupOption| group.name == rate.group)
                 {
+                    if existing.description.is_none() {
+                        existing.description = rate.group_description.clone();
+                    }
                     continue;
                 }
                 groups.push(GroupOption {
@@ -220,10 +223,13 @@ pub(crate) async fn list_station_groups(
         .ok_or("请先同步该站点以获取可见分组")?;
     let mut groups = Vec::new();
     for rate in snapshot.rates {
-        if groups
-            .iter()
-            .any(|group: &GroupOption| group.name == rate.group)
+        if let Some(existing) = groups
+            .iter_mut()
+            .find(|group: &&mut GroupOption| group.name == rate.group)
         {
+            if existing.description.is_none() {
+                existing.description = rate.group_description.clone();
+            }
             continue;
         }
         groups.push(GroupOption {

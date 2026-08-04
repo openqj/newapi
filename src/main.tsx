@@ -9,6 +9,10 @@ import "./index.css";
 type ErrorBoundaryProps = { children: ReactNode };
 type ErrorBoundaryState = { error: Error | null };
 
+function isDynamicImportError(error: Error) {
+  return /failed to fetch dynamically imported module|importing a module script failed/i.test(error.message);
+}
+
 class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null };
 
@@ -27,6 +31,11 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
           <section className="max-w-lg rounded-lg border border-rose-200 bg-white p-6 shadow-sm">
             <h1 className="text-lg font-semibold">RelayHub failed to render</h1>
             <p className="mt-2 text-sm text-slate-600">{this.state.error.message}</p>
+            {isDynamicImportError(this.state.error) && (
+              <button type="button" className="button-primary mt-4" onClick={() => window.location.reload()}>
+                重新加载页面
+              </button>
+            )}
           </section>
         </main>
       );

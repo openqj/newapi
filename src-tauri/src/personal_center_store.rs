@@ -109,6 +109,7 @@ pub(crate) struct MerchantProfile {
     pub(crate) description: Option<String>,
     pub(crate) qq: Option<String>,
     pub(crate) qq_link: Option<String>,
+    pub(crate) website_url: Option<String>,
     pub(crate) wechat_qr_url: Option<String>,
     pub(crate) tier: Option<String>,
 }
@@ -128,6 +129,9 @@ pub(crate) struct MerchantRateShare {
     pub(crate) wechat_qr_url: Option<String>,
     pub(crate) tier: Option<String>,
     pub(crate) pinned: bool,
+    pub(crate) one_to_one_recharge: bool,
+    pub(crate) official_pricing: bool,
+    pub(crate) recharge_url: Option<String>,
     pub(crate) published_at: i64,
 }
 
@@ -138,6 +142,15 @@ pub(crate) struct PublishMerchantRateRequest {
     pub(crate) station_url: String,
     pub(crate) group_name: String,
     pub(crate) multiplier_summary: String,
+    pub(crate) recharge_url: String,
+    pub(crate) one_to_one_recharge: bool,
+    pub(crate) official_pricing: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantRatePublishResult {
+    pub(crate) rate_share_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -147,6 +160,7 @@ pub(crate) struct MerchantFreeCodeInput {
     pub(crate) station_url: String,
     pub(crate) redeem_code: String,
     pub(crate) quota: f64,
+    pub(crate) expires_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -165,6 +179,8 @@ pub(crate) struct MerchantFreeOffer {
     pub(crate) station_name: String,
     pub(crate) station_url: String,
     pub(crate) quota: f64,
+    pub(crate) claimed_count: i64,
+    pub(crate) expires_at: Option<i64>,
     pub(crate) pinned: bool,
     pub(crate) tier: Option<String>,
     pub(crate) published_at: i64,

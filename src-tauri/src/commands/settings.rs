@@ -4,9 +4,54 @@ use tauri::State;
 
 use crate::{
     services::{cloud_backup, codex_config},
+    settings_store::SettingsStore,
     AppState, CloudAuthStatus, CloudBackupPreview, CloudBackupSummary, CodexIntegrationStatus,
     Store,
 };
+
+const BACKGROUND_REFRESH_MINUTES_KEY: &str = "backgroundRefreshMinutes";
+const DEFAULT_BACKGROUND_REFRESH_MINUTES: u64 = 30;
+const MIN_BACKGROUND_REFRESH_MINUTES: u64 = 10;
+const MAX_BACKGROUND_REFRESH_MINUTES: u64 = 24 * 60;
+
+fn read_background_refresh_minutes(state: &AppState) -> Result<u64, String> {
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?;
+    let value = store.setting(BACKGROUND_REFRESH_MINUTES_KEY)?;
+    Ok(value
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|minutes| {
+            (MIN_BACKGROUND_REFRESH_MINUTES..=MAX_BACKGROUND_REFRESH_MINUTES).contains(minutes)
+        })
+        .unwrap_or(DEFAULT_BACKGROUND_REFRESH_MINUTES))
+}
+
+#[tauri::command]
+pub(crate) fn get_background_refresh_minutes(
+    state: tauri::State<'_, AppState>,
+) -> Result<u64, String> {
+    read_background_refresh_minutes(&state)
+}
+
+#[tauri::command]
+pub(crate) fn save_background_refresh_minutes(
+    state: tauri::State<'_, AppState>,
+    minutes: u64,
+) -> Result<u64, String> {
+    if !(MIN_BACKGROUND_REFRESH_MINUTES..=MAX_BACKGROUND_REFRESH_MINUTES).contains(&minutes) {
+        return Err(format!(
+            "后台刷新间隔需在 {MIN_BACKGROUND_REFRESH_MINUTES} 分钟到 {MAX_BACKGROUND_REFRESH_MINUTES} 分钟之间。"
+        ));
+    }
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_setting(BACKGROUND_REFRESH_MINUTES_KEY, &minutes.to_string())?;
+    Ok(minutes)
+}
 
 #[tauri::command]
 pub(crate) async fn get_cloud_auth_status(

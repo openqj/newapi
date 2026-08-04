@@ -50,7 +50,11 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
     is_local_gateway: bool,
 ) -> Result<(), String> {
     loop {
-        if stations_menu.items().map_err(|error| error.to_string())?.is_empty() {
+        if stations_menu
+            .items()
+            .map_err(|error| error.to_string())?
+            .is_empty()
+        {
             break;
         }
         stations_menu
@@ -106,13 +110,13 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
         station_menu
             .append(&balance)
             .map_err(|error| error.to_string())?;
-        let separator = PredefinedMenuItem::separator(manager)
-            .map_err(|error| error.to_string())?;
+        let separator =
+            PredefinedMenuItem::separator(manager).map_err(|error| error.to_string())?;
         station_menu
             .append(&separator)
             .map_err(|error| error.to_string())?;
-        let groups_menu = Submenu::new(manager, "分组与倍率", true)
-            .map_err(|error| error.to_string())?;
+        let groups_menu =
+            Submenu::new(manager, "分组与倍率", true).map_err(|error| error.to_string())?;
         match snapshot {
             Some(snapshot) => {
                 let mut groups = BTreeSet::new();
@@ -123,33 +127,24 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
                     groups.insert(key.group.clone().unwrap_or_else(|| "默认分组".into()));
                 }
                 if groups.is_empty() {
-                    let empty_groups = MenuItem::new(
-                        manager,
-                        "暂无分组或倍率数据",
-                        false,
-                        None::<&str>,
-                    )
-                    .map_err(|error| error.to_string())?;
+                    let empty_groups =
+                        MenuItem::new(manager, "暂无分组或倍率数据", false, None::<&str>)
+                            .map_err(|error| error.to_string())?;
                     groups_menu
                         .append(&empty_groups)
                         .map_err(|error| error.to_string())?;
                 }
                 for group in groups {
-                    let group_menu = Submenu::new(manager, &group, true)
-                        .map_err(|error| error.to_string())?;
+                    let group_menu =
+                        Submenu::new(manager, &group, true).map_err(|error| error.to_string())?;
                     let group_keys = snapshot
                         .api_keys
                         .iter()
                         .filter(|key| key.group.as_deref().unwrap_or("默认分组") == group)
                         .collect::<Vec<_>>();
                     if group_keys.is_empty() {
-                        let no_keys = MenuItem::new(
-                            manager,
-                            "暂无可选密钥",
-                            false,
-                            None::<&str>,
-                        )
-                        .map_err(|error| error.to_string())?;
+                        let no_keys = MenuItem::new(manager, "暂无可选密钥", false, None::<&str>)
+                            .map_err(|error| error.to_string())?;
                         group_menu
                             .append(&no_keys)
                             .map_err(|error| error.to_string())?;
@@ -182,13 +177,9 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
                             .append(&separator)
                             .map_err(|error| error.to_string())?;
                         for rate in group_rates {
-                            let rate_item = MenuItem::new(
-                                manager,
-                                tray_rate_label(rate),
-                                false,
-                                None::<&str>,
-                            )
-                            .map_err(|error| error.to_string())?;
+                            let rate_item =
+                                MenuItem::new(manager, tray_rate_label(rate), false, None::<&str>)
+                                    .map_err(|error| error.to_string())?;
                             group_menu
                                 .append(&rate_item)
                                 .map_err(|error| error.to_string())?;
@@ -200,13 +191,9 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
                 }
             }
             None => {
-                let stale = MenuItem::new(
-                    manager,
-                    "站点详情请在 RelayHub 中查看",
-                    false,
-                    None::<&str>,
-                )
-                .map_err(|error| error.to_string())?;
+                let stale =
+                    MenuItem::new(manager, "站点详情请在 RelayHub 中查看", false, None::<&str>)
+                        .map_err(|error| error.to_string())?;
                 groups_menu
                     .append(&stale)
                     .map_err(|error| error.to_string())?;
@@ -265,6 +252,7 @@ pub(crate) fn run() {
                 client,
                 gateway,
                 auth_backoff: Mutex::new(HashMap::new()),
+                refresh_locks: Mutex::new(HashMap::new()),
                 remote_operations: Arc::new(Mutex::new(HashMap::new())),
                 sync_operations: Arc::new(Mutex::new(HashMap::new())),
                 sync_progress: Mutex::new(HashMap::new()),
@@ -317,11 +305,9 @@ pub(crate) fn run() {
             let tray_app_handle = app.handle().clone();
             let tray_stations_menu = stations_menu.clone();
             app.listen(STATIONS_CHANGED_EVENT, move |_| {
-                if let Err(error) = refresh_stations_menu(
-                    &tray_app_handle,
-                    &tray_stations_menu,
-                    is_local_gateway,
-                ) {
+                if let Err(error) =
+                    refresh_stations_menu(&tray_app_handle, &tray_stations_menu, is_local_gateway)
+                {
                     eprintln!("failed to refresh tray stations menu: {error}");
                 }
             });

@@ -65,6 +65,19 @@ pub(crate) async fn set_active_gateway_routes(
 }
 
 #[tauri::command]
+pub(crate) async fn reset_gateway_route_health(
+    state: State<'_, AppState>,
+    station_id: String,
+    key_id: String,
+) -> Result<GatewayStatus, String> {
+    state
+        .gateway
+        .reset_route_health(&station_id, &key_id)
+        .await?;
+    gateway::get_status(&state).await
+}
+
+#[tauri::command]
 pub(crate) async fn rotate_gateway_token(
     state: State<'_, AppState>,
 ) -> Result<GatewayCredentials, String> {

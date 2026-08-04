@@ -29,9 +29,10 @@ use crate::{
         AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile,
         AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
         ClaimedMerchantCode, MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer,
-        MerchantImportResult, MerchantProfile, MerchantRateShare, NotificationPreferences,
-        PersonalCenterAuditEntry, PersonalCenterLoginEvent, PersonalCenterNotification,
-        PersonalCenterRealtimeSession, PublishMerchantRateRequest, PublishNotificationRequest,
+        MerchantImportResult, MerchantProfile, MerchantRatePublishResult, MerchantRateShare,
+        NotificationPreferences, PersonalCenterAuditEntry, PersonalCenterLoginEvent,
+        PersonalCenterNotification, PersonalCenterRealtimeSession, PublishMerchantRateRequest,
+        PublishNotificationRequest,
     },
     remote_store::RemoteServerStore,
     station_store::StationStore,
@@ -331,7 +332,10 @@ async fn session(state: &AppState, config: &SupabaseConfig) -> Result<CloudSessi
     Ok(next)
 }
 
-async fn verified_session(state: &AppState, config: &SupabaseConfig) -> Result<CloudSession, String> {
+async fn verified_session(
+    state: &AppState,
+    config: &SupabaseConfig,
+) -> Result<CloudSession, String> {
     let mut current = session(state, config).await?;
     let response = state
         .client
@@ -389,7 +393,7 @@ pub(crate) async fn merchant_profile(state: &AppState) -> Result<Option<Merchant
             ("user_id", format!("eq.{}", current.user_id)),
             (
                 "select",
-                "merchant_name,description,qq,qq_link,wechat_qr_url,tier".into(),
+                "merchant_name,description,qq,qq_link,website_url,wechat_qr_url,tier".into(),
             ),
         ])
         .send()
@@ -421,6 +425,7 @@ pub(crate) async fn save_merchant_profile(
             "description": profile.description,
             "qq": profile.qq,
             "qq_link": profile.qq_link,
+            "website_url": profile.website_url,
             "wechat_qr_url": profile.wechat_qr_url,
         }))
         .send()
@@ -441,7 +446,7 @@ pub(crate) async fn merchant_rate_shares(
     let response = state.client
         .get(format!("{}/rest/v1/merchant_rate_shares", config.url))
         .headers(public_postgrest_headers(&config)?)
-        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,pinned,published_at,merchant_profiles!inner(merchant_name,description,qq,qq_link,wechat_qr_url,tier)"), ("active", "eq.true"), ("order", "pinned.desc,published_at.desc")])
+        .query(&[("select", "id,station_name,station_url,group_name,multiplier_summary,pinned,one_to_one_recharge,official_pricing,recharge_url,published_at,merchant_profiles!inner(merchant_name,description,qq,qq_link,wechat_qr_url,tier)"), ("active", "eq.true"), ("order", "pinned.desc,published_at.desc")])
         .send().await.map_err(|error| error.to_string())?;
     Ok(response_json::<Vec<CloudMerchantRateShare>>(response)
         .await?
@@ -453,26 +458,34 @@ pub(crate) async fn merchant_rate_shares(
 pub(crate) async fn publish_merchant_rate(
     state: &AppState,
     request: &PublishMerchantRateRequest,
-) -> Result<(), String> {
+) -> Result<MerchantRatePublishResult, String> {
     let (config, current) = require_verified_merchant(state).await?;
     let response = state
         .client
-        .post(format!("{}/rest/v1/merchant_rate_shares", config.url))
+        .post(format!(
+            "{}/rest/v1/rpc/publish_merchant_rate_share",
+            config.url
+        ))
         .headers(postgrest_headers(&config, &current)?)
-        .header("Prefer", "resolution=merge-duplicates")
-        .query(&[("on_conflict", "merchant_id,station_url,group_name")])
         .json(&serde_json::json!({
-            "merchant_id": current.user_id,
-            "station_name": request.station_name,
-            "station_url": request.station_url,
-            "group_name": request.group_name,
-            "multiplier_summary": request.multiplier_summary,
-            "active": true,
+            "payload": {
+                "station_name": request.station_name,
+                "station_url": request.station_url,
+                "group_name": request.group_name,
+                "multiplier_summary": request.multiplier_summary,
+                "recharge_url": request.recharge_url,
+                "one_to_one_recharge": request.one_to_one_recharge,
+                "official_pricing": request.official_pricing,
+            },
         }))
         .send()
         .await
         .map_err(|error| error.to_string())?;
-    ensure_success(response).await
+    response_json::<Vec<MerchantRatePublishResult>>(response)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Merchant rate was not published".into())
 }
 
 pub(crate) async fn import_merchant_codes(
@@ -488,6 +501,7 @@ pub(crate) async fn import_merchant_codes(
                 "station_url": code.station_url,
                 "redemption_code": code.redeem_code,
                 "quota": code.quota,
+                "expires_at": code.expires_at,
             })
         })
         .collect::<Vec<_>>();
@@ -513,13 +527,14 @@ pub(crate) async fn merchant_free_offers(
     state: &AppState,
 ) -> Result<Vec<MerchantFreeOffer>, String> {
     let config = config()?;
+    let current = verified_session(state, &config).await?;
     let response = state
         .client
         .post(format!(
             "{}/rest/v1/rpc/list_merchant_free_offers",
             config.url
         ))
-        .headers(public_postgrest_headers(&config)?)
+        .headers(postgrest_headers(&config, &current)?)
         .json(&serde_json::json!({}))
         .send()
         .await
@@ -770,6 +785,7 @@ struct CloudMerchantProfile {
     description: Option<String>,
     qq: Option<String>,
     qq_link: Option<String>,
+    website_url: Option<String>,
     wechat_qr_url: Option<String>,
     tier: Option<String>,
 }
@@ -780,6 +796,7 @@ impl From<CloudMerchantProfile> for MerchantProfile {
             description: value.description,
             qq: value.qq,
             qq_link: value.qq_link,
+            website_url: value.website_url,
             wechat_qr_url: value.wechat_qr_url,
             tier: value.tier,
         }
@@ -794,6 +811,9 @@ struct CloudMerchantRateShare {
     group_name: String,
     multiplier_summary: String,
     pinned: bool,
+    one_to_one_recharge: bool,
+    official_pricing: bool,
+    recharge_url: Option<String>,
     published_at: i64,
     merchant_profiles: CloudMerchantProfile,
 }
@@ -812,6 +832,9 @@ impl From<CloudMerchantRateShare> for MerchantRateShare {
             wechat_qr_url: value.merchant_profiles.wechat_qr_url,
             tier: value.merchant_profiles.tier,
             pinned: value.pinned,
+            one_to_one_recharge: value.one_to_one_recharge,
+            official_pricing: value.official_pricing,
+            recharge_url: value.recharge_url,
             published_at: value.published_at,
         }
     }
@@ -825,6 +848,8 @@ struct CloudMerchantFreeOffer {
     station_name: String,
     station_url: String,
     quota: f64,
+    claimed_count: i64,
+    expires_at: Option<i64>,
     pinned: bool,
     tier: Option<String>,
     published_at: i64,
@@ -838,6 +863,8 @@ impl From<CloudMerchantFreeOffer> for MerchantFreeOffer {
             station_name: value.station_name,
             station_url: value.station_url,
             quota: value.quota,
+            claimed_count: value.claimed_count,
+            expires_at: value.expires_at,
             pinned: value.pinned,
             tier: value.tier,
             published_at: value.published_at,
@@ -915,6 +942,7 @@ struct CloudClaimedMerchantCode {
     station_url: String,
     redeem_code: String,
 }
+
 impl From<CloudClaimedMerchantCode> for ClaimedMerchantCode {
     fn from(value: CloudClaimedMerchantCode) -> Self {
         Self {
@@ -1953,12 +1981,19 @@ fn restore_payload(state: &AppState, payload: &CloudBackupPayload) -> Result<(),
         save_secret(
             id,
             &Secret {
+                version: 3,
                 username: secret.username.clone(),
                 password: secret.password.clone(),
                 access_token: None,
+                access_token_expires_at: None,
                 refresh_token: None,
+                requires_reauth: false,
+                last_refresh_at: None,
+                last_refresh_error: None,
+                next_refresh_retry_at: None,
                 newapi_user_id: None,
                 newapi_session: None,
+                newapi_cookies: Vec::new(),
             },
         )?;
     }

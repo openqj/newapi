@@ -1,10 +1,22 @@
 .merchant-center-page { display: grid; gap: 1rem; }
 .merchant-center-page .panel { margin: 0; }
+.merchant-center-management-card { overflow: hidden; }
+.merchant-center-tabs { display: flex; gap: .15rem; min-width: max-content; overflow-x: auto; border-bottom: 1px solid #e5e7eb; padding: .35rem .85rem 0; }
+.merchant-center-tab { border: 0; border-radius: 6px 6px 0 0; background: transparent; padding: .55rem .8rem; color: #64748b; font-size: .8125rem; white-space: nowrap; }
+.merchant-center-tab:hover { background: #f4f5f6; color: #111827; }
+.merchant-center-tab.active { background: #111; color: #fff; font-weight: 600; }
+.merchant-center-tab-panel { min-width: 0; }
+.merchant-center-tab-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .85rem 1rem; border-bottom: 1px solid #eef0f3; }
+.merchant-center-tab-heading h2 { margin: 0; color: var(--ui-text); font-size: .875rem; font-weight: 600; }
+.merchant-center-tab-heading p { margin: .2rem 0 0; color: var(--ui-muted); font-size: .75rem; }
 .merchant-profile-form { display: grid; gap: .85rem; padding: 1rem 1.1rem 1.1rem; }
 .merchant-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .8rem; }
 .merchant-form-actions { display: flex; justify-content: flex-end; }
 .merchant-import-meta { display: flex; align-items: center; gap: .4rem; color: #64748b; font-size: .75rem; }
 .merchant-import-meta.invalid { color: #b91c1c; }
+.merchant-rate-commitments { display: flex; flex-wrap: wrap; gap: .75rem 1rem; color: #334155; font-size: .8125rem; }
+.merchant-rate-commitments label { display: inline-flex; align-items: center; gap: .4rem; }
+.merchant-rate-commitments input { width: 1rem; height: 1rem; accent-color: #111; }
 .merchant-form-error, .merchant-load-error { display: flex; align-items: center; justify-content: space-between; gap: .75rem; border: 1px solid #fecaca; border-radius: 8px; background: #fff1f2; padding: .65rem .75rem; color: #991b1b; font-size: .75rem; }
 .merchant-form-error .button-secondary, .merchant-load-error .button-secondary { flex: 0 0 auto; }
 .merchant-market-body { min-width: 0; }
@@ -25,13 +37,14 @@
 .merchant-market-tab.active { color: #111827; font-weight: 600; }
 .merchant-market-tab.active::after { position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: #111; content: ""; }
 .merchant-market-table { min-height: 0; flex: 1; overflow: auto; background: #f6f7f8; }
-.merchant-list-toolbar { display: flex; justify-content: flex-end; align-items: center; padding: .6rem .85rem .25rem; color: #64748b; font-size: .75rem; }
+.merchant-list-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; align-items: center; padding: .6rem .85rem .25rem; border-bottom: 1px solid #e5e7eb; background: rgba(246,247,248,.96); color: #64748b; font-size: .75rem; backdrop-filter: blur(8px); }
 .merchant-list-toolbar label { color: inherit; font-size: inherit; font-weight: 500; }
 .merchant-list-toolbar > label { display: inline-flex; align-items: center; gap: .25rem; }
 .merchant-sort-select { min-width: 4.2rem; border: 0; background-color: transparent; color: #334155; font-size: inherit; font-weight: 600; }
 .merchant-load-error { margin: .35rem .7rem; }
 .merchant-card-list { display: grid; gap: .65rem; padding: .35rem .7rem .7rem; }
-.merchant-list-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); }
+.merchant-list-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); cursor: pointer; }
+.merchant-list-card:focus-visible { outline: 2px solid #111; outline-offset: 2px; }
 .merchant-list-card-pinned { border: .5px solid #22c55e; }
 .merchant-list-card-pinned > header { padding-right: 2.35rem; }
 .merchant-list-card > header { display: flex; min-width: 0; align-items: center; gap: .55rem; padding: .75rem .8rem .55rem; }

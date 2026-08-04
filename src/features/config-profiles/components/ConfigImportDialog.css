@@ -1,0 +1,9 @@
+.config-import-detection { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; color: var(--ui-muted); font-size: .78rem; }
+.config-import-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-top: .9rem; }
+.config-import-summary > div { min-width: 0; padding: .7rem .75rem; border: 1px solid var(--ui-border); border-radius: .65rem; background: #fafafa; }
+.config-import-summary span { display: block; color: var(--ui-muted); font-size: .7rem; }
+.config-import-summary strong { display: block; overflow: hidden; margin-top: .3rem; color: var(--ui-text); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.config-import-summary .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; }
+.config-import-binding { grid-column: 1 / -1; }
+.config-import-loading { padding: 1rem; border: 1px dashed var(--ui-border); border-radius: .65rem; color: var(--ui-muted); font-size: .82rem; text-align: center; }
+@media (max-width: 460px) { .config-import-summary { grid-template-columns: 1fr; } .config-import-binding { grid-column: auto; } }

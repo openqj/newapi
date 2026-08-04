@@ -1,4 +1,5 @@
 .personal-center-panel { margin-top: 1rem; }
+.personal-center-loading { display: grid; min-height: 27rem; place-items: center; }
 .personal-login-panel { width: min(100%, 56rem); margin-top: 0; overflow: hidden; }
 .personal-login-layout { display: grid; grid-template-columns: minmax(17rem, .8fr) minmax(22rem, 1.2fr); min-height: 27rem; }
 .personal-login-intro { display: flex; flex-direction: column; border-right: 1px solid #e5e7eb; background: #f7f8fa; padding: 1.5rem; }
@@ -36,7 +37,10 @@
 .personal-center-header-nav-item { display: inline-flex; align-items: center; border: 0; border-radius: 6px; background: transparent; padding: .48rem .7rem; color: var(--ui-muted); font-size: .8125rem; white-space: nowrap; }
 .personal-center-header-nav-item:hover { background: #f4f5f6; color: var(--ui-text); }
 .personal-center-header-nav-item.active { background: #111; color: #fff; font-weight: 600; }
+.personal-center-account-meta { display: flex; align-items: center; flex: 0 0 auto; gap: .5rem; }
+.personal-center-account-label { color: var(--ui-muted); font-size: .75rem; white-space: nowrap; }
 .personal-center-role-badge { flex: 0 0 auto; border-radius: 999px; background: #f1f5f9; padding: .25rem .55rem; color: #475569; font-size: .6875rem; white-space: nowrap; }
+.personal-center-signout { padding: .35rem .55rem; font-size: .75rem; }
 .personal-center-admin-nav-item { gap: .35rem; }
 .personal-admin-content { margin-top: .8rem; }
 .personal-admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, .45fr); gap: 1rem; }
@@ -154,6 +158,8 @@
 }
 
 @media (max-width: 640px) {
+  .personal-center-header-nav { align-items: stretch; flex-direction: column; }
+  .personal-center-account-meta { justify-content: flex-end; }
   .personal-login-intro { padding: 1.1rem; }
   .personal-login-benefits { grid-template-columns: 1fr; }
   .personal-login-primary-actions, .personal-login-secondary-actions, .personal-login-dev-actions { align-items: stretch; flex-direction: column; }

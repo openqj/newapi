@@ -6,6 +6,7 @@ export type MerchantProfile = {
   description?: string;
   qq?: string;
   qqLink?: string;
+  websiteUrl?: string;
   wechatQrUrl?: string;
   tier?: MerchantTier;
 };
@@ -17,6 +18,9 @@ export type MerchantRateShare = MerchantProfile & {
   groupName: string;
   multiplierSummary: string;
   pinned: boolean;
+  oneToOneRecharge: boolean;
+  officialPricing: boolean;
+  rechargeUrl?: string;
   publishedAt: number;
 };
 
@@ -25,6 +29,13 @@ export type PublishMerchantRateRequest = {
   stationUrl: string;
   groupName: string;
   multiplierSummary: string;
+  rechargeUrl: string;
+  oneToOneRecharge: boolean;
+  officialPricing: boolean;
+};
+
+export type MerchantRatePublishResult = {
+  rateShareId: string;
 };
 
 export type MerchantFreeCodeInput = {
@@ -32,6 +43,7 @@ export type MerchantFreeCodeInput = {
   stationUrl: string;
   redeemCode: string;
   quota: number;
+  expiresAt: number;
 };
 
 export type MerchantImportResult = {
@@ -46,6 +58,8 @@ export type MerchantFreeOffer = {
   stationName: string;
   stationUrl: string;
   quota: number;
+  claimedCount: number;
+  expiresAt?: number;
   pinned: boolean;
   tier?: MerchantTier;
   publishedAt: number;
@@ -92,9 +106,27 @@ export type AdminMerchantFreeCode = {
 
 export type AdminMerchantFreeCodeInput = Omit<AdminMerchantFreeCode, "id" | "merchantName" | "claimed" | "createdAt"> & { id?: string };
 
-export type ClaimedMerchantCode = {
-  id: string;
+export type MerchantFreeRegistrationOffer = {
+  offerId: string;
   stationName: string;
   stationUrl: string;
-  redeemCode: string;
+};
+
+export type MerchantRateRegistrationRequest = {
+  stationName: string;
+  stationUrl: string;
+  rechargeUrl: string;
+};
+
+export type MerchantFreeClaimRequest = {
+  offerId: string;
+  stationName: string;
+  stationUrl: string;
+};
+
+export type MerchantFreeClaimResult = {
+  offerId: string;
+  success: boolean;
+  completed: boolean;
+  message: string;
 };

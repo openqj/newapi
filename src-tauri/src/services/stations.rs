@@ -1,6 +1,13 @@
-use std::{collections::BTreeSet, time::Duration};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
+
+const TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 90;
 
 use chrono::{Datelike, Local, TimeZone};
+use cookie::Cookie;
 use reqwest::{
     header::{self, HeaderMap},
     Client, Method, Response, StatusCode,
@@ -8,13 +15,14 @@ use reqwest::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use url::Url;
 
 use crate::{
     audit_store::AuditStore,
-    keyring_store::{load_secret, save_secret, Secret},
+    keyring_store::{load_secret, save_secret, PersistedCookie, Secret},
     models::{
-        AccountInfo, ApiKeyInfo, GroupRate, Offer, StationSnapshot, SyncResult, UsageLog,
-        UsageStats,
+        AccountInfo, ApiKeyInfo, GroupRate, Offer, StationSnapshot, SyncComponentState, SyncResult,
+        UsageLog, UsageStats,
     },
     station_adapter::{PagedResource, Station, StationAdapter},
     station_snapshot_store::StationSnapshotStore,
@@ -63,14 +71,76 @@ pub(crate) async fn sync_one_authorized(state: &AppState, id: &str) -> Result<Sy
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
         .get_station(id)?;
-    let mut secret = load_authenticated_secret(state, &station).await?;
-    let snapshot = fetch_snapshot(state, &station, &mut secret).await?;
-    let fingerprint = hash(&snapshot);
+    let mut secret = match load_authenticated_secret(state, &station).await {
+        Ok(secret) => secret,
+        Err(error) => {
+            record_auth_sync_failure(state, &mut station, &error)?;
+            return Err(error);
+        }
+    };
     let old = state
         .store
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
         .load_snapshot(id)?;
+    let adapter = StationAdapter::for_station(&station)?;
+    let mut snapshot = match fetch_snapshot(state, &station, &mut secret).await {
+        Ok(snapshot) => snapshot,
+        Err(profile_error) if adapter == StationAdapter::Sub2Api => {
+            match fetch_sub2_group_rates(state, &station, &mut secret).await {
+                Ok(rates) => {
+                    let mut snapshot = old
+                        .as_ref()
+                        .map(|(_, previous)| previous.clone())
+                        .unwrap_or_default();
+                    snapshot.capabilities = adapter.capabilities();
+                    snapshot.rates = rates;
+                    snapshot
+                        .unavailable
+                        .push("账户信息暂未同步，但分组倍率已更新。".into());
+                    snapshot.sync_statuses.insert(
+                        "account".into(),
+                        SyncComponentState {
+                            status: "failed".into(),
+                            last_synced_at: None,
+                            error: Some(classify_refresh_error(&profile_error).into()),
+                        },
+                    );
+                    snapshot.sync_statuses.insert(
+                        "groups".into(),
+                        SyncComponentState {
+                            status: "success".into(),
+                            last_synced_at: Some(now()),
+                            error: None,
+                        },
+                    );
+                    for key in ["api_keys", "announcements"] {
+                        snapshot.sync_statuses.insert(
+                            key.into(),
+                            SyncComponentState {
+                                status: "failed".into(),
+                                last_synced_at: None,
+                                error: Some("not_attempted".into()),
+                            },
+                        );
+                    }
+                    snapshot
+                }
+                Err(_) => {
+                    record_auth_sync_failure(state, &mut station, &profile_error)?;
+                    return Err(profile_error);
+                }
+            }
+        }
+        Err(error) => {
+            record_auth_sync_failure(state, &mut station, &error)?;
+            return Err(error);
+        }
+    };
+    if let Some((_, previous)) = old.as_ref() {
+        retain_group_descriptions(previous, &mut snapshot);
+    }
+    let fingerprint = hash(&snapshot);
     let changed = old
         .as_ref()
         .map(|(previous, _)| previous != &fingerprint)
@@ -80,7 +150,17 @@ pub(crate) async fn sync_one_authorized(state: &AppState, id: &str) -> Result<Sy
     } else {
         Vec::new()
     };
-    station.status = if snapshot.unavailable.len() == 3 {
+    station.status = if snapshot
+        .sync_statuses
+        .values()
+        .all(|status| status.status == "failed")
+    {
+        "error".into()
+    } else if snapshot
+        .sync_statuses
+        .values()
+        .any(|status| status.status == "failed")
+    {
         "partial".into()
     } else {
         "online".into()
@@ -109,6 +189,34 @@ pub(crate) fn record_station_audit(state: &AppState, station_id: &str, action: &
     if let Ok(store) = state.store.lock() {
         let _ = store.record_audit(station_id, action, "success", detail);
     }
+}
+
+fn record_auth_sync_failure(
+    state: &AppState,
+    station: &mut Station,
+    error: &str,
+) -> Result<(), String> {
+    let requires_reauth = error.to_ascii_lowercase().contains("refresh token invalid");
+    station.status = if requires_reauth {
+        "requires_reauth"
+    } else {
+        "error"
+    }
+    .into();
+    station.last_error = Some(if requires_reauth {
+        "凭据已过期，请手动重新登录".into()
+    } else if error.contains("令牌刷新暂缓") {
+        "令牌刷新暂缓，稍后自动重试".into()
+    } else {
+        "令牌刷新失败，已保留现有凭据".into()
+    });
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_station(station)?;
+    state.emit_stations_changed();
+    Ok(())
 }
 
 pub(crate) fn data(value: &Value) -> &Value {
@@ -333,7 +441,11 @@ pub(crate) fn usage_from_logs(value: &Value, since: i64) -> UsageStats {
 }
 
 pub(crate) fn normalized_group(item: &Value) -> Option<String> {
-    optional_scalar_string(item, &["group", "group_name", "groupName"])
+    item.as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| optional_scalar_string(item, &["group", "group_name", "groupName", "name"]))
         .or_else(|| {
             item.get("group").and_then(|group| {
                 optional_scalar_string(
@@ -411,6 +523,55 @@ pub(crate) fn merge_usage(profile: UsageStats, logs: UsageStats) -> UsageStats {
     }
 }
 
+fn group_description(value: &Value) -> Option<String> {
+    let names = [
+        "description",
+        "desc",
+        "remark",
+        "group_description",
+        "groupDescription",
+        "subtitle",
+        "sub_title",
+        "note",
+    ];
+    optional_scalar_string(value, &names)
+        .or_else(|| {
+            value
+                .get("group")
+                .and_then(|group| optional_scalar_string(group, &names))
+        })
+        .or_else(|| {
+            value
+                .get("meta")
+                .and_then(|meta| optional_scalar_string(meta, &names))
+        })
+}
+
+fn retain_group_descriptions(previous: &StationSnapshot, current: &mut StationSnapshot) {
+    let descriptions = previous
+        .rates
+        .iter()
+        .filter_map(|rate| {
+            rate.group_description
+                .as_ref()
+                .map(|description| (rate.group.as_str(), description))
+        })
+        .collect::<HashMap<_, _>>();
+    for rate in &mut current.rates {
+        if rate.group_description.is_none() {
+            rate.group_description = descriptions
+                .get(rate.group.as_str())
+                .map(|value| (*value).clone());
+        }
+    }
+}
+
+fn has_direct_multiplier(value: &Value) -> bool {
+    ["rate_multiplier", "rateMultiplier", "multiplier"]
+        .iter()
+        .any(|name| value.get(*name).is_some())
+}
+
 pub(crate) fn map_rates(value: &Value) -> Vec<GroupRate> {
     let mut output = Vec::new();
     if let Some(map) = value.as_object() {
@@ -424,13 +585,24 @@ pub(crate) fn map_rates(value: &Value) -> Vec<GroupRate> {
                     input_multiplier: None,
                     output_multiplier: None,
                 });
-            }
-            if let Some(models) = item.as_object() {
+            } else if has_direct_multiplier(item) {
+                if let Some(multiplier) = rate_multiplier(item) {
+                    output.push(GroupRate {
+                        group: group.clone(),
+                        group_description: group_description(item),
+                        model: "全部模型".into(),
+                        multiplier,
+                        input_multiplier: None,
+                        output_multiplier: None,
+                    });
+                }
+            } else if let Some(models) = item.as_object() {
                 for (model, rate) in models {
-                    if let Some(multiplier) = rate.as_f64() {
+                    if let Some(multiplier) = rate.as_f64().or_else(|| rate_multiplier(rate)) {
                         output.push(GroupRate {
                             group: group.clone(),
-                            group_description: None,
+                            group_description: group_description(item)
+                                .or_else(|| group_description(rate)),
                             model: model.clone(),
                             multiplier,
                             input_multiplier: None,
@@ -472,9 +644,7 @@ pub(crate) fn map_sub2_group_rates(groups: &Value, overrides: &Value) -> Vec<Gro
                 .iter()
                 .filter_map(|item| {
                     let id = scalar_string(item, &["id"]);
-                    let group = item.as_str().map(str::to_string).unwrap_or_else(|| {
-                        scalar_string(item, &["name", "group_name", "groupName"])
-                    });
+                    let group = normalized_group(item).unwrap_or_default();
                     if group.is_empty() {
                         return None;
                     }
@@ -483,8 +653,7 @@ pub(crate) fn map_sub2_group_rates(groups: &Value, overrides: &Value) -> Vec<Gro
                         .and_then(rate_multiplier)
                         .or_else(|| rate_multiplier(item))
                         .unwrap_or(1.0);
-                    let group_description =
-                        optional_scalar_string(item, &["description", "desc", "remark"]);
+                    let group_description = group_description(item);
                     Some(GroupRate {
                         group,
                         group_description,
@@ -636,6 +805,46 @@ pub(crate) fn parse_keys(value: &Value, adapter: StationAdapter) -> Vec<ApiKeyIn
             }
         })
         .collect()
+}
+
+async fn fetch_sub2_group_rates(
+    state: &AppState,
+    station: &Station,
+    secret: &mut Secret,
+) -> Result<Vec<GroupRate>, String> {
+    let available_groups = station_request(
+        state,
+        station,
+        secret,
+        Method::GET,
+        "/api/v1/groups/available",
+        None,
+    )
+    .await;
+    let group_overrides = station_request(
+        state,
+        station,
+        secret,
+        Method::GET,
+        "/api/v1/groups/rates",
+        None,
+    )
+    .await;
+    match (available_groups, group_overrides) {
+        (Ok(groups), Ok(overrides)) => {
+            let rates = map_sub2_group_rates(&groups, &overrides);
+            Ok(if rates.is_empty() {
+                map_rates(data(&overrides))
+            } else {
+                rates
+            })
+        }
+        (Ok(groups), Err(_)) => Ok(map_sub2_group_rates(&groups, &Value::Null)),
+        (Err(_), Ok(overrides)) => Ok(map_rates(data(&overrides))),
+        (Err(groups_error), Err(overrides_error)) => Err(format!(
+            "分组列表与倍率均无法获取：{groups_error}；{overrides_error}"
+        )),
+    }
 }
 
 fn key_timestamp(item: &Value, names: &[&str]) -> Option<i64> {
@@ -869,6 +1078,7 @@ struct RequestAuth<'a> {
     token: Option<&'a str>,
     newapi_user_id: Option<&'a str>,
     newapi_session: Option<&'a str>,
+    cookies: Option<&'a [PersistedCookie]>,
 }
 
 impl<'a> From<&'a Secret> for RequestAuth<'a> {
@@ -877,6 +1087,7 @@ impl<'a> From<&'a Secret> for RequestAuth<'a> {
             token: secret.access_token.as_deref(),
             newapi_user_id: secret.newapi_user_id.as_deref(),
             newapi_session: secret.newapi_session.as_deref(),
+            cookies: Some(&secret.newapi_cookies),
         }
     }
 }
@@ -889,24 +1100,46 @@ async fn request(
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, String> {
+    request_with_cookie_updates(client, station, auth, method, path, body)
+        .await
+        .map(|(value, _)| value)
+}
+
+async fn request_with_cookie_updates(
+    client: &Client,
+    station: &Station,
+    auth: RequestAuth<'_>,
+    method: Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<(Value, Vec<PersistedCookie>), String> {
+    let request_url = endpoint(station, path);
     let mut call = client
-        .request(method, endpoint(station, path))
+        .request(method, &request_url)
         .timeout(std::time::Duration::from_secs(15));
     if station.kind == "newapi" {
         if let Some(user_id) = auth.newapi_user_id {
             call = call.header("New-Api-User", user_id);
         }
-        if let Some(session) = auth.newapi_session {
-            call = call.header(header::COOKIE, session);
+    }
+    if let Ok(url) = Url::parse(&request_url) {
+        let cookie_header = compose_cookie_header(auth.newapi_session, auth.cookies, &url);
+        if let Some(cookie_header) = cookie_header {
+            call = call.header(header::COOKIE, cookie_header);
         }
-    } else if let Some(token) = auth.token {
-        call = call.bearer_auth(token);
+    }
+    if station.kind != "newapi" {
+        if let Some(token) = auth.token {
+            call = call.bearer_auth(token);
+        }
     }
     if let Some(body) = body {
         call = call.json(&body);
     }
     let response = call.send().await.map_err(|e| format!("请求失败：{e}"))?;
-    decode_json_response(response, "站点拒绝了请求").await
+    let cookies = auth_cookies_for_station(response.headers(), station);
+    let value = decode_json_response(response, "站点拒绝了请求").await?;
+    Ok((value, cookies))
 }
 
 pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, String> {
@@ -1000,12 +1233,158 @@ pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
         })
 }
 
+const PERSISTED_AUTH_COOKIE_NAMES: &[&str] = &[
+    "session",
+    "sessionid",
+    "session_id",
+    "sid",
+    "auth_session",
+    "auth_session_id",
+];
+
+fn is_persisted_auth_cookie_name(name: &str) -> bool {
+    PERSISTED_AUTH_COOKIE_NAMES
+        .iter()
+        .any(|allowed| name.eq_ignore_ascii_case(allowed))
+}
+
+fn domain_matches(host: &str, domain: &str) -> bool {
+    host == domain
+        || host
+            .strip_suffix(domain)
+            .is_some_and(|prefix| prefix.ends_with('.'))
+}
+
+fn parse_persisted_cookie(raw: &str, station: &Station) -> Option<PersistedCookie> {
+    let host = Url::parse(&station.base_url)
+        .ok()?
+        .host_str()?
+        .to_ascii_lowercase();
+    let cookie = Cookie::parse(raw).ok()?.into_owned();
+    if !is_persisted_auth_cookie_name(cookie.name()) {
+        return None;
+    }
+    let domain = cookie
+        .domain()
+        .unwrap_or(&host)
+        .trim_start_matches('.')
+        .to_ascii_lowercase();
+    if !domain_matches(&host, &domain) {
+        return None;
+    }
+    let expires_at = cookie
+        .max_age()
+        .and_then(|age| now().checked_add(age.whole_seconds()))
+        .or_else(|| {
+            cookie
+                .expires_datetime()
+                .map(|value| value.unix_timestamp())
+        });
+    Some(PersistedCookie {
+        name: cookie.name().to_string(),
+        value: cookie.value().to_string(),
+        domain,
+        path: cookie.path().unwrap_or("/").to_string(),
+        expires_at,
+        secure: cookie.secure().unwrap_or(false),
+        http_only: cookie.http_only().unwrap_or(false),
+    })
+}
+
+fn auth_cookies_for_station(headers: &HeaderMap, station: &Station) -> Vec<PersistedCookie> {
+    headers
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .filter_map(|value| parse_persisted_cookie(value, station))
+        .collect()
+}
+
+fn cookie_key(cookie: &PersistedCookie) -> (&str, &str, &str) {
+    (&cookie.name, &cookie.domain, &cookie.path)
+}
+
+fn merge_persisted_auth_cookies(
+    existing: &[PersistedCookie],
+    incoming: &[PersistedCookie],
+) -> Vec<PersistedCookie> {
+    let current = now();
+    let mut merged = existing
+        .iter()
+        .filter(|cookie| {
+            !cookie.value.is_empty()
+                && cookie
+                    .expires_at
+                    .is_none_or(|expires_at| expires_at > current)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for next in incoming {
+        merged.retain(|cookie| cookie_key(cookie) != cookie_key(next));
+        if !next.value.is_empty()
+            && next
+                .expires_at
+                .is_none_or(|expires_at| expires_at > current)
+        {
+            merged.push(next.clone());
+        }
+    }
+    merged
+}
+
+fn path_matches(cookie_path: &str, request_path: &str) -> bool {
+    cookie_path == "/"
+        || request_path == cookie_path
+        || request_path.starts_with(&format!("{}/", cookie_path.trim_end_matches('/')))
+}
+
+fn compose_cookie_header(
+    legacy_session: Option<&str>,
+    cookies: Option<&[PersistedCookie]>,
+    url: &Url,
+) -> Option<String> {
+    let host = url.host_str()?.to_ascii_lowercase();
+    let path = url.path();
+    let current = now();
+    let mut parts = Vec::new();
+    if let Some(legacy) = legacy_session {
+        parts.extend(
+            legacy
+                .split(';')
+                .map(str::trim)
+                .filter(|part| {
+                    part.split_once('=')
+                        .is_some_and(|(name, value)| !name.is_empty() && !value.is_empty())
+                })
+                .map(str::to_string),
+        );
+    }
+    if let Some(cookies) = cookies {
+        for cookie in cookies {
+            if cookie.value.is_empty()
+                || cookie
+                    .expires_at
+                    .is_some_and(|expires_at| expires_at <= current)
+                || !domain_matches(&host, &cookie.domain)
+                || !path_matches(&cookie.path, path)
+                || (cookie.secure && url.scheme() != "https")
+            {
+                continue;
+            }
+            let cookie_prefix = format!("{}=", cookie.name);
+            parts.retain(|part| !part.starts_with(&cookie_prefix));
+            parts.push(format!("{}={}", cookie.name, cookie.value));
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
+}
+
 pub(crate) async fn login_request(
     client: &Client,
     station: &Station,
     path: &str,
     body: Value,
-) -> Result<(Value, Option<String>), String> {
+) -> Result<(Value, Option<String>, Vec<PersistedCookie>), String> {
     let response = client
         .post(endpoint(station, path))
         .timeout(std::time::Duration::from_secs(15))
@@ -1014,8 +1393,9 @@ pub(crate) async fn login_request(
         .await
         .map_err(|e| format!("请求失败：{e}"))?;
     let session = session_cookie(response.headers());
+    let cookies = auth_cookies_for_station(response.headers(), station);
     let value = decode_json_response(response, "站点拒绝了请求").await?;
-    Ok((value, session))
+    Ok((value, session, cookies))
 }
 
 pub(crate) async fn register(
@@ -1072,32 +1452,40 @@ pub(crate) async fn authenticate(
     totp: Option<&str>,
 ) -> Result<(), String> {
     let adapter = StationAdapter::for_station(station)?;
-    let (login, login_session) = login_request(
+    let (login, login_session, login_cookies) = login_request(
         client,
         station,
         adapter.login_path(),
         adapter.login_body(&secret.username, &secret.password),
     )
     .await?;
-    let (authentication, session) = if data(&login)
+    let (authentication, session, cookies) = if data(&login)
         .get("require_2fa")
         .and_then(Value::as_bool)
         .unwrap_or(false)
     {
         let code = totp.ok_or("该站点需要 TOTP 验证码")?;
-        let (verify, verify_session) = login_request(
+        let (verify, verify_session, verify_cookies) = login_request(
             client,
             station,
             adapter.login_2fa_path(),
             json!({"flow_token": data(&login)["flow_token"], "code": code, "totp": code}),
         )
         .await?;
-        (verify, verify_session.or(login_session))
+        (
+            verify,
+            verify_session.or(login_session),
+            merge_persisted_auth_cookies(&login_cookies, &verify_cookies),
+        )
     } else {
-        (login, login_session)
+        (login, login_session, login_cookies)
     };
     let authentication_data = data(&authentication);
     copy_tokens(secret, authentication_data);
+    secret.requires_reauth = false;
+    secret.last_refresh_at = Some(now());
+    secret.last_refresh_error = None;
+    secret.next_refresh_retry_at = None;
     if station.kind == "newapi" {
         secret.newapi_user_id = authentication_data.get("id").and_then(|id| {
             id.as_str()
@@ -1105,10 +1493,11 @@ pub(crate) async fn authenticate(
                 .or_else(|| id.as_i64().map(|id| id.to_string()))
         });
         secret.newapi_session = session;
+        secret.newapi_cookies = cookies;
         if secret.newapi_user_id.is_none() {
             return Err("登录成功，但站点未返回用户标识".into());
         }
-        if secret.newapi_session.is_none() {
+        if secret.newapi_session.is_none() && secret.newapi_cookies.is_empty() {
             return Err("登录成功，但站点未返回可保存的会话".into());
         }
     } else if secret.access_token.is_none() {
@@ -1118,16 +1507,30 @@ pub(crate) async fn authenticate(
 }
 
 pub(crate) fn copy_tokens(secret: &mut Secret, value: &Value) {
-    secret.access_token = value
+    if let Some(token) = value
         .get("access_token")
         .or_else(|| value.get("accessToken"))
         .and_then(Value::as_str)
-        .map(str::to_string);
-    secret.refresh_token = value
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        secret.access_token = Some(token.to_string());
+    }
+    if let Some(expires_in) = integer(value, &["expires_in", "expiresIn"]) {
+        secret.access_token_expires_at = Some(now() + expires_in.max(0));
+    }
+    if let Some(token) = value
         .get("refresh_token")
         .or_else(|| value.get("refreshToken"))
         .and_then(Value::as_str)
-        .map(str::to_string);
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        secret.refresh_token = Some(token.to_string());
+    }
+    secret.version = 3;
+    secret.last_refresh_error = None;
+    secret.next_refresh_retry_at = None;
 }
 
 pub(crate) async fn load_authenticated_secret(
@@ -1135,13 +1538,30 @@ pub(crate) async fn load_authenticated_secret(
     station: &Station,
 ) -> Result<Secret, String> {
     let mut secret = load_secret(&station.id)?;
-    if (station.kind == "newapi"
-        && (secret.newapi_user_id.is_none() || secret.newapi_session.is_none()))
-        || (station.kind != "newapi" && secret.access_token.is_none())
+    if secret.requires_reauth {
+        return Err("refresh token invalid: 请重新登录该站点".into());
+    }
+    if (station.kind == "newapi" && !has_newapi_login_session(&secret))
+        || (station.kind != "newapi"
+            && (secret.access_token.is_none()
+                || secret
+                    .access_token_expires_at
+                    .is_some_and(|expires_at| expires_at <= now() + TOKEN_REFRESH_LEEWAY_SECONDS)))
     {
         refresh_session(state, station, &mut secret, None, false).await?;
     }
     Ok(secret)
+}
+
+fn has_newapi_login_session(secret: &Secret) -> bool {
+    secret.newapi_user_id.is_some()
+        && (secret.newapi_session.is_some()
+            || secret.newapi_cookies.iter().any(|cookie| {
+                !cookie.value.is_empty()
+                    && cookie
+                        .expires_at
+                        .is_none_or(|expires_at| expires_at > now())
+            }))
 }
 
 pub(crate) fn is_unauthorized(error: &str) -> bool {
@@ -1155,6 +1575,23 @@ pub(crate) async fn refresh_session(
     totp: Option<&str>,
     bypass_backoff: bool,
 ) -> Result<(), String> {
+    let refresh_lock = refresh_lock_for_station(&state.refresh_locks, &station.id)?;
+    let _refresh_guard = refresh_lock.lock().await;
+    if let Ok(latest) = load_secret(&station.id) {
+        *secret = latest;
+    }
+    if secret.requires_reauth && !bypass_backoff {
+        return Err("refresh token invalid: 请重新登录该站点".into());
+    }
+    if !bypass_backoff {
+        if secret.access_token.is_some()
+            && secret
+                .access_token_expires_at
+                .is_some_and(|expires_at| expires_at > now() + TOKEN_REFRESH_LEEWAY_SECONDS)
+        {
+            return Ok(());
+        }
+    }
     if !bypass_backoff {
         if let Some(backoff) = state
             .auth_backoff
@@ -1165,6 +1602,33 @@ pub(crate) async fn refresh_session(
             if backoff.retry_after > now() {
                 return Err(format!("自动登录暂缓 {} 秒", backoff.retry_after - now()));
             }
+        }
+        if let Some(retry_at) = secret.next_refresh_retry_at {
+            if retry_at > now() {
+                return Err(format!("令牌刷新暂缓 {} 秒", retry_at - now()));
+            }
+        }
+    }
+    if station.kind == "sub2api" && secret.refresh_token.is_some() {
+        match refresh_access_token(state, station, secret).await {
+            Ok(()) => {
+                secret.requires_reauth = false;
+                secret.last_refresh_at = Some(now());
+                secret.last_refresh_error = None;
+                secret.next_refresh_retry_at = None;
+                state
+                    .auth_backoff
+                    .lock()
+                    .map_err(|_| "认证状态不可用".to_string())?
+                    .remove(&station.id);
+                return save_secret(&station.id, secret);
+            }
+            Err(error) if !bypass_backoff => {
+                record_refresh_failure(secret, &error, now());
+                let _ = save_secret(&station.id, secret);
+                return Err(error);
+            }
+            Err(_) => {}
         }
     }
     match authenticate(&state.client, station, secret, totp).await {
@@ -1199,6 +1663,97 @@ pub(crate) async fn refresh_session(
     }
 }
 
+fn record_refresh_failure(secret: &mut Secret, error: &str, current_time: i64) {
+    secret.last_refresh_error = Some(classify_refresh_error(error).into());
+    if is_refresh_token_invalid(error) {
+        secret.access_token = None;
+        secret.access_token_expires_at = None;
+        secret.refresh_token = None;
+        secret.requires_reauth = true;
+        secret.next_refresh_retry_at = None;
+    } else {
+        secret.next_refresh_retry_at = Some(current_time + 60);
+    }
+}
+
+fn refresh_lock_for_station(
+    locks: &Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    station_id: &str,
+) -> Result<Arc<tokio::sync::Mutex<()>>, String> {
+    let mut locks = locks.lock().map_err(|_| "认证状态不可用".to_string())?;
+    Ok(locks
+        .entry(station_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone())
+}
+
+async fn refresh_access_token(
+    state: &AppState,
+    station: &Station,
+    secret: &mut Secret,
+) -> Result<(), String> {
+    let refresh_token = secret
+        .refresh_token
+        .as_deref()
+        .ok_or("站点没有可用的刷新令牌")?;
+    let value = request(
+        &state.client,
+        station,
+        RequestAuth::default(),
+        Method::POST,
+        "/api/v1/auth/refresh",
+        Some(json!({"refresh_token": refresh_token})),
+    )
+    .await
+    .map_err(|error| {
+        if is_refresh_token_invalid(&error) {
+            format!("refresh token invalid: {error}")
+        } else {
+            error
+        }
+    })?;
+    copy_tokens(secret, data(&value));
+    secret
+        .access_token
+        .as_ref()
+        .filter(|token| !token.trim().is_empty())
+        .map(|_| ())
+        .ok_or("刷新令牌响应中没有访问令牌".into())
+}
+
+fn is_refresh_token_invalid(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("http 401")
+        || lower.contains("invalid refresh")
+        || lower.contains("refresh token expired")
+        || lower.contains("refresh token revoked")
+}
+
+fn classify_refresh_error(error: &str) -> &'static str {
+    let lower = error.to_ascii_lowercase();
+    if is_refresh_token_invalid(error) {
+        "invalid_refresh_token"
+    } else if lower.contains("http 429") || lower.contains("rate") {
+        "rate_limited"
+    } else if lower.contains("cloudflare") || lower.contains("turnstile") {
+        "turnstile_or_cloudflare"
+    } else if lower.contains("http 5")
+        || lower.contains("timeout")
+        || lower.contains("request failed")
+        || lower.contains("error sending request")
+        || lower.contains("connection")
+        || lower.contains("network")
+        || lower.contains("dns")
+        || lower.contains("请求失败")
+        || lower.contains("网络")
+        || lower.contains("超时")
+    {
+        "temporary_network_error"
+    } else {
+        "refresh_failed"
+    }
+}
+
 pub(crate) async fn station_request(
     state: &AppState,
     station: &Station,
@@ -1207,7 +1762,7 @@ pub(crate) async fn station_request(
     path: &str,
     body: Option<Value>,
 ) -> Result<Value, String> {
-    let response = request(
+    let response = request_with_cookie_updates(
         &state.client,
         station,
         RequestAuth::from(&*secret),
@@ -1216,23 +1771,48 @@ pub(crate) async fn station_request(
         body.clone(),
     )
     .await;
-    if response
-        .as_ref()
-        .err()
-        .is_some_and(|error| is_unauthorized(error))
-    {
-        refresh_session(state, station, secret, None, false).await?;
-        return request(
-            &state.client,
-            station,
-            RequestAuth::from(&*secret),
-            method,
-            path,
-            body,
-        )
-        .await;
+    match response {
+        Ok((value, cookies)) => {
+            persist_response_cookies(station, secret, &cookies)?;
+            Ok(value)
+        }
+        Err(error) if is_unauthorized(&error) => {
+            refresh_session(state, station, secret, None, false).await?;
+            let (value, cookies) = request_with_cookie_updates(
+                &state.client,
+                station,
+                RequestAuth::from(&*secret),
+                method,
+                path,
+                body,
+            )
+            .await?;
+            persist_response_cookies(station, secret, &cookies)?;
+            Ok(value)
+        }
+        Err(error) => Err(error),
     }
-    response
+}
+
+fn persist_response_cookies(
+    station: &Station,
+    secret: &mut Secret,
+    incoming: &[PersistedCookie],
+) -> Result<(), String> {
+    if station.kind != "newapi" || incoming.is_empty() {
+        return Ok(());
+    }
+    let merged = merge_persisted_auth_cookies(&secret.newapi_cookies, incoming);
+    if merged == secret.newapi_cookies {
+        return Ok(());
+    }
+    secret.newapi_cookies = merged;
+    secret.newapi_session = secret
+        .newapi_cookies
+        .iter()
+        .find(|cookie| cookie.name.eq_ignore_ascii_case("session"))
+        .map(|cookie| format!("session={}", cookie.value));
+    save_secret(&station.id, secret)
 }
 
 pub(crate) async fn fetch_all_pages(
@@ -1287,45 +1867,23 @@ pub(crate) async fn fetch_snapshot(
             adapter.profile_path(),
             None,
         )
-        .await?;
-        snapshot.station_balance = parse_balance(&value);
-        snapshot.account = parse_account(&value);
-        snapshot.usage = usage_from_profile(&value);
-        if let Ok(value) =
-            fetch_all_pages(state, station, secret, adapter, PagedResource::Usage).await
-        {
-            snapshot.usage = merge_usage(snapshot.usage, usage_from_logs(&value, start_of_today()));
+        .await;
+        if let Ok(value) = value {
+            snapshot.station_balance = parse_balance(&value);
+            snapshot.account = parse_account(&value);
+            snapshot.usage = usage_from_profile(&value);
+            if let Ok(value) =
+                fetch_all_pages(state, station, secret, adapter, PagedResource::Usage).await
+            {
+                snapshot.usage =
+                    merge_usage(snapshot.usage, usage_from_logs(&value, start_of_today()));
+            }
+        } else {
+            snapshot.unavailable.push("账户信息不可获取".into());
         }
-        let available_groups = station_request(
-            state,
-            station,
-            secret,
-            Method::GET,
-            "/api/v1/groups/available",
-            None,
-        )
-        .await;
-        let group_overrides = station_request(
-            state,
-            station,
-            secret,
-            Method::GET,
-            "/api/v1/groups/rates",
-            None,
-        )
-        .await;
-        match (available_groups, group_overrides) {
-            (Ok(groups), Ok(overrides)) => {
-                snapshot.rates = map_sub2_group_rates(&groups, &overrides);
-                if snapshot.rates.is_empty() {
-                    snapshot.rates = map_rates(data(&overrides));
-                }
-            }
-            (Ok(groups), Err(_)) => {
-                snapshot.rates = map_sub2_group_rates(&groups, &Value::Null);
-            }
-            (Err(_), Ok(overrides)) => snapshot.rates = map_rates(data(&overrides)),
-            (Err(_), Err(_)) => snapshot
+        match fetch_sub2_group_rates(state, station, secret).await {
+            Ok(rates) => snapshot.rates = rates,
+            Err(_) => snapshot
                 .unavailable
                 .push("分组倍率未公开或当前账户无权限".into()),
         }
@@ -1355,17 +1913,22 @@ pub(crate) async fn fetch_snapshot(
             adapter.profile_path(),
             None,
         )
-        .await?;
-        let status =
-            station_request(state, station, secret, Method::GET, "/api/status", None).await;
-        snapshot.station_balance = newapi_display_balance(&value, status.as_ref().ok());
-        snapshot.account = parse_account(&value);
-        snapshot.account.balance = snapshot.station_balance;
-        snapshot.usage = usage_from_profile(&value);
-        if let Ok(value) =
-            fetch_all_pages(state, station, secret, adapter, PagedResource::Usage).await
-        {
-            snapshot.usage = merge_usage(snapshot.usage, usage_from_logs(&value, start_of_today()));
+        .await;
+        if let Ok(value) = value {
+            let status =
+                station_request(state, station, secret, Method::GET, "/api/status", None).await;
+            snapshot.station_balance = newapi_display_balance(&value, status.as_ref().ok());
+            snapshot.account = parse_account(&value);
+            snapshot.account.balance = snapshot.station_balance;
+            snapshot.usage = usage_from_profile(&value);
+            if let Ok(value) =
+                fetch_all_pages(state, station, secret, adapter, PagedResource::Usage).await
+            {
+                snapshot.usage =
+                    merge_usage(snapshot.usage, usage_from_logs(&value, start_of_today()));
+            }
+        } else {
+            snapshot.unavailable.push("账户信息不可获取".into());
         }
         let pricing =
             station_request(state, station, secret, Method::GET, "/api/pricing", None).await;
@@ -1391,24 +1954,366 @@ pub(crate) async fn fetch_snapshot(
             snapshot.unavailable.push("优惠公告不可获取".into());
         }
     }
+    finalize_sync_statuses(&mut snapshot);
     Ok(snapshot)
+}
+
+fn finalize_sync_statuses(snapshot: &mut StationSnapshot) {
+    let now = now();
+    let components = [
+        ("account", "账户信息不可获取"),
+        ("api_keys", "API 密钥列表不可获取"),
+        ("groups", "分组倍率未公开或当前账户无权限"),
+        ("announcements", "优惠公告不可获取"),
+    ];
+    for (key, error) in components {
+        if snapshot.sync_statuses.contains_key(key) {
+            continue;
+        }
+        let failed = snapshot.unavailable.iter().any(|item| item == error);
+        snapshot.sync_statuses.insert(
+            key.into(),
+            SyncComponentState {
+                status: if failed {
+                    "failed".into()
+                } else {
+                    "success".into()
+                },
+                last_synced_at: (!failed).then_some(now),
+                error: failed.then(|| "unavailable".into()),
+            },
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{header, HeaderMap};
-    use reqwest::StatusCode;
-    use serde_json::json;
+    use std::{
+        collections::HashMap,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
+        time::Duration,
+    };
+
+    use axum::{
+        http::{header, HeaderMap, StatusCode, Uri},
+        routing::{get, post},
+        Json, Router,
+    };
+    use reqwest::Client;
+    use serde_json::{json, Value};
+    use tokio::sync::oneshot;
 
     use super::{
-        describe_changes, is_cloudflare_block, is_unauthorized, map_rates, map_sub2_group_rates,
-        mask_api_key, model_response_text, newapi_display_balance, parse_balance, parse_keys,
-        pricing_group_ratio, rate_limit_hint, session_cookie, usage_from_logs,
+        auth_cookies_for_station, classify_refresh_error, compose_cookie_header, copy_tokens,
+        describe_changes, finalize_sync_statuses, has_newapi_login_session, is_cloudflare_block,
+        is_refresh_token_invalid, is_unauthorized, map_rates, map_sub2_group_rates, mask_api_key,
+        merge_persisted_auth_cookies, model_response_text, newapi_display_balance, parse_balance,
+        parse_keys, pricing_group_ratio, rate_limit_hint, record_refresh_failure,
+        refresh_lock_for_station, request_with_cookie_updates, retain_group_descriptions,
+        session_cookie, usage_from_logs, RequestAuth,
     };
+    use crate::support::now;
     use crate::{
+        keyring_store::{PersistedCookie, Secret},
         models::{Offer, StationSnapshot},
-        station_adapter::StationAdapter,
+        station_adapter::{Station, StationAdapter},
     };
+    use url::Url;
+
+    fn test_secret() -> Secret {
+        Secret {
+            version: 3,
+            username: "user@example.com".into(),
+            password: "not-used-by-restored-session-tests".into(),
+            access_token: Some("restored-access-token".into()),
+            access_token_expires_at: Some(now() + 3_600),
+            refresh_token: Some("restored-refresh-token".into()),
+            requires_reauth: false,
+            last_refresh_at: None,
+            last_refresh_error: None,
+            next_refresh_retry_at: None,
+            newapi_user_id: None,
+            newapi_session: None,
+            newapi_cookies: Vec::new(),
+        }
+    }
+
+    fn test_station(base_url: String, kind: &str) -> Station {
+        Station {
+            id: format!("{kind}-station"),
+            name: "Test station".into(),
+            base_url,
+            kind: kind.into(),
+            status: "online".into(),
+            last_synced_at: None,
+            last_error: None,
+        }
+    }
+
+    async fn start_test_server(app: Router) -> (String, oneshot::Sender<()>) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind test server");
+        let address = listener.local_addr().expect("read test server address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+                .expect("serve test server");
+        });
+        (format!("http://{address}"), shutdown_tx)
+    }
+
+    async fn restored_auth_handler(headers: HeaderMap, uri: Uri) -> (StatusCode, Json<Value>) {
+        let authorized = match uri.path() {
+            "/token" => {
+                headers
+                    .get(header::AUTHORIZATION)
+                    .and_then(|value| value.to_str().ok())
+                    == Some("Bearer restored-access-token")
+            }
+            "/cookie" => {
+                headers
+                    .get(header::COOKIE)
+                    .and_then(|value| value.to_str().ok())
+                    .is_some_and(|value| value.contains("sid=restored-cookie"))
+                    && headers
+                        .get("new-api-user")
+                        .and_then(|value| value.to_str().ok())
+                        == Some("42")
+            }
+            _ => false,
+        };
+        if authorized {
+            (StatusCode::OK, Json(json!({"success": true, "data": {}})))
+        } else {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"success": false, "message": "missing restored credentials"})),
+            )
+        }
+    }
+
+    async fn refresh_401() -> (StatusCode, Json<Value>) {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"success": false, "message": "invalid refresh token"})),
+        )
+    }
+
+    async fn refresh_429() -> (StatusCode, Json<Value>) {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(json!({"success": false, "message": "rate limited"})),
+        )
+    }
+
+    async fn refresh_502() -> (StatusCode, Json<Value>) {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"success": false, "message": "upstream unavailable"})),
+        )
+    }
+
+    #[tokio::test]
+    async fn restored_tokens_and_cookies_are_used_without_login() {
+        let app = Router::new()
+            .route("/token", get(restored_auth_handler))
+            .route("/cookie", get(restored_auth_handler));
+        let (base_url, shutdown) = start_test_server(app).await;
+        let client = Client::new();
+
+        let restored_token_secret: Secret = serde_json::from_str(
+            &serde_json::to_string(&test_secret()).expect("serialize persisted token secret"),
+        )
+        .expect("deserialize persisted token secret");
+        let token_station = test_station(base_url.clone(), "sub2api");
+        request_with_cookie_updates(
+            &client,
+            &token_station,
+            RequestAuth::from(&restored_token_secret),
+            reqwest::Method::GET,
+            "/token",
+            None,
+        )
+        .await
+        .expect("restored access token should authorize without login");
+
+        let mut cookie_secret = test_secret();
+        cookie_secret.access_token = None;
+        cookie_secret.refresh_token = None;
+        cookie_secret.newapi_user_id = Some("42".into());
+        cookie_secret.newapi_cookies = vec![PersistedCookie {
+            name: "sid".into(),
+            value: "restored-cookie".into(),
+            domain: "127.0.0.1".into(),
+            path: "/".into(),
+            expires_at: Some(now() + 3_600),
+            secure: false,
+            http_only: true,
+        }];
+        let restored_cookie_secret: Secret = serde_json::from_str(
+            &serde_json::to_string(&cookie_secret).expect("serialize persisted cookie secret"),
+        )
+        .expect("deserialize persisted cookie secret");
+        let cookie_station = test_station(base_url, "newapi");
+        request_with_cookie_updates(
+            &client,
+            &cookie_station,
+            RequestAuth::from(&restored_cookie_secret),
+            reqwest::Method::GET,
+            "/cookie",
+            None,
+        )
+        .await
+        .expect("restored auth cookie should authorize without login");
+
+        let _ = shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn serializes_same_station_refreshes() {
+        let locks = Arc::new(Mutex::new(HashMap::new()));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+
+        let refresh = |locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+                       active: Arc<AtomicUsize>,
+                       max_active: Arc<AtomicUsize>| async move {
+            let lock = refresh_lock_for_station(&locks, "station-a").expect("get refresh lock");
+            let _guard = lock.lock().await;
+            let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+            max_active.fetch_max(current, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(30)).await;
+            active.fetch_sub(1, Ordering::SeqCst);
+        };
+
+        tokio::join!(
+            refresh(locks.clone(), active.clone(), max_active.clone()),
+            refresh(locks.clone(), active.clone(), max_active.clone()),
+        );
+
+        assert_eq!(max_active.load(Ordering::SeqCst), 1);
+        let first = refresh_lock_for_station(&locks, "station-a").expect("same station lock");
+        let second = refresh_lock_for_station(&locks, "station-a").expect("same station lock");
+        let other = refresh_lock_for_station(&locks, "station-b").expect("other station lock");
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!Arc::ptr_eq(&first, &other));
+    }
+
+    #[tokio::test]
+    async fn refresh_http_failures_and_network_errors_are_classified() {
+        let app = Router::new()
+            .route("/refresh-401", post(refresh_401))
+            .route("/refresh-429", post(refresh_429))
+            .route("/refresh-502", post(refresh_502));
+        let (base_url, shutdown) = start_test_server(app).await;
+        let client = Client::new();
+        let station = test_station(base_url, "sub2api");
+
+        for (path, expected) in [
+            ("/refresh-401", "invalid_refresh_token"),
+            ("/refresh-429", "rate_limited"),
+            ("/refresh-502", "temporary_network_error"),
+        ] {
+            let error = match request_with_cookie_updates(
+                &client,
+                &station,
+                RequestAuth::default(),
+                reqwest::Method::POST,
+                path,
+                None,
+            )
+            .await
+            {
+                Ok(_) => panic!("refresh endpoint should reject the request"),
+                Err(error) => error,
+            };
+            assert_eq!(
+                classify_refresh_error(&error),
+                expected,
+                "unexpected refresh error: {error}"
+            );
+        }
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("reserve unavailable port");
+        let unavailable_base_url = format!("http://{}", listener.local_addr().expect("read port"));
+        drop(listener);
+        let network_station = test_station(unavailable_base_url, "sub2api");
+        let network_error = match request_with_cookie_updates(
+            &client,
+            &network_station,
+            RequestAuth::default(),
+            reqwest::Method::POST,
+            "/refresh",
+            None,
+        )
+        .await
+        {
+            Ok(_) => panic!("closed local port should fail the request"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            classify_refresh_error(&network_error),
+            "temporary_network_error"
+        );
+
+        let _ = shutdown.send(());
+    }
+
+    #[test]
+    fn invalid_refresh_clears_credentials_but_retryable_failures_preserve_them() {
+        let current_time = 1_800_000_000;
+        let mut invalid_secret = test_secret();
+        record_refresh_failure(
+            &mut invalid_secret,
+            "HTTP 401 Unauthorized: invalid refresh token",
+            current_time,
+        );
+        assert!(invalid_secret.access_token.is_none());
+        assert!(invalid_secret.refresh_token.is_none());
+        assert!(invalid_secret.requires_reauth);
+        assert!(invalid_secret.next_refresh_retry_at.is_none());
+        assert_eq!(
+            invalid_secret.last_refresh_error.as_deref(),
+            Some("invalid_refresh_token")
+        );
+
+        for (error, category) in [
+            ("HTTP 429 Too Many Requests: rate limited", "rate_limited"),
+            (
+                "HTTP 502 Bad Gateway: upstream unavailable",
+                "temporary_network_error",
+            ),
+            (
+                "request failed: error sending request",
+                "temporary_network_error",
+            ),
+        ] {
+            let mut secret = test_secret();
+            record_refresh_failure(&mut secret, error, current_time);
+            assert_eq!(
+                secret.access_token.as_deref(),
+                Some("restored-access-token")
+            );
+            assert_eq!(
+                secret.refresh_token.as_deref(),
+                Some("restored-refresh-token")
+            );
+            assert!(!secret.requires_reauth);
+            assert_eq!(secret.next_refresh_retry_at, Some(current_time + 60));
+            assert_eq!(secret.last_refresh_error.as_deref(), Some(category));
+            assert!(!is_refresh_token_invalid(error));
+        }
+    }
 
     #[test]
     fn normalizes_newapi_numeric_key_status_and_quota() {
@@ -1419,6 +2324,99 @@ mod tests {
         assert_eq!(key.remaining_quota, Some(80.0));
         assert_eq!(key.total_quota, Some(100.0));
         assert!(!key.unlimited_quota);
+    }
+
+    #[test]
+    fn persists_only_first_party_auth_cookies() {
+        let station = Station {
+            id: "station".into(),
+            name: "Station".into(),
+            base_url: "https://api.example.com".into(),
+            kind: "newapi".into(),
+            status: "online".into(),
+            last_synced_at: None,
+            last_error: None,
+        };
+        let mut headers = HeaderMap::new();
+        headers.append(
+            header::SET_COOKIE,
+            "session=abc; Path=/; HttpOnly; Secure".parse().unwrap(),
+        );
+        headers.append(
+            header::SET_COOKIE,
+            "sid=xyz; Domain=.example.com; Path=/api".parse().unwrap(),
+        );
+        headers.append(
+            header::SET_COOKIE,
+            "tracking=ignored; Domain=tracker.example".parse().unwrap(),
+        );
+
+        let cookies = auth_cookies_for_station(&headers, &station);
+
+        assert_eq!(cookies.len(), 2);
+        assert_eq!(cookies[0].domain, "api.example.com");
+        assert!(cookies[0].secure);
+        assert_eq!(cookies[1].domain, "example.com");
+        assert_eq!(cookies[1].path, "/api");
+    }
+
+    #[test]
+    fn restores_only_matching_unexpired_cookies_and_keeps_legacy_session() {
+        let cookies = vec![
+            PersistedCookie {
+                name: "sid".into(),
+                value: "xyz".into(),
+                domain: "example.com".into(),
+                path: "/api".into(),
+                expires_at: None,
+                secure: true,
+                http_only: true,
+            },
+            PersistedCookie {
+                name: "sessionid".into(),
+                value: "expired".into(),
+                domain: "example.com".into(),
+                path: "/".into(),
+                expires_at: Some(now() - 1),
+                secure: true,
+                http_only: true,
+            },
+        ];
+        let url = Url::parse("https://api.example.com/api/v1/profile").unwrap();
+
+        let header = compose_cookie_header(Some("session=legacy"), Some(&cookies), &url).unwrap();
+
+        assert_eq!(header, "session=legacy; sid=xyz");
+        assert_eq!(merge_persisted_auth_cookies(&cookies, &[]).len(), 1);
+    }
+
+    #[test]
+    fn accepts_a_persisted_auth_cookie_as_a_newapi_login_session() {
+        let secret = Secret {
+            version: 3,
+            username: "user".into(),
+            password: "secret".into(),
+            access_token: None,
+            access_token_expires_at: None,
+            refresh_token: None,
+            requires_reauth: false,
+            last_refresh_at: None,
+            last_refresh_error: None,
+            next_refresh_retry_at: None,
+            newapi_user_id: Some("42".into()),
+            newapi_session: None,
+            newapi_cookies: vec![PersistedCookie {
+                name: "sessionid".into(),
+                value: "saved".into(),
+                domain: "example.com".into(),
+                path: "/".into(),
+                expires_at: None,
+                secure: true,
+                http_only: true,
+            }],
+        };
+
+        assert!(has_newapi_login_session(&secret));
     }
 
     #[test]
@@ -1654,5 +2652,134 @@ mod tests {
         headers.insert(header::RETRY_AFTER, "120".parse().unwrap());
         assert!(rate_limit_hint(&headers).contains("Retry-After"));
         assert!(rate_limit_hint(&HeaderMap::new()).contains("降低同步频率"));
+    }
+
+    #[test]
+    fn reads_group_description_aliases_and_nested_metadata() {
+        let groups = json!({"data": {"groups": [
+            {"id": "kiro", "group": {"name": "kiro", "subtitle": "稳定缓存"}, "rate_multiplier": 1.0},
+            {"id": "grok", "name": "grok", "meta": {"desc": "仅限 Codex"}, "rate_multiplier": 0.9}
+        ]}});
+
+        let rates = map_sub2_group_rates(&groups, &Value::Null);
+
+        assert_eq!(rates[0].group_description.as_deref(), Some("稳定缓存"));
+        assert_eq!(rates[1].group_description.as_deref(), Some("仅限 Codex"));
+    }
+
+    #[test]
+    fn keeps_previous_group_descriptions_when_a_sync_omits_them() {
+        let previous = StationSnapshot {
+            rates: vec![crate::models::GroupRate {
+                group: "kiro".into(),
+                group_description: Some("稳定缓存".into()),
+                model: "全部模型".into(),
+                multiplier: 1.0,
+                input_multiplier: None,
+                output_multiplier: None,
+            }],
+            ..Default::default()
+        };
+        let mut current = StationSnapshot {
+            rates: vec![crate::models::GroupRate {
+                group: "kiro".into(),
+                group_description: None,
+                model: "全部模型".into(),
+                multiplier: 1.0,
+                input_multiplier: None,
+                output_multiplier: None,
+            }],
+            ..Default::default()
+        };
+
+        retain_group_descriptions(&previous, &mut current);
+
+        assert_eq!(
+            current.rates[0].group_description.as_deref(),
+            Some("稳定缓存")
+        );
+    }
+
+    #[test]
+    fn preserves_existing_refresh_token_when_refresh_response_only_rotates_access_token() {
+        let mut secret = crate::keyring_store::Secret {
+            version: 3,
+            username: "user@example.com".into(),
+            password: "secret".into(),
+            access_token: Some("old-access".into()),
+            access_token_expires_at: None,
+            refresh_token: Some("long-lived-refresh".into()),
+            requires_reauth: false,
+            last_refresh_at: None,
+            last_refresh_error: None,
+            next_refresh_retry_at: None,
+            newapi_user_id: None,
+            newapi_session: None,
+            newapi_cookies: Vec::new(),
+        };
+
+        copy_tokens(&mut secret, &json!({"access_token": "new-access"}));
+
+        assert_eq!(secret.access_token.as_deref(), Some("new-access"));
+        assert_eq!(secret.refresh_token.as_deref(), Some("long-lived-refresh"));
+    }
+
+    #[test]
+    fn records_expiry_from_refresh_response_and_classifies_failures() {
+        let mut secret = crate::keyring_store::Secret {
+            version: 3,
+            username: "user@example.com".into(),
+            password: "secret".into(),
+            access_token: None,
+            access_token_expires_at: None,
+            refresh_token: Some("refresh".into()),
+            requires_reauth: false,
+            last_refresh_at: None,
+            last_refresh_error: None,
+            next_refresh_retry_at: None,
+            newapi_user_id: None,
+            newapi_session: None,
+            newapi_cookies: Vec::new(),
+        };
+        copy_tokens(
+            &mut secret,
+            &json!({"access_token": "access", "expires_in": 3600}),
+        );
+        assert!(secret.access_token_expires_at.is_some());
+        assert_eq!(
+            classify_refresh_error("HTTP 401: invalid refresh token"),
+            "invalid_refresh_token"
+        );
+        assert_eq!(
+            classify_refresh_error("HTTP 429: rate limited"),
+            "rate_limited"
+        );
+        assert_eq!(
+            classify_refresh_error("Cloudflare turnstile verification failed"),
+            "turnstile_or_cloudflare"
+        );
+        assert_eq!(
+            classify_refresh_error("request timeout"),
+            "temporary_network_error"
+        );
+    }
+
+    #[test]
+    fn records_component_sync_outcomes_without_exposing_request_details() {
+        let mut snapshot = StationSnapshot {
+            unavailable: vec!["账户信息不可获取".into(), "API 密钥列表不可获取".into()],
+            ..Default::default()
+        };
+
+        finalize_sync_statuses(&mut snapshot);
+
+        assert_eq!(snapshot.sync_statuses["account"].status, "failed");
+        assert_eq!(snapshot.sync_statuses["api_keys"].status, "failed");
+        assert_eq!(snapshot.sync_statuses["groups"].status, "success");
+        assert_eq!(snapshot.sync_statuses["announcements"].status, "success");
+        assert_eq!(
+            snapshot.sync_statuses["account"].error.as_deref(),
+            Some("unavailable")
+        );
     }
 }

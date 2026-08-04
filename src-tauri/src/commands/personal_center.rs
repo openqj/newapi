@@ -5,18 +5,21 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
+    commands::stations::{redeem_station_code_for_station, register_station_account_for_request},
     personal_center_store::{
         AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile,
         AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
-        ClaimedMerchantCode, MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer,
-        MerchantImportResult, MerchantProfile, MerchantRateShare, NotificationPreferences,
+        MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer, MerchantImportResult,
+        MerchantProfile, MerchantRatePublishResult, MerchantRateShare, NotificationPreferences,
         PersonalCenterAuditEntry, PersonalCenterLoginEvent, PersonalCenterNotification,
         PersonalCenterRealtimeSession, PersonalCenterStore, PublishMerchantRateRequest,
         PublishNotificationRequest,
     },
     services::{authorization::require_cloud_admin, cloud_backup},
-    support::now,
-    AppState,
+    station_store::StationStore,
+    support::{now, station_base},
+    AppState, MerchantFreeRegistrationResult, RegisterMerchantFreeOfferRequest,
+    RegisterStationAccountRequest,
 };
 
 const MAX_TEXT_LENGTH: usize = 64;
@@ -65,7 +68,9 @@ fn validate_text(value: &str, field: &str) -> Result<String, String> {
 fn validate_visible_text(value: &str, field: &str, max: usize) -> Result<String, String> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > max || value.chars().any(char::is_control) {
-        return Err(format!("{field} must contain 1 to {max} visible characters"));
+        return Err(format!(
+            "{field} must contain 1 to {max} visible characters"
+        ));
     }
     Ok(value.to_string())
 }
@@ -364,6 +369,9 @@ pub(crate) async fn save_merchant_profile(
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
         .map(|value| validate_https(&value, "QQ link"))
         .transpose()?;
+    profile.website_url = validate_optional(profile.website_url, "Website URL", 500)?
+        .map(|value| validate_https(&value, "Website URL"))
+        .transpose()?;
     profile.wechat_qr_url = validate_optional(profile.wechat_qr_url, "WeChat QR URL", 500)?
         .map(|value| validate_https(&value, "WeChat QR URL"))
         .transpose()?;
@@ -381,7 +389,7 @@ pub(crate) async fn list_merchant_rate_shares(
 pub(crate) async fn publish_merchant_rate_share(
     state: State<'_, AppState>,
     mut request: PublishMerchantRateRequest,
-) -> Result<(), String> {
+) -> Result<MerchantRatePublishResult, String> {
     request.station_name = validate_visible_text(&request.station_name, "Station name", 100)?;
     request.station_url = validate_https(&request.station_url, "Station URL")?;
     request.group_name = validate_visible_text(&request.group_name, "Group name", 100)?;
@@ -391,6 +399,10 @@ pub(crate) async fn publish_merchant_rate_share(
         || request.multiplier_summary.chars().any(char::is_control)
     {
         return Err("Multiplier summary must contain 1 to 500 visible characters".into());
+    }
+    request.recharge_url = validate_https(&request.recharge_url, "Recharge URL")?;
+    if !request.one_to_one_recharge || !request.official_pricing {
+        return Err("仅支持 1 元兑换 1 美元且使用官方定价的分组倍率".into());
     }
     cloud_backup::publish_merchant_rate(&state, &request).await
 }
@@ -414,6 +426,9 @@ pub(crate) async fn import_merchant_free_codes(
         if !code.quota.is_finite() || code.quota <= 0.0 {
             return Err("免费额度必须是大于 0 的数字".into());
         }
+        if code.expires_at <= now() {
+            return Err("免费额度有效期必须晚于当前时间".into());
+        }
     }
     cloud_backup::import_merchant_codes(&state, &codes).await
 }
@@ -426,21 +441,92 @@ pub(crate) async fn list_merchant_free_offers(
 }
 
 #[tauri::command]
-pub(crate) async fn claim_merchant_free_code(
+pub(crate) async fn claim_and_redeem_merchant_free_offer(
     state: State<'_, AppState>,
     offer_id: String,
-) -> Result<ClaimedMerchantCode, String> {
-    let offer_id = validate_text(&offer_id, "Offer ID")?;
-    cloud_backup::claim_merchant_code(&state, &offer_id).await
+    station_id: String,
+) -> Result<String, String> {
+    let offer_id = validate_uuid(&offer_id, "Offer ID")?;
+    let station_id = validate_uuid(&station_id, "Station ID")?;
+    let claim = cloud_backup::claim_merchant_code(&state, &offer_id).await?;
+    let station = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .get_station(&station_id)?;
+    if station_base(&station.base_url) != station_base(&claim.station_url) {
+        cloud_backup::release_merchant_code(&state, &claim.id)
+            .await
+            .ok();
+        return Err("站点账号与免费额度所属中转站不一致".into());
+    }
+    match redeem_station_code_for_station(&state, &station_id, &claim.redeem_code).await {
+        Ok(message) => Ok(message),
+        Err(reason) => {
+            cloud_backup::release_merchant_code(&state, &claim.id)
+                .await
+                .ok();
+            Err(reason)
+        }
+    }
 }
 
 #[tauri::command]
-pub(crate) async fn release_merchant_free_code(
+pub(crate) async fn register_and_redeem_merchant_free_offer(
     state: State<'_, AppState>,
-    offer_id: String,
-) -> Result<(), String> {
-    let offer_id = validate_text(&offer_id, "Offer ID")?;
-    cloud_backup::release_merchant_code(&state, &offer_id).await
+    request: RegisterMerchantFreeOfferRequest,
+) -> Result<MerchantFreeRegistrationResult, String> {
+    let offer_id = validate_uuid(&request.offer_id, "Offer ID")?;
+    let station_url = validate_https(&request.base_url, "Station URL")?;
+    let claim = cloud_backup::claim_merchant_code(&state, &offer_id).await?;
+    if station_base(&station_url) != station_base(&claim.station_url) {
+        cloud_backup::release_merchant_code(&state, &claim.id)
+            .await
+            .ok();
+        return Err("站点地址与免费额度所属中转站不一致".into());
+    }
+
+    let registration = RegisterStationAccountRequest {
+        name: request.name,
+        base_url: station_url,
+        email: request.email,
+        username: request.username,
+        password: request.password,
+        verification_code: request.verification_code,
+        kind: request.kind,
+    };
+    let registered = match register_station_account_for_request(&state, registration).await {
+        Ok(result) => result,
+        Err(reason) => {
+            cloud_backup::release_merchant_code(&state, &claim.id)
+                .await
+                .ok();
+            return Err(reason);
+        }
+    };
+
+    match redeem_station_code_for_station(&state, &registered.station.id, &claim.redeem_code).await
+    {
+        Ok(redemption_message) => Ok(MerchantFreeRegistrationResult {
+            station: registered.station,
+            connection: registered.connection,
+            redemption_success: true,
+            redemption_message,
+        }),
+        Err(reason) => {
+            cloud_backup::release_merchant_code(&state, &claim.id)
+                .await
+                .ok();
+            Ok(MerchantFreeRegistrationResult {
+                station: registered.station,
+                connection: registered.connection,
+                redemption_success: false,
+                redemption_message: format!(
+                    "兑换失败：{reason}。站点账号已添加，可重新领取后兑换。"
+                ),
+            })
+        }
+    }
 }
 
 #[tauri::command]

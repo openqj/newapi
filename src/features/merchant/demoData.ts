@@ -13,6 +13,9 @@ export const demoMerchantRates: MerchantRateShare[] = Array.from({ length: demoC
     groupName: `GPT 分组 ${number}`,
     multiplierSummary: (0.5 + (index % 10) * 0.1).toFixed(1),
     pinned: index < 2,
+    oneToOneRecharge: true,
+    officialPricing: true,
+    rechargeUrl: `https://demo-${number}.example.com/recharge`,
     publishedAt: Date.now() - index * 86_400_000,
     qq: `1000${String(index + 1).padStart(4, "0")}`,
   };
@@ -26,6 +29,7 @@ export const demoMerchantOffers: MerchantFreeOffer[] = Array.from({ length: demo
     stationName: `免费额度站 ${number}`,
     stationUrl: `https://free-${number}.example.com`,
     quota: 10 + index * 2.5,
+    claimedCount: 12 + index * 9,
     pinned: index < 2,
     publishedAt: Date.now() - index * 86_400_000,
   };
@@ -82,11 +86,11 @@ export function demoMarketplaceData(state = loadDemoMerchantState()): { rates: M
   return {
     rates: state.rates.map((item) => {
       const profile = profiles.get(item.merchantId);
-    return { ...item, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl, tier: profile?.tier };
+    return { ...item, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, qq: profile?.qq, qqLink: profile?.qqLink, wechatQrUrl: profile?.wechatQrUrl, tier: profile?.tier, oneToOneRecharge: true, officialPricing: true, rechargeUrl: `${item.stationUrl}/recharge` };
     }),
-    offers: state.accounts.filter((item) => !item.claimed).map((item) => {
+    offers: state.accounts.filter((item) => !item.claimed).map((item, index) => {
       const profile = profiles.get(item.merchantId);
-    return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned: item.pinned, tier: profile?.tier, publishedAt: item.createdAt };
+    return { id: item.id, merchantName: profile?.merchantName ?? item.merchantName, description: profile?.description, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, claimedCount: 12 + index * 9, pinned: item.pinned, tier: profile?.tier, publishedAt: item.createdAt };
     }),
   };
 }

@@ -5,6 +5,7 @@ mod app_ui;
 mod audit_store;
 mod command_contract;
 mod commands;
+mod config_profiles;
 mod keyring_store;
 mod login_profiles;
 mod mail_oauth;
@@ -25,19 +26,28 @@ mod usage_store;
 pub(crate) use app::{AppState, AuthBackoff, RemoteOperationGuard};
 use commands::alerts::{evaluate_alerts, get_alert_policy, list_alert_history, save_alert_policy};
 use commands::api_keys::{
-    apply_api_key_to_codex, create_api_key, delete_api_key, reveal_key, update_api_key,
-    update_key_group,
+    apply_api_key_to_claude, apply_api_key_to_codex, create_api_key, delete_api_key, reveal_key,
+    update_api_key, update_key_group,
 };
 use commands::audit::{list_audit_events, rollback_audit_event};
-use commands::detection::{detect_model_authenticity, discover_api_models, test_api_models};
+use commands::config_backups::{list_config_backups, preview_config_backup, restore_config_backup};
+use commands::config_profiles::{
+    apply_config_profile, delete_config_profile, export_config_profile_to_cc_switch,
+    get_active_config_profile, import_config_profile, list_config_profiles, preview_config_import,
+    save_config_profile,
+};
+use commands::detection::{
+    detect_model_authenticity, detect_model_intelligence, discover_api_models, test_api_models,
+};
 use commands::gateway::{
-    get_gateway_credentials, get_gateway_status, import_to_cc_switch, rotate_gateway_token,
-    set_active_gateway_route, set_active_gateway_routes, set_gateway_port, set_routing_mode,
-    start_gateway, stop_gateway,
+    get_gateway_credentials, get_gateway_status, import_to_cc_switch, reset_gateway_route_health,
+    rotate_gateway_token, set_active_gateway_route, set_active_gateway_routes, set_gateway_port,
+    set_routing_mode, start_gateway, stop_gateway,
 };
 use commands::personal_center::{
-    claim_merchant_free_code, delete_admin_merchant_free_code, delete_admin_merchant_rate_share,
-    delete_personal_center_membership, delete_personal_center_notification, get_merchant_profile,
+    claim_and_redeem_merchant_free_offer, delete_admin_merchant_free_code,
+    delete_admin_merchant_rate_share, delete_personal_center_membership,
+    delete_personal_center_notification, get_merchant_profile,
     get_personal_center_notification_preferences, get_personal_center_realtime_session,
     import_merchant_free_codes, list_admin_merchant_free_codes, list_admin_merchant_profiles,
     list_admin_merchant_rate_shares, list_merchant_free_offers, list_merchant_rate_shares,
@@ -45,7 +55,7 @@ use commands::personal_center::{
     list_personal_center_memberships, list_personal_center_notifications,
     list_sent_personal_center_notifications, mark_personal_center_notification,
     publish_merchant_rate_share, publish_personal_center_notification,
-    refresh_personal_center_notification_preferences, release_merchant_free_code,
+    refresh_personal_center_notification_preferences, register_and_redeem_merchant_free_offer,
     revoke_personal_center_notification, save_admin_merchant_free_code,
     save_admin_merchant_profile, save_admin_merchant_rate_share, save_merchant_profile,
     save_personal_center_membership, save_personal_center_notification_preferences,
@@ -69,9 +79,9 @@ use commands::remote::{
 use commands::settings::{
     backup_database, cloud_complete_password_reset, cloud_request_password_reset, cloud_sign_in,
     cloud_sign_out, cloud_sign_up, create_cloud_backup, delete_cloud_backup,
-    get_active_codex_relay_status, get_cloud_auth_status, get_codex_integration,
+    get_active_codex_relay_status, get_background_refresh_minutes, get_cloud_auth_status, get_codex_integration,
     get_local_cloud_backup_preview, list_cloud_backups, preview_cloud_backup, restore_cloud_backup,
-    set_codex_preserve_official_login,
+    save_background_refresh_minutes, set_codex_preserve_official_login,
 };
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_station_credentials,
@@ -108,6 +118,17 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         get_login_profile,
         save_login_profile,
         delete_login_profile,
+        list_config_profiles,
+        save_config_profile,
+        delete_config_profile,
+        get_active_config_profile,
+        apply_config_profile,
+        preview_config_import,
+        import_config_profile,
+        export_config_profile_to_cc_switch,
+        list_config_backups,
+        preview_config_backup,
+        restore_config_backup,
         get_personal_center_notification_preferences,
         get_merchant_profile,
         save_merchant_profile,
@@ -123,8 +144,8 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         publish_merchant_rate_share,
         import_merchant_free_codes,
         list_merchant_free_offers,
-        claim_merchant_free_code,
-        release_merchant_free_code,
+        claim_and_redeem_merchant_free_offer,
+        register_and_redeem_merchant_free_offer,
         refresh_personal_center_notification_preferences,
         save_personal_center_notification_preferences,
         list_personal_center_memberships,
@@ -175,6 +196,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         update_api_key,
         delete_api_key,
         reveal_key,
+        apply_api_key_to_claude,
         apply_api_key_to_codex,
         get_gateway_status,
         set_routing_mode,
@@ -183,14 +205,18 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         stop_gateway,
         set_active_gateway_route,
         set_active_gateway_routes,
+        reset_gateway_route_health,
         get_gateway_credentials,
         rotate_gateway_token,
         import_to_cc_switch,
         test_api_models,
         discover_api_models,
         detect_model_authenticity,
+        detect_model_intelligence,
         delete_station,
         backup_database,
+        get_background_refresh_minutes,
+        save_background_refresh_minutes,
         get_cloud_auth_status,
         cloud_sign_up,
         cloud_sign_in,

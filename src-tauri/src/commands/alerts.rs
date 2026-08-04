@@ -27,7 +27,7 @@ pub(crate) struct AlertPolicy {
 impl Default for AlertPolicy {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             low_balance_threshold: Some(5.0),
             remaining_quota_percent: Some(10.0),
             quota_reset_warning_hours: Some(24.0),

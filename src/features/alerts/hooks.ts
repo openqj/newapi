@@ -6,7 +6,7 @@ import { alertApi } from "./api";
 import type { AlertHistoryItem, AlertPolicy } from "./types";
 
 export const defaultAlertPolicy: AlertPolicy = {
-  enabled: true,
+  enabled: false,
   lowBalanceThreshold: 5,
   remainingQuotaPercent: 10,
   quotaResetWarningHours: 24,

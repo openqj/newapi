@@ -1,0 +1,38 @@
+.config-profiles-page { display: grid; gap: 1rem; }
+.config-active-card { padding: 1rem 1.1rem 1.1rem; }
+.config-active-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.config-active-heading > div { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+.config-active-heading strong { color: var(--ui-text); font-size: .95rem; }
+.config-active-heading span { color: var(--ui-muted); font-size: .78rem; }
+.config-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-top: 1rem; }
+.config-summary-grid > div { min-width: 0; padding: .7rem .75rem; border: 1px solid var(--ui-border); border-radius: .65rem; background: #fafafa; }
+.config-summary-grid span { display: block; color: var(--ui-muted); font-size: .7rem; }
+.config-summary-grid strong { display: block; overflow: hidden; margin-top: .3rem; color: var(--ui-text); font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.config-summary-grid .mono, .config-profile-main code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .72rem; }
+.config-profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1rem 1.1rem 1.1rem; }
+.config-profile-form-actions { display: flex; grid-column: 1 / -1; justify-content: flex-end; gap: .6rem; }
+.config-profile-list { display: grid; gap: .65rem; padding: .8rem 1.1rem 1.1rem; }
+.config-profile-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem .9rem; border: 1px solid var(--ui-border); border-radius: .75rem; background: #fff; }
+.config-profile-row.active { border-color: #111; box-shadow: 0 0 0 1px #111 inset; }
+.config-profile-main { min-width: 0; }
+.config-profile-title { display: flex; align-items: center; gap: .5rem; }
+.config-profile-title strong { color: var(--ui-text); font-size: .9rem; }
+.config-profile-meta { display: flex; flex-wrap: wrap; gap: .4rem .8rem; margin-top: .35rem; color: var(--ui-muted); font-size: .75rem; }
+.config-profile-main code { display: block; overflow: hidden; margin-top: .45rem; color: #475569; text-overflow: ellipsis; white-space: nowrap; }
+.config-profile-actions { display: flex; flex: 0 0 auto; align-items: center; gap: .4rem; }
+.config-profile-actions button { display: inline-flex; align-items: center; gap: .3rem; }
+.config-backup-list { display: grid; gap: .65rem; padding: .8rem 1.1rem 1.1rem; }
+.config-backup-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .8rem .9rem; border: 1px solid var(--ui-border); border-radius: .75rem; background: #fff; }
+.config-backup-main { min-width: 0; }
+.config-backup-main > div { display: flex; align-items: center; gap: .5rem; }
+.config-backup-main strong { color: var(--ui-text); font-size: .85rem; }
+.config-backup-main > span { display: block; margin-top: .3rem; color: var(--ui-muted); font-size: .75rem; }
+.config-backup-main code { display: block; overflow: hidden; margin-top: .35rem; color: #64748b; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.config-backup-preview { margin: .8rem 1.1rem 0; padding: .85rem .9rem; border: 1px solid #111; border-radius: .75rem; background: #fafafa; }
+.config-backup-preview > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.config-backup-preview strong { color: var(--ui-text); font-size: .85rem; }
+.config-backup-preview > div:first-child span { color: var(--ui-muted); font-size: .75rem; }
+.config-backup-preview-metrics { display: flex; flex-wrap: wrap; gap: .4rem .9rem; margin-top: .65rem; color: var(--ui-muted); font-size: .75rem; }
+.config-backup-preview-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: .8rem; }
+@media (max-width: 760px) { .config-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .config-profile-form { grid-template-columns: 1fr; } .config-profile-form-actions { grid-column: auto; } .config-profile-row { align-items: flex-start; flex-direction: column; } .config-profile-actions { width: 100%; } .config-profile-actions .button-primary { flex: 1; justify-content: center; } }
+@media (max-width: 460px) { .config-summary-grid { grid-template-columns: 1fr; } .config-backup-row { align-items: flex-start; flex-direction: column; } .config-backup-row > button { width: 100%; } .config-backup-preview > div:first-child { align-items: flex-start; flex-direction: column; gap: .25rem; } }

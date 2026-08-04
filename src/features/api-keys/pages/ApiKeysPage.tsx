@@ -8,6 +8,7 @@ import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
 import { ApiKeyTable } from "../components/ApiKeyTable";
 import { ApiKeyToolbar, keyTableColumns, type KeyTableColumn } from "../components/ApiKeyToolbar";
+import { identifyModelType } from "../modelType";
 import type { ApiKeyTestState, KeyRow, ModelTestResult } from "../types";
 import "../../../components/Sub2ApiPages.css";
 import "../../../components/TablePage.css";
@@ -35,9 +36,10 @@ export function ApiKeysPage({
   const showError = (reason: unknown) => notify(errorMessage(reason), "error");
   const [query, setQuery] = useState("");
   const [station, setStation] = useState("all");
+  const [modelType, setModelType] = useState("all");
   const [status, setStatus] = useState("all");
   const [showColumns, setShowColumns] = useState(false);
-  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, name: true, apiKey: true, group: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
+  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, modelType: true, name: true, apiKey: true, group: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
   const [saving, setSaving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editor, setEditor] = useState<{ row?: KeyRow } | null>(null);
@@ -72,8 +74,10 @@ export function ApiKeysPage({
     void refresh.then(clearRefresh, clearRefresh);
     return refresh;
   }, [onUpdated, stations]);
+  const modelTypes = [...new Set(rows.map((row) => identifyModelType(row.models)))].sort((left, right) => left.localeCompare(right, "zh-CN"));
   const filtered = rows.filter((row) => (
     (station === "all" || row.stationId === station)
+    && (modelType === "all" || identifyModelType(row.models) === modelType)
     && (status === "all" || (status === "active" ? isActive(row.key.status) : !isActive(row.key.status)))
     && `${row.stationName} ${row.key.name} ${row.key.maskedKey} ${row.key.group ?? ""}`.toLowerCase().includes(query.toLowerCase())
   ));
@@ -120,6 +124,18 @@ export function ApiKeysPage({
       await apiKeyApi.applyToCodex(row.stationId, row.key.id);
       await onCodexApplied?.();
       notify("API 密钥已启用到 Codex", "success");
+    } catch (reason) {
+      showError(reason);
+    } finally {
+      setSaving(null);
+    }
+  };
+  const applyToClaude = async (row: KeyRow) => {
+    const id = `claude:${rowId(row)}`;
+    setSaving(id);
+    try {
+      await apiKeyApi.applyToClaude(row.stationId, row.key.id);
+      notify("API 密钥已启用到 Claude Code", "success");
     } catch (reason) {
       showError(reason);
     } finally {
@@ -196,12 +212,15 @@ export function ApiKeysPage({
       stations={stations}
       query={query}
       station={station}
+      modelType={modelType}
+      modelTypes={modelTypes}
       status={status}
       visible={visible}
       refreshing={refreshing}
       showColumns={showColumns}
       onQueryChange={setQuery}
       onStationChange={setStation}
+      onModelTypeChange={setModelType}
       onStatusChange={setStatus}
       onToggleColumn={(key) => setVisible((value) => ({ ...value, [key]: !value[key] }))}
       onToggleColumns={() => setShowColumns((value) => !value)}
@@ -223,6 +242,7 @@ export function ApiKeysPage({
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
       onImport={(row) => void importToCcSwitch(row)}
+      onApplyToClaude={(row) => void applyToClaude(row)}
       onApplyToCodex={(row) => void applyToCodex(row)}
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}

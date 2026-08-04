@@ -8,7 +8,8 @@ import {
   EmptyWorkspace,
   STATIONS_CHANGED_EVENT,
 } from "./features/stations";
-import type { StationAccountDraft } from "./features/stations";
+import { normalizeStationBaseUrl } from "./features/stations/components/AddStationWithProfiles";
+import type { StationAccountDraft, StationAccountPrefill } from "./features/stations";
 import { AppRouteProvider, createRoutePage, getPrimaryNavigation, type AppRouteContext, type AppView } from "./app/routes";
 import { useAppData } from "./app/useAppData";
 import {
@@ -18,14 +19,16 @@ import {
   emptyUsageSummary,
 } from "./app/demoData";
 import { isTauri } from "./lib/platform";
+import { errorMessage } from "./lib/errors";
 import { settingsApi } from "./features/settings/api";
 import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
+import { ConfigImportDialog } from "./features/config-profiles";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { emit, listen } from "@tauri-apps/api/event";
+import { emit, emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { merchantApi, MERCHANT_IMPORT_REQUEST_EVENT, MERCHANT_OFFERS_CHANGED_EVENT } from "./features/merchant";
-import type { AccountRole, ClaimedMerchantCode } from "./features/merchant";
+import { merchantApi, MERCHANT_FREE_CLAIM_REQUEST_EVENT, MERCHANT_FREE_CLAIM_RESULT_EVENT, MERCHANT_OFFERS_CHANGED_EVENT, MERCHANT_RATE_REGISTER_REQUEST_EVENT } from "./features/merchant";
+import type { AccountRole, MerchantFreeClaimRequest, MerchantFreeClaimResult, MerchantFreeRegistrationOffer, MerchantRateRegistrationRequest } from "./features/merchant";
 import type { ActiveCodexRelayStatus, CloudAuthStatus, SettingsTab } from "./features/settings";
 import {
   Bell,
@@ -43,11 +46,15 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [showAdd, setShowAdd] = useState(false);
   const [editingStation, setEditingStation] = useState<StationAccountDraft | null>(null);
-  const [merchantImport, setMerchantImport] = useState<{ claim: ClaimedMerchantCode; completed: boolean } | null>(null);
+  const [stationPrefill, setStationPrefill] = useState<StationAccountPrefill | null>(null);
+  const [merchantImport, setMerchantImport] = useState<MerchantFreeRegistrationOffer | null>(null);
+  const [merchantRateRegistration, setMerchantRateRegistration] = useState<MerchantRateRegistrationRequest | null>(null);
+  const [merchantRateRechargeStationId, setMerchantRateRechargeStationId] = useState<string | null>(null);
   const [showMessages, setShowMessages] = useState(false);
   const [activeRelay, setActiveRelay] = useState<ActiveCodexRelayStatus | null>(null);
   const [activeRelayRefreshing, setActiveRelayRefreshing] = useState(false);
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
+  const [personalCenterAuth, setPersonalCenterAuth] = useState<CloudAuthStatus | null>(null);
   const navigate = useCallback((nextView: AppView) => {
     if (nextView === "settings") setSettingsTab("general");
     setView(nextView);
@@ -57,6 +64,7 @@ function App() {
     setView("settings");
   }, []);
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
+    setPersonalCenterAuth(status);
     setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
   }, []);
   const toggleRegistrationWindow = useCallback(async () => {
@@ -87,6 +95,7 @@ function App() {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
     remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadKeyRows, loadAccountRows,
     loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
+    backgroundRefreshMinutes, setBackgroundRefreshMinutes,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
   const loadActiveRelay = useCallback(async () => {
@@ -130,7 +139,10 @@ function App() {
     remoteServers,
     settingsTab,
     onSettingsTabChange: setSettingsTab,
+    backgroundRefreshMinutes,
+    onBackgroundRefreshMinutesChange: setBackgroundRefreshMinutes,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
+    personalCenterAuth,
     accountRole,
     onPersonalCenterAuthChanged: handlePersonalCenterAuthChanged,
     onSavePersonalCenterNotificationPreferences: personalCenterNotifications.saveNotificationPreferences,
@@ -150,6 +162,8 @@ function App() {
       });
       setShowAdd(true);
     },
+    merchantRateRechargeStationId,
+    onMerchantRateRechargeOpened: () => setMerchantRateRechargeStationId(null),
     onRefreshAll: refreshAll,
     onRefreshRatesAndKeys: refreshRatesAndKeys,
     onRefreshUsageLogs: refreshUsageLogs,
@@ -187,7 +201,10 @@ function App() {
   useEffect(() => { void loadActiveRelay(); }, [loadActiveRelay]);
   useEffect(() => {
     if (!isTauri()) return;
-    const applyAuth = (status: CloudAuthStatus) => setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
+    const applyAuth = (status: CloudAuthStatus) => {
+      setPersonalCenterAuth(status);
+      setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
+    };
     void settingsApi.cloudAuthStatus().then(applyAuth).catch(() => undefined);
     const onAuthChanged = (event: Event) => applyAuth((event as CustomEvent<CloudAuthStatus>).detail ?? { configured: true });
     window.addEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged);
@@ -204,16 +221,47 @@ function App() {
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
-    void listen<ClaimedMerchantCode>(MERCHANT_IMPORT_REQUEST_EVENT, (event) => {
-      setShowAdd(false);
+    void listen<MerchantRateRegistrationRequest>(MERCHANT_RATE_REGISTER_REQUEST_EVENT, (event) => {
+      setMerchantImport(null);
+      setMerchantRateRechargeStationId(null);
       setEditingStation(null);
-      setMerchantImport((current) => {
-        if (current && !current.completed) void merchantApi.releaseCode(current.claim.id).catch(() => undefined);
-        return { claim: event.payload, completed: false };
-      });
+      setStationPrefill(null);
+      setShowAdd(false);
+      setMerchantRateRegistration(event.payload);
+      setView("accounts");
     }).then((value) => { unlisten = value; });
     return () => unlisten?.();
   }, []);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void) | undefined;
+    void listen<MerchantFreeClaimRequest>(MERCHANT_FREE_CLAIM_REQUEST_EVENT, (event) => {
+      void (async () => {
+        const emitResult = async (result: MerchantFreeClaimResult) => {
+          await emitTo("merchant-market", MERCHANT_FREE_CLAIM_RESULT_EVENT, result).catch(() => undefined);
+        };
+        const station = stations.find((item) => normalizeStationBaseUrl(item.baseUrl) === normalizeStationBaseUrl(event.payload.stationUrl));
+        if (station) {
+          setView("accounts");
+          try {
+            const message = await merchantApi.claimAndRedeemFreeOffer(event.payload.offerId, station.id);
+            await Promise.allSettled([loadStations(), loadAccountRows(), loadUsageSummary()]);
+            await emitResult({ offerId: event.payload.offerId, success: true, completed: true, message });
+          } catch (reason) {
+            await emitResult({ offerId: event.payload.offerId, success: false, completed: false, message: errorMessage(reason, "免费额度兑换失败。") });
+          }
+          return;
+        }
+        setShowAdd(false);
+        setEditingStation(null);
+        setMerchantRateRegistration(null);
+        setMerchantImport({ offerId: event.payload.offerId, stationName: event.payload.stationName, stationUrl: event.payload.stationUrl });
+        setView("accounts");
+        await emitResult({ offerId: event.payload.offerId, success: true, completed: false, message: "请完成站点账号注册，系统将自动兑换免费额度。" });
+      })();
+    }).then((value) => { unlisten = value; });
+    return () => unlisten?.();
+  }, [loadAccountRows, loadStations, loadUsageSummary, stations]);
   return (
     <AppRouteProvider value={routeContext}>
     <div className="app-shell min-h-screen text-slate-900">
@@ -271,11 +319,11 @@ function App() {
         <AppSidebar view={view} navigation={navigation} usage={usageScope === "current" ? (snapshot.usage ?? emptyUsageSummary) : usageSummary} usageScope={usageScope} onScopeChange={setUsageScope} onNavigate={navigate} onAddStation={() => { setEditingStation(null); setShowAdd(true); }} />
         <main className="min-w-0 flex-1">
           <section className="content-surface">
-            {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
+             {busy && <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm"><div className="min-w-0"><strong>正在同步站点</strong><span className="ml-2 text-slate-500">{syncProgress?.currentStation ?? "准备中"} · {syncProgress?.completed ?? 0}/{syncProgress?.total ?? stations.length}</span><div className="mt-1 h-1.5 overflow-hidden rounded bg-slate-100"><i className="block h-full bg-black transition-all" style={{ width: `${Math.min(100, ((syncProgress?.completed ?? 0) / Math.max(1, syncProgress?.total ?? stations.length)) * 100)}%` }} /></div></div><button className="button-secondary whitespace-nowrap" onClick={() => void cancelRefresh()}>取消同步</button></div>}
             {view === "overview" && stations.length === 0 && (
               <EmptyWorkspace onAdd={() => { setEditingStation(null); setShowAdd(true); }} />
             )}
-            {(view !== "overview" || stations.length > 0) && (
+             {(view !== "overview" || stations.length > 0) && (
               <>
                 {activePage}
                 {snapshot.unavailable.length > 0 && (
@@ -289,20 +337,24 @@ function App() {
           </section>
         </main>
       </div>
-      {showAdd && (
+        {showAdd && (
         <AddStationWithProfiles
           demoProfiles={demoLoginProfiles}
           initial={editingStation ?? undefined}
+          prefill={stationPrefill ?? undefined}
           onClose={() => {
             setEditingStation(null);
+            setStationPrefill(null);
             setShowAdd(false);
           }}
           onManageProfiles={() => {
             setEditingStation(null);
+            setStationPrefill(null);
             setShowAdd(false);
             openLoginProfiles();
           }}
           onAdded={async (keepOpen) => {
+            setStationPrefill(null);
             if (!keepOpen) {
               setEditingStation(null);
               setShowAdd(false);
@@ -311,30 +363,45 @@ function App() {
           }}
         />
       )}
-      {merchantImport && (
+      {merchantRateRegistration && (
         <AddStationWithProfiles
-          key={merchantImport.claim.id}
+          key={`${merchantRateRegistration.stationUrl}:${merchantRateRegistration.rechargeUrl}`}
           demoProfiles={demoLoginProfiles}
-          merchantImport={merchantImport.claim}
-          onClose={() => {
-            const current = merchantImport;
-            setMerchantImport(null);
-            void (async () => {
-              if (!current.completed) await merchantApi.releaseCode(current.claim.id).catch(() => undefined);
-              await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
-            })();
+          merchantRateOffer={merchantRateRegistration}
+          onClose={() => setMerchantRateRegistration(null)}
+          onExistingAccountLogin={() => {
+            const offer = merchantRateRegistration;
+            setMerchantRateRegistration(null);
+            setEditingStation(null);
+            setStationPrefill({ name: offer.stationName, baseUrl: offer.stationUrl, kind: "auto" });
+            setShowAdd(true);
+            setView("accounts");
           }}
           onManageProfiles={() => {
-            const current = merchantImport;
+            setMerchantRateRegistration(null);
+            openLoginProfiles();
+          }}
+          onAdded={async (_keepOpen, result) => {
+            setMerchantRateRegistration(null);
+            setView("accounts");
+            await Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()]);
+            if (result?.station.id) setMerchantRateRechargeStationId(result.station.id);
+          }}
+        />
+      )}
+      {merchantImport && (
+        <AddStationWithProfiles
+          key={merchantImport.offerId}
+          demoProfiles={demoLoginProfiles}
+          merchantFreeOffer={merchantImport}
+          onClose={() => {
+            setMerchantImport(null);
+          }}
+          onManageProfiles={() => {
             setMerchantImport(null);
             openLoginProfiles();
-            void (async () => {
-              if (!current.completed) await merchantApi.releaseCode(current.claim.id).catch(() => undefined);
-              await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
-            })();
           }}
           onAdded={async () => {
-            setMerchantImport((current) => current ? { ...current, completed: true } : current);
             await Promise.all([loadStations(), loadAccountRows(), loadUsageSummary()]);
             await emit(MERCHANT_OFFERS_CHANGED_EVENT).catch(() => undefined);
           }}
@@ -358,6 +425,7 @@ function App() {
         />
       )}
       <PasswordResetDialog />
+      <ConfigImportDialog onImported={() => { setSettingsTab("configProfiles"); setView("settings"); }} />
     </div>
     </AppRouteProvider>
   );

@@ -3597,6 +3597,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "chrono",
+ "cookie",
  "imap",
  "keyring",
  "reqwest 0.12.28",

@@ -16,7 +16,7 @@ export const protocolForModel = (model: string) =>
   (model.toLowerCase().includes("claude") ? "anthropic" : "openai");
 
 export const scoreText = (score: number) =>
-  score >= 88 ? "信号良好" : score >= 60 ? "需要复核" : "风险较高";
+  score >= 88 ? "综合可信度高" : score >= 60 ? "综合可信度中等" : "综合可信度较低";
 export const statusText = (status: DetectionStatus) =>
   status === "pass" ? "通过" : status === "warning" ? "部分合格" : "失败";
 
@@ -51,3 +51,14 @@ export const demoResult: DetectionResult = {
     { name: "受控输出", status: "pass", detail: "两次确定性探针均符合预期" },
   ],
 };
+
+demoResult.checks = [
+  { name: "knowledge_freshness", status: "pass", detail: "当前日期知识时效探针响应正常" },
+  { name: "model_fingerprint", status: "pass", detail: "模型自述与目标型号家族一致" },
+  { name: "logic_stability", status: "pass", detail: "两次逻辑探针结果一致" },
+  { name: "structure_constraints", status: "pass", detail: "受控 JSON 响应符合结构约束" },
+  { name: "parameter_fidelity", status: "pass", detail: "请求模型与协议参数被正确接收" },
+  { name: "instruction_hierarchy", status: "warning", detail: "指令层级探针需要结合响应复核" },
+  { name: "protocol_fields", status: "pass", detail: "协议字段与响应元数据规范" },
+  { name: "stream_integrity", status: "pass", detail: "流式响应内容完整" },
+];

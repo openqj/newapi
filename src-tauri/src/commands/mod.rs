@@ -1,6 +1,8 @@
 pub(crate) mod alerts;
 pub(crate) mod api_keys;
 pub(crate) mod audit;
+pub(crate) mod config_backups;
+pub(crate) mod config_profiles;
 pub(crate) mod detection;
 pub(crate) mod gateway;
 pub(crate) mod personal_center;

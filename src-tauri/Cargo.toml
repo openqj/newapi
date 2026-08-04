@@ -33,6 +33,7 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 sha2 = "0.10"
 chrono = "0.4"
+cookie = "0.18"
 aes-gcm = "0.10"
 argon2 = "0.5"
 base64 = "0.22"

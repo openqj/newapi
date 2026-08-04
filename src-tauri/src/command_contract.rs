@@ -52,6 +52,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "update_api_key",
     "delete_api_key",
     "reveal_key",
+    "apply_api_key_to_claude",
     "apply_api_key_to_codex",
     "get_gateway_status",
     "set_routing_mode",
@@ -60,14 +61,21 @@ pub const COMMAND_NAMES: &[&str] = &[
     "stop_gateway",
     "set_active_gateway_route",
     "set_active_gateway_routes",
+    "reset_gateway_route_health",
     "get_gateway_credentials",
     "rotate_gateway_token",
     "import_to_cc_switch",
+    "preview_config_import",
+    "import_config_profile",
+    "export_config_profile_to_cc_switch",
     "test_api_models",
     "discover_api_models",
     "detect_model_authenticity",
+    "detect_model_intelligence",
     "delete_station",
     "backup_database",
+    "get_background_refresh_minutes",
+    "save_background_refresh_minutes",
     "get_cloud_auth_status",
     "cloud_sign_up",
     "cloud_sign_in",
@@ -109,6 +117,8 @@ pub const COMMAND_NAMES: &[&str] = &[
     "mark_personal_center_notification",
     "get_personal_center_realtime_session",
     "list_personal_center_login_events",
+    "claim_and_redeem_merchant_free_offer",
+    "register_and_redeem_merchant_free_offer",
 ];
 
 #[cfg(test)]
@@ -117,8 +127,9 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 105);
+        assert_eq!(COMMAND_NAMES.len(), 115);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
+        assert!(COMMAND_NAMES.contains(&"detect_model_intelligence"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
         assert!(COMMAND_NAMES.contains(&"diagnose_station"));
         assert!(COMMAND_NAMES.contains(&"import_station_with_code"));
@@ -128,8 +139,13 @@ mod tests {
         assert!(COMMAND_NAMES.contains(&"delete_cloud_backup"));
         assert!(COMMAND_NAMES.contains(&"restore_cloud_backup"));
         assert!(COMMAND_NAMES.contains(&"get_active_codex_relay_status"));
+        assert!(COMMAND_NAMES.contains(&"apply_api_key_to_claude"));
+        assert!(COMMAND_NAMES.contains(&"reset_gateway_route_health"));
         assert!(COMMAND_NAMES.contains(&"list_audit_events"));
         assert!(COMMAND_NAMES.contains(&"rollback_audit_event"));
         assert!(COMMAND_NAMES.contains(&"list_personal_center_memberships"));
+        assert!(!COMMAND_NAMES.contains(&"claim_merchant_rate_account"));
+        assert!(COMMAND_NAMES.contains(&"claim_and_redeem_merchant_free_offer"));
+        assert!(COMMAND_NAMES.contains(&"register_and_redeem_merchant_free_offer"));
     }
 }

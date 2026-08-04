@@ -16,6 +16,7 @@ export const stationApi = {
   add: <T>(request: Record<string, unknown>) => invokeDesktop<T>("add_station", { request }),
   registerAccount: <T>(request: Record<string, unknown>) => invokeDesktop<T>("register_station_account", { request }),
   importWithCode: <T>(request: Record<string, unknown>) => invokeDesktop<T>("import_station_with_code", { request }),
+  registerAndRedeemMerchantFreeOffer: <T>(request: Record<string, unknown>) => invokeDesktop<T>("register_and_redeem_merchant_free_offer", { request }),
   update: <T>(request: Record<string, unknown>) => invokeDesktop<T>("update_station", { request }),
   credentials: <T>(id: string) => invokeDesktop<T>("get_station_credentials", { id }),
 };

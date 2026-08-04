@@ -28,6 +28,11 @@ export type StationCodeImportResult = StationSaveResult & {
   redemptionMessage?: string;
 };
 
+export type MerchantFreeRegistrationResult = StationSaveResult & {
+  redemptionSuccess: boolean;
+  redemptionMessage: string;
+};
+
 export type StationAccountDraft = {
   id: string;
   name: string;
@@ -35,6 +40,8 @@ export type StationAccountDraft = {
   kind: string;
   username?: string;
 };
+
+export type StationAccountPrefill = Pick<StationAccountDraft, "name" | "baseUrl" | "kind">;
 
 /**
  * The server snapshot deliberately lives with the stations feature: it is the
@@ -48,6 +55,7 @@ export type StationSnapshot<Rate = unknown, ApiKey = unknown, Usage = unknown> =
   offers: { id: string; title: string; summary: string; sourceUrl: string; publishedAt?: number }[];
   unavailable: string[];
   usage?: Usage;
+  syncStatuses?: Record<string, { status: string; lastSyncedAt?: number; error?: string }>;
 };
 
 export type StationSyncProgress = {

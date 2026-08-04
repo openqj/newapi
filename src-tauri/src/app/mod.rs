@@ -23,6 +23,7 @@ pub(crate) struct AppState {
     pub(crate) client: Client,
     pub(crate) gateway: GatewayController,
     pub(crate) auth_backoff: Mutex<HashMap<String, AuthBackoff>>,
+    pub(crate) refresh_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     pub(crate) remote_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub(crate) sync_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     pub(crate) sync_progress: Mutex<HashMap<String, SyncProgress>>,

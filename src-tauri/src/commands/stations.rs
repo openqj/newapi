@@ -58,6 +58,14 @@ pub(crate) async fn redeem_station_code(
     station_id: String,
     code: String,
 ) -> Result<String, String> {
+    redeem_station_code_for_station(&state, &station_id, &code).await
+}
+
+pub(crate) async fn redeem_station_code_for_station(
+    state: &AppState,
+    station_id: &str,
+    code: &str,
+) -> Result<String, String> {
     let code = code.trim();
     if code.is_empty() || code.len() > 128 || code.chars().any(char::is_control) {
         return Err("请输入有效兑换码".into());
@@ -66,11 +74,11 @@ pub(crate) async fn redeem_station_code(
         .store
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
-        .get_station(&station_id)?;
+        .get_station(station_id)?;
     let adapter = StationAdapter::for_station(&station)?;
     let mut secret = load_secret(&station.id)?;
     let response = station_request(
-        &state,
+        state,
         &station,
         &mut secret,
         Method::POST,
@@ -79,7 +87,7 @@ pub(crate) async fn redeem_station_code(
     )
     .await?;
     let message = redemption_message(&response)?;
-    sync_one_authorized(&state, &station.id).await?;
+    let _ = sync_one_authorized(state, &station.id).await;
     Ok(message)
 }
 
@@ -203,12 +211,19 @@ pub(crate) async fn add_station(
         last_error: None,
     };
     let mut secret = Secret {
+        version: 3,
         username: request.username,
         password: request.password,
         access_token: None,
+        access_token_expires_at: None,
         refresh_token: None,
+        requires_reauth: false,
+        last_refresh_at: None,
+        last_refresh_error: None,
+        next_refresh_retry_at: None,
         newapi_user_id: None,
         newapi_session: None,
+        newapi_cookies: Vec::new(),
     };
     let connection = match authenticate(
         &state.client,
@@ -252,6 +267,13 @@ pub(crate) async fn add_station(
 #[tauri::command]
 pub(crate) async fn register_station_account(
     state: State<'_, AppState>,
+    request: RegisterStationAccountRequest,
+) -> Result<StationSaveResult, String> {
+    register_station_account_for_request(&state, request).await
+}
+
+pub(crate) async fn register_station_account_for_request(
+    state: &AppState,
     request: RegisterStationAccountRequest,
 ) -> Result<StationSaveResult, String> {
     let parsed = Url::parse(&request.base_url).map_err(|_| "请输入有效站点地址".to_string())?;
@@ -321,12 +343,19 @@ pub(crate) async fn register_station_account(
         return Err("NewAPI 需要填写用户名".into());
     }
     let mut secret = Secret {
+        version: 3,
         username: login_username,
         password: request.password,
         access_token: None,
+        access_token_expires_at: None,
         refresh_token: None,
+        requires_reauth: false,
+        last_refresh_at: None,
+        last_refresh_error: None,
+        next_refresh_retry_at: None,
         newapi_user_id: None,
         newapi_session: None,
+        newapi_cookies: Vec::new(),
     };
     register(
         &state.client,
@@ -398,12 +427,19 @@ pub(crate) async fn import_station_with_code(
         last_error: None,
     };
     let mut secret = Secret {
+        version: 3,
         username: email.to_string(),
         password: request.password,
         access_token: None,
+        access_token_expires_at: None,
         refresh_token: None,
+        requires_reauth: false,
+        last_refresh_at: None,
+        last_refresh_error: None,
+        next_refresh_retry_at: None,
         newapi_user_id: None,
         newapi_session: None,
+        newapi_cookies: Vec::new(),
     };
     let registration_error = register(
         &state.client,
@@ -507,6 +543,7 @@ pub(crate) async fn update_station(
     secret.refresh_token = None;
     secret.newapi_user_id = None;
     secret.newapi_session = None;
+    secret.newapi_cookies.clear();
     let connection = match authenticate(
         &state.client,
         &station,
@@ -560,6 +597,7 @@ pub(crate) async fn clear_station_session(
 ) -> Result<(), String> {
     let mut secret = load_secret(&id)?;
     secret.newapi_session = None;
+    secret.newapi_cookies.clear();
     secret.newapi_user_id = None;
     save_secret(&id, &secret)?;
     state

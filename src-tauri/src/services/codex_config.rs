@@ -11,6 +11,7 @@ use toml_edit::{value, DocumentMut, Item, Table};
 use crate::{
     services::{
         api_keys::read_api_key,
+        client_backup::backup_existing_file,
         gateway::{current_routing_mode, RoutingMode},
         stations::{
             load_authenticated_secret, newapi_display_balance, parse_balance, station_request,
@@ -222,18 +223,52 @@ pub(crate) async fn apply_api_key(
     station_id: String,
     key_id: String,
 ) -> Result<CodexIntegrationStatus, String> {
+    apply_api_key_with_options(state, station_id, key_id, None, None)
+        .await
+        .map(|(_, status)| status)
+}
+
+pub(crate) async fn apply_api_key_with_options(
+    state: &AppState,
+    station_id: String,
+    key_id: String,
+    base_url: Option<&str>,
+    model: Option<&str>,
+) -> Result<(Vec<String>, CodexIntegrationStatus), String> {
     let (station, api_key) = read_api_key(state, &station_id, &key_id).await?;
+    let endpoint = base_url
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| api_base_url(&station.base_url));
+    apply_raw_with_options(
+        state,
+        &format!("{} - {}", station.name, key_id),
+        &endpoint,
+        &api_key,
+        model,
+    )
+}
+
+pub(crate) fn apply_raw_with_options(
+    state: &AppState,
+    provider_name: &str,
+    endpoint: &str,
+    api_key: &str,
+    model: Option<&str>,
+) -> Result<(Vec<String>, CodexIntegrationStatus), String> {
     let directory = codex_directory()?;
     let preserve_login = preserve_official_login(state)?
         || matches!(current_routing_mode(state)?, RoutingMode::LocalGateway);
-    apply_to_directory(
+    let backup_files = apply_to_directory_with_backup(
         &directory,
-        &format!("{} - {}", station.name, key_id),
-        &api_base_url(&station.base_url),
-        &api_key,
+        provider_name,
+        endpoint,
+        api_key,
         preserve_login,
+        model,
     )?;
-    status(state)
+    Ok((backup_files, status(state)?))
 }
 
 fn preserve_official_login(state: &AppState) -> Result<bool, String> {
@@ -284,6 +319,7 @@ fn active_relay_credentials(config: &str) -> Option<(String, Option<String>)> {
     Some((url, key))
 }
 
+#[cfg(test)]
 fn apply_to_directory(
     directory: &Path,
     provider_name: &str,
@@ -291,19 +327,46 @@ fn apply_to_directory(
     api_key: &str,
     preserve_login: bool,
 ) -> Result<(), String> {
+    apply_to_directory_with_backup(
+        directory,
+        provider_name,
+        endpoint,
+        api_key,
+        preserve_login,
+        None,
+    )
+    .map(|_| ())
+}
+
+fn apply_to_directory_with_backup(
+    directory: &Path,
+    provider_name: &str,
+    endpoint: &str,
+    api_key: &str,
+    preserve_login: bool,
+    model: Option<&str>,
+) -> Result<Vec<String>, String> {
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let auth_path = directory.join("auth.json");
     let config_path = directory.join("config.toml");
     backup_once(&auth_path, &directory.join("auth.json.relayhub.bak"))?;
     backup_once(&config_path, &directory.join("config.toml.relayhub.bak"))?;
+    let mut backup_files = Vec::new();
+    if let Some(path) = backup_existing_file(&auth_path)? {
+        backup_files.push(path);
+    }
+    if let Some(path) = backup_existing_file(&config_path)? {
+        backup_files.push(path);
+    }
 
     let current_config = read_optional(&config_path)?;
-    let next_config = build_config(
+    let next_config = build_config_with_model(
         &current_config,
         provider_name,
         endpoint,
         api_key,
         preserve_login,
+        model,
     )?;
     let previous_auth = auth_path
         .exists()
@@ -322,15 +385,16 @@ fn apply_to_directory(
         }
         return Err(error);
     }
-    Ok(())
+    Ok(backup_files)
 }
 
-fn build_config(
+fn build_config_with_model(
     source: &str,
     provider_name: &str,
     endpoint: &str,
     api_key: &str,
     preserve_login: bool,
+    model: Option<&str>,
 ) -> Result<String, String> {
     let mut document = if source.trim().is_empty() {
         DocumentMut::new()
@@ -340,8 +404,10 @@ fn build_config(
             .map_err(|error| format!("Invalid Codex config.toml: {error}"))?
     };
     document["model_provider"] = value("relayhub");
-    if document.get("model").is_none() {
-        document["model"] = value(DEFAULT_MODEL);
+    match model.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(model) => document["model"] = value(model),
+        None if document.get("model").is_none() => document["model"] = value(DEFAULT_MODEL),
+        None => {}
     }
     if document.get("model_reasoning_effort").is_none() {
         document["model_reasoning_effort"] = value("high");

@@ -1,19 +1,19 @@
 import { TriangleAlert } from "lucide-react";
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import type { HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import "./Primitives.css";
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
   return <header className="page-header"><div><h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="page-header-actions">{actions}</div>}</header>;
 }
 
-export function Panel({ title, description, children, className = "" }: { title?: ReactNode; description?: ReactNode; children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`.trim()}>{(title || description) && <header className="panel-header">{title && <h2>{title}</h2>}{description && <p>{description}</p>}</header>}{children}</section>;
+export function Panel({ title, description, children, className = "", ...props }: { title?: ReactNode; description?: ReactNode; children: ReactNode; className?: string } & HTMLAttributes<HTMLElement>) {
+  return <section {...props} className={`panel ${className}`.trim()}>{(title || description) && <header className="panel-header">{title && <h2>{title}</h2>}{description && <p>{description}</p>}</header>}{children}</section>;
 }
 
 export function StatusBadge({ status, children, className, indicator }: { status: "online" | "partial" | "error" | "connecting" | "neutral" | string; children?: ReactNode; className?: string; indicator?: ReactNode }) {
   if (children == null && !className && !indicator) {
-    const tone = status === "online" ? "good" : status === "error" ? "bad" : "warn";
-    const label = ({ online: "正常", partial: "部分可用", error: "异常", connecting: "连接中" }[status] ?? status) || "未知";
+    const tone = status === "online" ? "good" : status === "error" || status === "requires_reauth" ? "bad" : "warn";
+    const label = ({ online: "正常", partial: "部分可用", error: "异常", requires_reauth: "需要重新登录", connecting: "连接中" }[status] ?? status) || "未知";
     return <span className={`sub2-status sub2-status-${tone}`}><i />{label}</span>;
   }
   return <span className={className ?? `status-label ${status}`}>{indicator}{children}</span>;

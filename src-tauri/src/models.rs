@@ -118,6 +118,8 @@ pub(crate) struct ModelDetectionCheck {
     pub(crate) status: String,
     pub(crate) detail: String,
     pub(crate) trace: Option<String>,
+    pub(crate) weight: u8,
+    pub(crate) confidence: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -130,6 +132,99 @@ pub(crate) struct ModelDetectionResult {
     pub(crate) input_tokens: i64,
     pub(crate) output_tokens: i64,
     pub(crate) cache_read_tokens: i64,
+    pub(crate) source: DetectionSourceEvidence,
+    pub(crate) behavior: BehaviorFingerprintEvidence,
+    pub(crate) telemetry_attempted: bool,
+    pub(crate) telemetry_uploaded: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DetectionEvidenceItem {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) detail: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DetectionSourceEvidence {
+    pub(crate) classification: String,
+    pub(crate) score: u8,
+    pub(crate) confidence: f64,
+    pub(crate) observed_model: Option<String>,
+    pub(crate) system_fingerprint: Option<String>,
+    pub(crate) request_ids: Vec<String>,
+    pub(crate) signals: Vec<DetectionEvidenceItem>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BehaviorFingerprintProbe {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) detail: String,
+    pub(crate) trace: Option<String>,
+    pub(crate) confidence: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BehaviorFingerprintEvidence {
+    pub(crate) probe_version: String,
+    pub(crate) probe_seed: String,
+    pub(crate) score: u8,
+    pub(crate) confidence: f64,
+    pub(crate) probes: Vec<BehaviorFingerprintProbe>,
+    pub(crate) observed_models: Vec<String>,
+    pub(crate) observed_fingerprints: Vec<String>,
+    pub(crate) latency_median_ms: u64,
+    pub(crate) latency_spread_ms: u64,
+    pub(crate) completion_tokens: Vec<i64>,
+    pub(crate) completion_token_variance: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntelligenceDetectionRequest {
+    #[serde(default)]
+    pub(crate) endpoint: String,
+    #[serde(default)]
+    pub(crate) api_key: String,
+    pub(crate) model: String,
+    pub(crate) protocol: String,
+    pub(crate) station_id: Option<String>,
+    pub(crate) key_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntelligenceTestItem {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) status: String,
+    pub(crate) detail: String,
+    pub(crate) trace: Option<String>,
+    pub(crate) attempts: u8,
+    pub(crate) successes: u8,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntelligenceDetectionResult {
+    pub(crate) score: u8,
+    pub(crate) correct: u8,
+    pub(crate) total: u8,
+    pub(crate) confidence: f64,
+    pub(crate) items: Vec<IntelligenceTestItem>,
+    pub(crate) elapsed_ms: u64,
+    pub(crate) input_tokens: i64,
+    pub(crate) output_tokens: i64,
+    pub(crate) cache_read_tokens: i64,
+    pub(crate) telemetry_attempted: bool,
+    pub(crate) telemetry_uploaded: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -185,6 +280,14 @@ pub(crate) struct UsageStats {
     pub(crate) total_limit: Option<f64>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SyncComponentState {
+    pub(crate) status: String,
+    pub(crate) last_synced_at: Option<i64>,
+    pub(crate) error: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UsageSummary {
@@ -213,6 +316,8 @@ pub(crate) struct StationSnapshot {
     pub(crate) usage: UsageStats,
     #[serde(default)]
     pub(crate) capabilities: StationCapabilities,
+    #[serde(default)]
+    pub(crate) sync_statuses: std::collections::BTreeMap<String, SyncComponentState>,
 }
 
 #[derive(Deserialize)]
@@ -229,6 +334,19 @@ pub(crate) struct AddStationRequest {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegisterStationAccountRequest {
+    pub(crate) name: String,
+    pub(crate) base_url: String,
+    pub(crate) email: String,
+    pub(crate) username: Option<String>,
+    pub(crate) password: String,
+    pub(crate) verification_code: String,
+    pub(crate) kind: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegisterMerchantFreeOfferRequest {
+    pub(crate) offer_id: String,
     pub(crate) name: String,
     pub(crate) base_url: String,
     pub(crate) email: String,
@@ -302,6 +420,15 @@ pub(crate) struct StationCodeImportResult {
     pub(crate) station: Station,
     pub(crate) connection: StationConnectionResult,
     pub(crate) redemption_message: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantFreeRegistrationResult {
+    pub(crate) station: Station,
+    pub(crate) connection: StationConnectionResult,
+    pub(crate) redemption_success: bool,
+    pub(crate) redemption_message: String,
 }
 
 #[derive(Serialize)]

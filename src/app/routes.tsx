@@ -15,14 +15,13 @@ import {
 } from "lucide-react";
 import type { AccountRow } from "../features/accounts";
 import type { KeyRow } from "../features/api-keys";
-import type { Offer } from "../features/offers";
 import type { AccountRole } from "../features/merchant";
 import type { CloudAuthStatus, SettingsTab } from "../features/settings";
 import type { NotificationPreferences } from "../features/personal-center";
 import type { LoginProfile } from "../features/profiles";
 import type { RateRow } from "../features/rates";
 import type { RemoteServer } from "../features/remote";
-import type { Station } from "../features/stations";
+import type { Station, StationSnapshot } from "../features/stations";
 import type { UsageLog, UsageSummary } from "../features/usage";
 
 const AccountsPage = lazy(() => import("../features/accounts/pages/AccountsPage").then(({ AccountsPage }) => ({ default: AccountsPage })));
@@ -58,7 +57,7 @@ export type AppView =
  */
 export type AppRouteContext = {
   stations: Station[];
-  snapshot: { offers: Offer[] };
+  snapshot: Pick<StationSnapshot, "offers" | "syncStatuses">;
   keyRows: KeyRow[];
   rateRows: RateRow[];
   accountRows: AccountRow[];
@@ -68,13 +67,18 @@ export type AppRouteContext = {
   demoLoginProfiles: LoginProfile[];
   settingsTab: SettingsTab;
   onSettingsTabChange: (tab: SettingsTab) => void;
+  backgroundRefreshMinutes: number;
+  onBackgroundRefreshMinutesChange: (minutes: number) => void;
   personalCenterNotificationPreferences: NotificationPreferences;
+  personalCenterAuth: CloudAuthStatus | null;
   accountRole: AccountRole;
   onPersonalCenterAuthChanged: (status: CloudAuthStatus) => void;
   onSavePersonalCenterNotificationPreferences: (preferences: NotificationPreferences) => Promise<boolean>;
   navigate: (view: AppView) => void;
   onAddStation: () => void;
   onEditStationAccount: (row: AccountRow) => void;
+  merchantRateRechargeStationId: string | null;
+  onMerchantRateRechargeOpened: () => void;
   onRefreshAll: () => Promise<void>;
   onRefreshRatesAndKeys: () => Promise<void>;
   onRefreshUsageLogs: () => Promise<void>;
@@ -131,7 +135,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   accounts: {
     view: "accounts",
     navigation: { label: "站点账户", Icon: UsersRound },
-    createPage: ({ accountRows, stations, onRefreshAll, onRefreshSupportingData, onOpenStation, onAddStation, onEditStationAccount }) => (
+    createPage: ({ accountRows, stations, onRefreshAll, onRefreshSupportingData, onOpenStation, onAddStation, onEditStationAccount, merchantRateRechargeStationId, onMerchantRateRechargeOpened }) => (
       <AccountsPage
         rows={accountRows}
         stations={stations}
@@ -140,20 +144,21 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
         onOpenStation={onOpenStation}
         onAdd={onAddStation}
         onEdit={onEditStationAccount}
+        autoRedeemStationId={merchantRateRechargeStationId}
+        onAutoRedeemOpened={onMerchantRateRechargeOpened}
       />
     ),
   },
   rates: {
     view: "rates",
     navigation: { label: "分组倍率", Icon: RefreshCw },
-    createPage: ({ rateRows, stations, accountRole, onRefreshRatesAndKeys, onOpenStation }) => (
+    createPage: ({ rateRows, stations, onRefreshRatesAndKeys, onOpenStation }) => (
       <RatesPage
         rows={rateRows}
         stations={stations}
         unavailableStationCount={stations.filter((station) => !rateRows.some((row) => row.stationId === station.id)).length}
         onRefresh={onRefreshRatesAndKeys}
         onOpenStation={onOpenStation}
-        canShare={accountRole === "merchant" || accountRole === "admin"}
       />
     ),
   },
@@ -196,20 +201,20 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   personalCenter: {
     view: "personalCenter",
     navigation: { label: "个人中心", Icon: UserRound },
-    createPage: ({ accountRows, personalCenterNotificationPreferences, onSavePersonalCenterNotificationPreferences, onPersonalCenterAuthChanged, navigate }) => (
+    createPage: ({ accountRows, personalCenterNotificationPreferences, personalCenterAuth, onSavePersonalCenterNotificationPreferences, onPersonalCenterAuthChanged }) => (
       <PersonalCenterPage
         accountRows={accountRows}
         preferences={personalCenterNotificationPreferences}
+        initialAuth={personalCenterAuth}
         onPreferencesChange={onSavePersonalCenterNotificationPreferences}
         onAuthChanged={onPersonalCenterAuthChanged}
-        onNavigate={navigate}
       />
     ),
   },
   settings: {
     view: "settings",
     navigation: { label: "设置", Icon: Settings },
-    createPage: ({ demoLoginProfiles, settingsTab, onSettingsTabChange }) => <SettingsPage demoProfiles={demoLoginProfiles} activeTab={settingsTab} onActiveTabChange={onSettingsTabChange} />,
+    createPage: ({ demoLoginProfiles, keyRows, snapshot, settingsTab, onSettingsTabChange, backgroundRefreshMinutes, onBackgroundRefreshMinutesChange }) => <SettingsPage demoProfiles={demoLoginProfiles} keyRows={keyRows} syncStatuses={snapshot.syncStatuses} backgroundRefreshMinutes={backgroundRefreshMinutes} onBackgroundRefreshMinutesChange={onBackgroundRefreshMinutesChange} activeTab={settingsTab} onActiveTabChange={onSettingsTabChange} />,
   },
 };
 

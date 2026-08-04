@@ -6,7 +6,7 @@ import { errorMessage } from "../../../lib/errors";
 import { useToast } from "../../../components/ui";
 
 const defaults: AlertPolicy = {
-  enabled: true,
+  enabled: false,
   lowBalanceThreshold: 5,
   remainingQuotaPercent: 10,
   quotaResetWarningHours: 24,

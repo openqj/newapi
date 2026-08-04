@@ -13,6 +13,7 @@ use axum::{
     routing::any,
     Router,
 };
+use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -55,6 +56,7 @@ pub(crate) struct GatewayStatus {
     pub(crate) active_key_id: Option<String>,
     pub(crate) has_active_route: bool,
     pub(crate) route_queue: Vec<GatewayRouteSelection>,
+    pub(crate) route_health: Vec<GatewayRouteHealth>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +79,19 @@ pub(crate) struct GatewayRoute {
 pub(crate) struct GatewayRouteSelection {
     pub(crate) station_id: String,
     pub(crate) key_id: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GatewayRouteHealth {
+    pub(crate) station_id: String,
+    pub(crate) key_id: String,
+    pub(crate) state: String,
+    pub(crate) consecutive_failures: u32,
+    pub(crate) total_requests: u32,
+    pub(crate) failed_requests: u32,
+    pub(crate) cooldown_remaining_ms: u64,
+    pub(crate) last_failure_at: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -142,6 +157,7 @@ struct GatewayCircuitBreaker {
     failed_requests: u32,
     opened_at: Option<Instant>,
     half_open_probe_in_flight: bool,
+    last_failure_at: Option<String>,
 }
 
 impl GatewayCircuitBreaker {
@@ -154,6 +170,7 @@ impl GatewayCircuitBreaker {
             failed_requests: 0,
             opened_at: None,
             half_open_probe_in_flight: false,
+            last_failure_at: None,
         }
     }
 
@@ -204,6 +221,7 @@ impl GatewayCircuitBreaker {
         self.total_requests = self.total_requests.saturating_add(1);
         self.failed_requests = self.failed_requests.saturating_add(1);
         self.consecutive_successes = 0;
+        self.last_failure_at = Some(Utc::now().to_rfc3339());
 
         if self.state == GatewayCircuitState::HalfOpen {
             self.open();
@@ -236,6 +254,58 @@ impl GatewayCircuitBreaker {
         self.total_requests = 0;
         self.failed_requests = 0;
         self.half_open_probe_in_flight = false;
+    }
+
+    fn route_health(
+        &self,
+        route: &GatewayRoute,
+        config: GatewayCircuitConfig,
+    ) -> GatewayRouteHealth {
+        let cooldown_remaining_ms = if self.state == GatewayCircuitState::Open {
+            self.opened_at
+                .map(|opened_at| {
+                    u64::try_from(
+                        config
+                            .recovery_after
+                            .saturating_sub(opened_at.elapsed())
+                            .as_millis(),
+                    )
+                    .unwrap_or(u64::MAX)
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        GatewayRouteHealth {
+            station_id: route.station_id.clone(),
+            key_id: route.key_id.clone(),
+            state: match self.state {
+                GatewayCircuitState::Closed => "closed",
+                GatewayCircuitState::Open => "open",
+                GatewayCircuitState::HalfOpen => "halfOpen",
+            }
+            .to_string(),
+            consecutive_failures: self.consecutive_failures,
+            total_requests: self.total_requests,
+            failed_requests: self.failed_requests,
+            cooldown_remaining_ms,
+            last_failure_at: self.last_failure_at.clone(),
+        }
+    }
+}
+
+impl GatewayRouteHealth {
+    fn healthy(route: &GatewayRoute) -> Self {
+        Self {
+            station_id: route.station_id.clone(),
+            key_id: route.key_id.clone(),
+            state: "closed".into(),
+            consecutive_failures: 0,
+            total_requests: 0,
+            failed_requests: 0,
+            cooldown_remaining_ms: 0,
+            last_failure_at: None,
+        }
     }
 }
 
@@ -430,6 +500,22 @@ pub(crate) async fn set_gateway_routes(
 pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String> {
     let mode = current_routing_mode(state)?;
     let runtime = state.gateway.runtime_snapshot().await;
+    let route_queue = if runtime.routes.is_empty() {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "本地数据库不可用".to_string())?;
+        load_persisted_route_selections(&store)?
+    } else {
+        runtime
+            .routes
+            .iter()
+            .map(|route| GatewayRouteSelection {
+                station_id: route.station_id.clone(),
+                key_id: route.key_id.clone(),
+            })
+            .collect()
+    };
     Ok(GatewayStatus {
         mode,
         running: state.gateway.is_running(),
@@ -438,14 +524,8 @@ pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String
         active_station_id: runtime.route.as_ref().map(|route| route.station_id.clone()),
         active_key_id: runtime.route.as_ref().map(|route| route.key_id.clone()),
         has_active_route: runtime.route.is_some(),
-        route_queue: runtime
-            .routes
-            .iter()
-            .map(|route| GatewayRouteSelection {
-                station_id: route.station_id.clone(),
-                key_id: route.key_id.clone(),
-            })
-            .collect(),
+        route_queue,
+        route_health: state.gateway.route_health().await,
     })
 }
 
@@ -651,6 +731,42 @@ impl GatewayController {
         let mut runtime = self.runtime.write().await;
         runtime.route = active;
         runtime.routes = routes;
+    }
+
+    pub(crate) async fn route_health(&self) -> Vec<GatewayRouteHealth> {
+        let routes = self.runtime.read().await.routes.clone();
+        let breakers = self.circuit_breakers.lock().ok();
+        routes
+            .iter()
+            .map(|route| {
+                breakers
+                    .as_ref()
+                    .and_then(|items| items.get(&gateway_route_key(route)))
+                    .map(|breaker| breaker.route_health(route, self.circuit_config))
+                    .unwrap_or_else(|| GatewayRouteHealth::healthy(route))
+            })
+            .collect()
+    }
+
+    pub(crate) async fn reset_route_health(
+        &self,
+        station_id: &str,
+        key_id: &str,
+    ) -> Result<(), String> {
+        let route_key = format!("{}\u{0}{}", station_id.trim(), key_id.trim());
+        let routes = self.runtime.read().await.routes.clone();
+        if !routes
+            .iter()
+            .any(|route| gateway_route_key(route) == route_key)
+        {
+            return Err("指定的路由不在当前 Gateway 路由池中".into());
+        }
+        let mut breakers = self
+            .circuit_breakers
+            .lock()
+            .map_err(|_| "Gateway 熔断状态不可用".to_string())?;
+        breakers.remove(&route_key);
+        Ok(())
     }
 
     pub(crate) async fn clear_route(&self) {
@@ -1200,5 +1316,42 @@ mod tests {
         let _ = gateway_shutdown.send(());
         let _ = a_shutdown.send(());
         let _ = b_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_route_health_reports_open_state_and_can_be_reset() {
+        let controller = GatewayController::new_with_circuit_config(
+            Client::new(),
+            "gateway-token".into(),
+            0,
+            GatewayCircuitConfig {
+                failure_threshold: 1,
+                ..GatewayCircuitConfig::default()
+            },
+        );
+        let route = test_route("station-a", "key-a", "http://127.0.0.1:1/v1".into());
+        controller.set_routes(vec![route.clone()]).await;
+        let state = GatewayServiceState {
+            runtime: controller.runtime.clone(),
+            client: controller.client.clone(),
+            circuit_breakers: controller.circuit_breakers.clone(),
+            circuit_config: controller.circuit_config,
+        };
+
+        record_gateway_route_result(&state, &route, false, false);
+        let health = controller.route_health().await;
+        assert_eq!(health[0].state, "open");
+        assert_eq!(health[0].failed_requests, 1);
+        assert!(health[0].cooldown_remaining_ms > 0);
+        assert!(health[0].last_failure_at.is_some());
+
+        controller
+            .reset_route_health("station-a", "key-a")
+            .await
+            .expect("reset route health");
+        let reset_health = controller.route_health().await;
+        assert_eq!(reset_health[0].state, "closed");
+        assert_eq!(reset_health[0].failed_requests, 0);
+        assert_eq!(reset_health[0].cooldown_remaining_ms, 0);
     }
 }

@@ -4,7 +4,9 @@ import { type KeyInfo, type KeyRow, useApiKeyRows } from "../features/api-keys";
 import { type Rate, type RateRow, useRateRows } from "../features/rates";
 import { type RemoteServer, useRemoteServers } from "../features/remote";
 import { type Station, type StationSnapshot, type StationSyncProgress, useStations } from "../features/stations";
+import { DEFAULT_BACKGROUND_REFRESH_MINUTES, settingsApi } from "../features/settings/api";
 import { useUsageData } from "../features/usage/hooks";
+import { isTauri } from "../lib/platform";
 import type { UsageLog, UsageSummary } from "../features/usage/types";
 import type { AppView } from "./routes";
 
@@ -35,6 +37,14 @@ type UseAppDataOptions = {
  */
 export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: UseAppDataOptions) {
   const [usageScope, setUsageScope] = useState<"all" | "current">("all");
+  const [backgroundRefreshMinutes, setBackgroundRefreshMinutes] = useState(DEFAULT_BACKGROUND_REFRESH_MINUTES);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    void settingsApi.backgroundRefreshMinutes()
+      .then(setBackgroundRefreshMinutes)
+      .catch(() => undefined);
+  }, []);
 
   const { rows: keyRows, loadKeyRows } = useApiKeyRows({
     demoRows: demo.keyRows,
@@ -92,6 +102,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     demo: stationDemo,
     onSyncComplete: refreshFeatureRows,
     autoRefresh: true,
+    refreshIntervalMs: backgroundRefreshMinutes * 60 * 1000,
   });
 
   const { servers: remoteServers, loadRemoteServers } = useRemoteServers({
@@ -126,6 +137,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
   return {
     stations, selectedId, setSelectedId, snapshot, keyRows, rateRows, accountRows, usageSummary,
     usageLogs, remoteServers, usageScope, setUsageScope, busy, syncProgress,
+    backgroundRefreshMinutes, setBackgroundRefreshMinutes,
     loadStations, loadSnapshot, loadKeyRows, loadRateRows, loadAccountRows, loadUsageSummary,
     loadUsageLogs, refreshUsageLogs, loadRemoteServers, refreshSupportingData, refreshRatesAndKeys,
     refreshAll, cancelRefresh,

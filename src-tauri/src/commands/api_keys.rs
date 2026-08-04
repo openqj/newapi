@@ -78,6 +78,15 @@ pub(crate) async fn apply_api_key_to_codex(
 }
 
 #[tauri::command]
+pub(crate) async fn apply_api_key_to_claude(
+    state: State<'_, AppState>,
+    station_id: String,
+    key_id: String,
+) -> Result<(), String> {
+    crate::services::claude_config::apply_api_key(&state, station_id, key_id).await
+}
+
+#[tauri::command]
 pub(crate) async fn delete_api_key(
     state: State<'_, AppState>,
     station_id: String,

@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Search, Server, TicketCheck, Trash2 } from "lucide-react";
 import { DataTable, EmptyState, FormDialog, FormField, StatusBadge, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
@@ -21,6 +21,8 @@ export function AccountsPage({
   onOpenStation,
   onAdd,
   onEdit,
+  autoRedeemStationId,
+  onAutoRedeemOpened,
 }: {
   rows: AccountRow[];
   stations: Station[];
@@ -29,6 +31,8 @@ export function AccountsPage({
   onOpenStation: (url: string) => Promise<void> | void;
   onAdd: () => void;
   onEdit: (row: AccountRow) => void;
+  autoRedeemStationId?: string | null;
+  onAutoRedeemOpened?: () => void;
 }) {
   const confirm = useConfirm();
   const { notify } = useToast();
@@ -39,6 +43,13 @@ export function AccountsPage({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [redeemRow, setRedeemRow] = useState<AccountRow | null>(null);
+  useEffect(() => {
+    if (!autoRedeemStationId) return;
+    const row = rows.find((item) => item.stationId === autoRedeemStationId);
+    if (!row) return;
+    setRedeemRow(row);
+    onAutoRedeemOpened?.();
+  }, [autoRedeemStationId, onAutoRedeemOpened, rows]);
   const filtered = rows.filter((row) => (
     (station === "all" || row.stationId === station)
     && `${row.stationName} ${row.account.username} ${row.account.displayName} ${row.account.email ?? ""} ${row.account.group ?? ""}`.toLowerCase().includes(query.toLowerCase())

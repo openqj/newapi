@@ -54,7 +54,9 @@ pub(crate) fn config() -> Result<SupabaseConfig, String> {
 }
 
 fn header_value(value: &str) -> Result<HeaderValue, String> {
-    value.parse::<HeaderValue>().map_err(|error| error.to_string())
+    value
+        .parse::<HeaderValue>()
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn auth_headers(config: &SupabaseConfig) -> Result<HeaderMap, String> {
@@ -83,10 +85,7 @@ pub(crate) fn postgrest_headers(
     session: &CloudSession,
 ) -> Result<HeaderMap, String> {
     let mut headers = session_headers(config, session)?;
-    headers.insert(
-        header::ACCEPT,
-        HeaderValue::from_static("application/json"),
-    );
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     Ok(headers)
 }
 
@@ -96,10 +95,7 @@ pub(crate) fn public_postgrest_headers(config: &SupabaseConfig) -> Result<Header
         header::AUTHORIZATION,
         header_value(&format!("Bearer {}", config.anon_key))?,
     );
-    headers.insert(
-        header::ACCEPT,
-        HeaderValue::from_static("application/json"),
-    );
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     Ok(headers)
 }
 

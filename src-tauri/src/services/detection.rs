@@ -404,17 +404,320 @@ pub(crate) async fn request(
     Ok((value, text))
 }
 
+pub(crate) struct DetectionResponseMetadata {
+    pub(crate) value: Value,
+    pub(crate) headers: Vec<(String, String)>,
+}
+
+pub(crate) async fn request_with_metadata(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    protocol: &str,
+    prompt: &str,
+) -> Result<DetectionResponseMetadata, String> {
+    let base_url = api_base_url(endpoint);
+    let request = if protocol == "anthropic" {
+        client
+            .post(format!("{base_url}/messages"))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&json!({"model": model, "max_tokens": 96, "temperature": 0, "messages": [{"role": "user", "content": prompt}]}))
+    } else {
+        client
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(api_key)
+            .json(&json!({"model": model, "max_tokens": 96, "temperature": 0, "messages": [{"role": "user", "content": prompt}]}))
+    };
+    let response = request
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|error| format!("请求失败：{error}"))?;
+    let status = response.status();
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_ascii_lowercase(),
+                value.to_str().unwrap_or_default().to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取响应失败：{error}"))?;
+    if !status.is_success() {
+        return Err(format!("HTTP {status}：{}", response_error_message(&body)));
+    }
+    let value =
+        serde_json::from_str::<Value>(&body).map_err(|_| "接口返回的不是 JSON 响应".to_string())?;
+    let _text =
+        model_response_text(&value).ok_or("接口成功响应，但未找到模型输出文本".to_string())?;
+    Ok(DetectionResponseMetadata { value, headers })
+}
+
+pub(crate) async fn request_json_body(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    protocol: &str,
+    body: Value,
+) -> Result<Value, String> {
+    let base_url = api_base_url(endpoint);
+    let request = if protocol == "anthropic" {
+        client
+            .post(format!("{base_url}/messages"))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+    } else {
+        client
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(api_key)
+            .json(&body)
+    };
+    let response = request
+        .timeout(Duration::from_secs(45))
+        .send()
+        .await
+        .map_err(|error| format!("请求失败：{error}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取响应失败：{error}"))?;
+    if !status.is_success() {
+        return Err(format!("HTTP {status}：{}", response_error_message(&body)));
+    }
+    serde_json::from_str::<Value>(&body).map_err(|_| "接口返回的不是 JSON 响应".to_string())
+}
+
+pub(crate) async fn request_with_roles(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    protocol: &str,
+    developer_or_system: Option<&str>,
+    prompt: &str,
+    max_tokens: u16,
+) -> Result<(Value, String), String> {
+    let base_url = api_base_url(endpoint);
+    let request = if protocol == "anthropic" {
+        let mut body = json!({"model": model, "max_tokens": max_tokens, "temperature": 0, "messages": [{"role": "user", "content": prompt}]});
+        if let Some(system) = developer_or_system {
+            body["system"] = Value::String(system.into());
+        }
+        client
+            .post(format!("{base_url}/messages"))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+    } else {
+        let mut messages = Vec::new();
+        if let Some(developer) = developer_or_system {
+            messages.push(json!({"role": "developer", "content": developer}));
+        }
+        messages.push(json!({"role": "user", "content": prompt}));
+        client
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(api_key)
+            .json(&json!({"model": model, "max_tokens": max_tokens, "temperature": 0, "messages": messages}))
+    };
+    let response = request
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|error| format!("请求失败：{error}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("读取响应失败：{error}"))?;
+    if !status.is_success() {
+        return Err(format!("HTTP {status}：{}", response_error_message(&body)));
+    }
+    let value =
+        serde_json::from_str::<Value>(&body).map_err(|_| "接口返回的不是 JSON 响应".to_string())?;
+    let text =
+        model_response_text(&value).ok_or("接口成功响应，但未找到模型输出文本".to_string())?;
+    Ok((value, text))
+}
+
+#[derive(Debug)]
+pub(crate) struct StreamProbeResult {
+    pub(crate) text: String,
+    pub(crate) completed: bool,
+    pub(crate) finish_reason: Option<String>,
+    pub(crate) usage_present: bool,
+}
+
+pub(crate) async fn stream_probe(
+    client: &Client,
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    protocol: &str,
+) -> Result<StreamProbeResult, String> {
+    let base_url = api_base_url(endpoint);
+    let request = if protocol == "anthropic" {
+        client
+            .post(format!("{base_url}/messages"))
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&json!({"model": model, "max_tokens": 48, "temperature": 0, "stream": true, "messages": [{"role": "user", "content": "Reply with exactly relayhub-stream-ok"}]}))
+    } else {
+        client
+            .post(format!("{base_url}/chat/completions"))
+            .bearer_auth(api_key)
+            .json(&json!({"model": model, "max_tokens": 48, "temperature": 0, "stream": true, "stream_options": {"include_usage": true}, "messages": [{"role": "user", "content": "Reply with exactly relayhub-stream-ok"}]}))
+    };
+    let mut response = request
+        .timeout(Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|error| format!("流式探针请求失败：{error}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("读取流式错误响应失败：{error}"))?;
+        return Err(format!("HTTP {status}：{}", response_error_message(&body)));
+    }
+    let mut pending = String::new();
+    let mut event_name = String::new();
+    let mut output = String::new();
+    let mut completed = false;
+    let mut finish_reason = None;
+    let mut usage_present = false;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|error| format!("读取流式响应失败：{error}"))?
+    {
+        pending.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(newline) = pending.find('\n') {
+            let line = pending[..newline].trim_end_matches('\r').trim().to_string();
+            pending.drain(..=newline);
+            if let Some(name) = line.strip_prefix("event:").map(str::trim) {
+                event_name = name.to_string();
+                continue;
+            }
+            let Some(data) = line.strip_prefix("data:").map(str::trim) else {
+                continue;
+            };
+            if data.is_empty() {
+                continue;
+            }
+            if data == "[DONE]" {
+                completed = true;
+                continue;
+            }
+            let Ok(event) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            if let Some(error) = stream_error(&event) {
+                return Err(format!("流式响应错误：{error}"));
+            }
+            if event_name == "message_stop"
+                || event.get("type").and_then(Value::as_str) == Some("message_stop")
+            {
+                completed = true;
+            }
+            if let Some(reason) = event
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("finish_reason"))
+                .and_then(Value::as_str)
+            {
+                finish_reason = Some(reason.to_string());
+            }
+            if event.get("usage").is_some()
+                || event
+                    .get("message")
+                    .and_then(|message| message.get("usage"))
+                    .is_some()
+            {
+                usage_present = true;
+            }
+            if event.get("type").and_then(Value::as_str) == Some("message_delta") {
+                finish_reason = event
+                    .get("delta")
+                    .and_then(|delta| delta.get("stop_reason"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .or(finish_reason);
+            }
+            let text = if protocol == "anthropic" {
+                event
+                    .get("delta")
+                    .and_then(|delta| delta.get("text"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            } else {
+                stream_delta_text(&event)
+            };
+            if let Some(text) = text {
+                output.push_str(&text);
+            }
+            event_name.clear();
+        }
+    }
+    if !stream_is_complete(
+        &output,
+        completed,
+        finish_reason.as_deref(),
+        usage_present,
+        protocol,
+    ) {
+        return Err("流式响应未包含完整文本、终止原因或用量终帧".into());
+    }
+    Ok(StreamProbeResult {
+        text: output,
+        completed,
+        finish_reason,
+        usage_present,
+    })
+}
+
+fn stream_is_complete(
+    output: &str,
+    completed: bool,
+    finish_reason: Option<&str>,
+    usage_present: bool,
+    protocol: &str,
+) -> bool {
+    let expected_reason = if protocol == "anthropic" {
+        "end_turn"
+    } else {
+        "stop"
+    };
+    completed
+        && output.trim() == "relayhub-stream-ok"
+        && finish_reason == Some(expected_reason)
+        && usage_present
+}
+
 pub(crate) fn check(
     name: &str,
     status: &str,
     detail: impl Into<String>,
     trace: Option<String>,
+    confidence: f64,
 ) -> ModelDetectionCheck {
     ModelDetectionCheck {
         name: name.into(),
         status: status.into(),
         detail: detail.into(),
         trace,
+        weight: risk_weight(name),
+        confidence: confidence.clamp(0.0, 1.0),
     }
 }
 
@@ -446,14 +749,36 @@ pub(crate) fn usage(value: &Value) -> (i64, i64, i64) {
 }
 
 pub(crate) fn score(checks: &[ModelDetectionCheck]) -> u8 {
-    checks
+    let total_weight = checks.iter().map(|check| check.weight as f64).sum::<f64>();
+    if total_weight == 0.0 {
+        return 0;
+    }
+    let weighted_score = checks
         .iter()
-        .map(|check| match check.status.as_str() {
-            "pass" => 25,
-            "warning" => 13,
-            _ => 0,
+        .map(|check| {
+            let status_score = match check.status.as_str() {
+                "pass" => 1.0,
+                "warning" => 0.5,
+                _ => 0.0,
+            };
+            check.weight as f64 * status_score * check.confidence
         })
-        .sum()
+        .sum::<f64>();
+    ((weighted_score / total_weight) * 100.0).round() as u8
+}
+
+pub(crate) fn risk_weight(name: &str) -> u8 {
+    match name {
+        "knowledge_freshness" => 10,
+        "model_fingerprint" => 18,
+        "logic_stability" => 16,
+        "structure_constraints" => 14,
+        "parameter_fidelity" => 12,
+        "instruction_hierarchy" => 12,
+        "protocol_fields" => 8,
+        "stream_integrity" => 10,
+        _ => 1,
+    }
 }
 
 #[cfg(test)]
@@ -461,7 +786,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        check, model_ids, responses_stream_text, score, stream_delta_text, stream_error, usage,
+        check, model_ids, responses_stream_text, score, stream_delta_text, stream_error,
+        stream_is_complete, usage,
     };
     use crate::models::ModelDetectionRequest;
 
@@ -539,11 +865,36 @@ mod tests {
     #[test]
     fn scores_detection_checks_consistently() {
         let checks = vec![
-            check("one", "pass", "", None),
-            check("two", "warning", "", None),
-            check("three", "fail", "", None),
+            check("model_fingerprint", "pass", "", None, 1.0),
+            check("knowledge_freshness", "warning", "", None, 0.5),
+            check("stream_integrity", "fail", "", None, 0.0),
         ];
-        assert_eq!(score(&checks), 38);
+        assert_eq!(score(&checks), 54);
+    }
+
+    #[test]
+    fn requires_stream_text_finish_reason_and_usage() {
+        assert!(stream_is_complete(
+            "relayhub-stream-ok",
+            true,
+            Some("stop"),
+            true,
+            "openai"
+        ));
+        assert!(!stream_is_complete(
+            "relayhub-stream-ok",
+            true,
+            Some("stop"),
+            false,
+            "openai"
+        ));
+        assert!(!stream_is_complete(
+            "wrong",
+            true,
+            Some("stop"),
+            true,
+            "openai"
+        ));
     }
 
     #[test]

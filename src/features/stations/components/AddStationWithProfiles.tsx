@@ -1,13 +1,14 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronDown, Eye, EyeOff, Settings } from "lucide-react";
 import { FormDialog, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
 import type { LoginProfile } from "../../profiles";
-import type { ClaimedMerchantCode } from "../../merchant";
+import type { MerchantFreeRegistrationOffer, MerchantRateRegistrationRequest } from "../../merchant";
 import { stationApi } from "../api";
-import type { StationAccountCredentials, StationAccountDraft, StationCodeImportResult, StationConnectionResult, StationSaveResult } from "../types";
+import type { MerchantFreeRegistrationResult, StationAccountCredentials, StationAccountDraft, StationAccountPrefill, StationConnectionResult, StationSaveResult } from "../types";
 import "./AddStationWithProfiles.css";
 
 export function normalizeStationBaseUrl(value: string) {
@@ -22,39 +23,48 @@ export function normalizeStationBaseUrl(value: string) {
   }
 }
 
+const openRechargeUrl = (url: string) => isTauri() ? openUrl(url) : Promise.resolve(window.open(url, "_blank", "noopener"));
+
 export function AddStationWithProfiles({
   onClose,
   onManageProfiles,
   onAdded,
   demoProfiles,
   initial,
-  merchantImport,
+  merchantFreeOffer,
+  merchantRateOffer,
+  onExistingAccountLogin,
+  prefill,
 }: {
   onClose: () => void;
   onManageProfiles: () => void;
-  onAdded: (keepOpen: boolean) => Promise<void>;
+  onAdded: (keepOpen: boolean, result?: StationSaveResult) => Promise<void>;
   demoProfiles: LoginProfile[];
   initial?: StationAccountDraft;
-  merchantImport?: ClaimedMerchantCode;
+  merchantFreeOffer?: MerchantFreeRegistrationOffer;
+  merchantRateOffer?: MerchantRateRegistrationRequest;
+  onExistingAccountLogin?: () => void;
+  prefill?: StationAccountPrefill;
 }) {
   const { notify } = useToast();
+  const merchantOffer = merchantFreeOffer ?? merchantRateOffer;
+  const merchantRegistration = Boolean(merchantOffer);
   const [submitting, setSubmitting] = useState(false);
   const [profiles, setProfiles] = useState<LoginProfile[]>([]);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const accountProfileRef = useRef<HTMLDivElement>(null);
-  const [name, setName] = useState(initial?.name ?? merchantImport?.stationName ?? "");
-  const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? merchantImport?.stationUrl ?? ""));
+  const [name, setName] = useState(initial?.name ?? merchantOffer?.stationName ?? prefill?.name ?? "");
+  const [baseUrl, setBaseUrl] = useState(() => normalizeStationBaseUrl(initial?.baseUrl ?? merchantOffer?.stationUrl ?? prefill?.baseUrl ?? ""));
   const [username, setUsername] = useState(initial?.username ?? "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [loadingCredentials, setLoadingCredentials] = useState(Boolean(initial && !merchantImport));
+  const [loadingCredentials, setLoadingCredentials] = useState(Boolean(initial && !merchantRegistration));
   const [credentialError, setCredentialError] = useState("");
-  const [kind, setKind] = useState(initial?.kind ?? "auto");
+  const [kind, setKind] = useState(initial?.kind ?? prefill?.kind ?? "auto");
   const [totp, setTotp] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [sendingVerification, setSendingVerification] = useState(false);
   const [verificationCooldown, setVerificationCooldown] = useState(0);
-  const [redeemCode, setRedeemCode] = useState(merchantImport?.redeemCode ?? "");
   const [redemptionResult, setRedemptionResult] = useState<{ success: boolean; message: string } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [connectionResult, setConnectionResult] =
@@ -72,7 +82,7 @@ export function AddStationWithProfiles({
     void loadProfiles();
   }, []);
   useEffect(() => {
-    if (!initial || merchantImport) {
+    if (!initial || merchantRegistration) {
       setLoadingCredentials(false);
       return;
     }
@@ -101,7 +111,7 @@ export function AddStationWithProfiles({
     return () => {
       cancelled = true;
     };
-  }, [initial, merchantImport]);
+  }, [initial, merchantRegistration]);
   useEffect(() => {
     if (!showProfileMenu) return;
     const closeProfileMenu = (event: PointerEvent) => {
@@ -182,16 +192,15 @@ export function AddStationWithProfiles({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (loadingCredentials) return;
-    const keepOpen = !merchantImport &&
+    const keepOpen = !merchantRegistration &&
       ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null)
         ?.value === "continue";
     const normalizedBaseUrl = normalizeStationBaseUrl(baseUrl);
     const nextErrors = {
       baseUrl: normalizedBaseUrl ? "" : "请输入站点地址",
-      username: initial || username.trim() ? "" : merchantImport ? "请输入注册邮箱" : "请输入登录账号",
-      password: initial || password ? "" : merchantImport ? "请输入注册密码" : "请输入登录密码",
-      verificationCode: !merchantImport || verificationCode.trim() ? "" : "请输入邮箱验证码",
-      redeemCode: !merchantImport || redeemCode.trim() ? "" : "请输入兑换码",
+      username: initial || username.trim() ? "" : merchantRegistration ? "请输入注册邮箱或账号" : "请输入登录账号",
+      password: initial || password ? "" : merchantRegistration ? "请输入注册密码" : "请输入登录密码",
+      verificationCode: !merchantRegistration || verificationCode.trim() ? "" : "请输入邮箱验证码",
     };
     setFieldErrors(nextErrors);
     if (Object.values(nextErrors).some(Boolean)) return;
@@ -201,32 +210,50 @@ export function AddStationWithProfiles({
     setRedemptionResult(null);
     try {
       const request = {
-          name,
-          baseUrl: normalizedBaseUrl,
-          username: initial ? username.trim() || null : username,
-          password: initial ? password || null : password,
-          kind,
-          totp: totp || null,
-        };
-      const result = merchantImport
-        ? await stationApi.importWithCode<StationCodeImportResult>({ name, baseUrl: normalizedBaseUrl, email: username, password, verificationCode, redeemCode })
+        name,
+        baseUrl: normalizedBaseUrl,
+        username: initial ? username.trim() || null : username,
+        password: initial ? password || null : password,
+        kind,
+        totp: totp || null,
+      };
+      const registrationRequest = {
+        name,
+        baseUrl: normalizedBaseUrl,
+        email: username.trim(),
+        username: null,
+        password,
+        verificationCode: verificationCode.trim(),
+        kind,
+      };
+      const result = merchantFreeOffer
+        ? await stationApi.registerAndRedeemMerchantFreeOffer<MerchantFreeRegistrationResult>({ offerId: merchantFreeOffer.offerId, ...registrationRequest })
+        : merchantRateOffer
+        ? await stationApi.registerAccount<StationSaveResult>(registrationRequest)
         : initial
         ? await stationApi.update<StationSaveResult>({ ...request, id: initial.id })
         : await stationApi.add<StationSaveResult>(request);
       setConnectionResult(result.connection);
       if (result.connection.success) {
-        if (merchantImport) {
-          const message = (result as StationCodeImportResult).redemptionMessage ?? "兑换成功，免费额度已到账。";
-          setRedemptionResult({ success: true, message });
-          notify(message, "success");
-          await onAdded(true);
+        if (merchantFreeOffer) {
+          const merchantResult = result as MerchantFreeRegistrationResult;
+          setRedemptionResult({ success: merchantResult.redemptionSuccess, message: merchantResult.redemptionMessage });
+          notify(merchantResult.redemptionMessage, merchantResult.redemptionSuccess ? "success" : "error");
+          await onAdded(true, result);
+        } else if (merchantRateOffer) {
+          const [handoff, browser] = await Promise.allSettled([
+            onAdded(false, result),
+            openRechargeUrl(merchantRateOffer.rechargeUrl),
+          ]);
+          if (handoff.status === "rejected") throw handoff.reason;
+          if (browser.status === "rejected") notify("站点账号已保存，但未能打开卡密充值地址。", "error");
         } else {
-          await onAdded(keepOpen);
+          await onAdded(keepOpen, result);
         }
       }
     } catch (reason) {
-      const message = errorMessage(reason, merchantImport ? "兑换失败，请检查账号和兑换码后重试。" : "添加站点失败，请检查登录信息后重试。");
-      if (merchantImport) setRedemptionResult({ success: false, message });
+      const message = errorMessage(reason, merchantRegistration ? "注册或兑换失败，请稍后重试。" : "添加站点失败，请检查登录信息后重试。");
+      if (merchantFreeOffer) setRedemptionResult({ success: false, message });
       else notify(message, "error");
     } finally {
       setSubmitting(false);
@@ -234,23 +261,24 @@ export function AddStationWithProfiles({
   };
   return (
     <FormDialog
-      title={merchantImport ? "导入免费额度" : initial ? "编辑站点账号" : "添加中转站"}
-      description={merchantImport ? "注册商家中转站账号并兑换免费额度，成功后自动添加到站点账号。" : undefined}
-      ariaLabel={merchantImport ? "导入免费额度" : initial ? "编辑站点账号" : "添加中转站"}
+      title={merchantFreeOffer ? "领取免费额度" : merchantRateOffer ? "注册商家站点账号" : initial ? "编辑站点账号" : "添加中转站"}
+      description={merchantRegistration ? "使用常用登录邮箱/账号和密码完成站点注册。" : undefined}
+      ariaLabel={merchantFreeOffer ? "领取免费额度" : merchantRateOffer ? "注册商家站点账号" : initial ? "编辑站点账号" : "添加中转站"}
       onClose={onClose}
       onSubmit={submit}
       noValidate
       contentClassName="space-y-4"
       footer={
         <>
-          {!merchantImport && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting || loadingCredentials}>
+          {!merchantRegistration && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting || loadingCredentials}>
             {submitting ? "正在连接" : loadingCredentials ? "正在读取" : initial ? "保存并继续" : "添加并继续"}
           </button>}
+          {merchantRateOffer && onExistingAccountLogin && <button type="button" className="button-secondary form-dialog-submit" onClick={onExistingAccountLogin} disabled={submitting}>已有账号登录</button>}
           <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
             {redemptionResult?.success ? "关闭" : "取消"}
           </button>
-          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || loadingCredentials || redemptionResult?.success}>
-            {redemptionResult?.success ? "已导入" : submitting ? (merchantImport ? "正在导入" : "正在连接") : loadingCredentials ? "正在读取" : merchantImport ? "导入" : "保存"}
+          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || loadingCredentials || Boolean(redemptionResult)}>
+            {redemptionResult ? (redemptionResult.success ? "已领取" : "请重新领取") : submitting ? (merchantRegistration ? "正在处理中" : "正在连接") : loadingCredentials ? "正在读取" : merchantFreeOffer ? "领取" : merchantRateOffer ? "注册并充值" : "保存"}
           </button>
         </>
       }
@@ -260,6 +288,7 @@ export function AddStationWithProfiles({
               <input
                 className="input mt-1"
                 value={name}
+                readOnly={merchantRegistration}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="地址失焦后自动填充站点名称"
               />
@@ -270,6 +299,7 @@ export function AddStationWithProfiles({
                 className="input mt-1"
                 value={baseUrl}
                 inputMode="url"
+                readOnly={merchantRegistration}
                 onChange={(event) => {
                   setBaseUrl(event.target.value);
                   setFieldErrors((current) => ({ ...current, baseUrl: "" }));
@@ -281,19 +311,8 @@ export function AddStationWithProfiles({
               {fieldErrors.baseUrl && <p className="field-error">{fieldErrors.baseUrl}</p>}
             </label>
             <label>
-              {merchantImport ? "注册邮箱" : "账号"}
-              {merchantImport ? <input
-                className="input mt-1"
-                type="email"
-                value={username}
-                onChange={(event) => {
-                  setUsername(event.target.value);
-                  setFieldErrors((current) => ({ ...current, username: "" }));
-                }}
-                aria-invalid={Boolean(fieldErrors.username)}
-                autoComplete="email"
-                placeholder="请输入用于注册的邮箱"
-              /> : <div className="account-input-actions mt-1" ref={accountProfileRef}>
+              {merchantRegistration ? "邮箱/账号" : "账号"}
+              <div className="account-input-actions mt-1" ref={accountProfileRef}>
                 <input
                   className="input"
                   value={username}
@@ -304,7 +323,7 @@ export function AddStationWithProfiles({
                   }}
                   aria-invalid={Boolean(fieldErrors.username)}
                   autoComplete="username"
-                placeholder={initial ? "留空则保留已保存的账号" : "请输入站点登录账号"}
+                  placeholder={merchantRegistration ? "请输入注册邮箱或选择常用登录" : initial ? "留空则保留已保存的账号" : "请输入站点登录账号"}
                 />
                 <button
                   type="button"
@@ -370,7 +389,7 @@ export function AddStationWithProfiles({
                 >
                   <Settings size={15} />
                 </button>
-              </div>}
+              </div>
               {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
             </label>
             <label>
@@ -388,8 +407,8 @@ export function AddStationWithProfiles({
                   aria-invalid={Boolean(fieldErrors.password)}
                   aria-describedby={credentialError ? "station-credential-error" : undefined}
                   type={showPassword ? "text" : "password"}
-                  autoComplete={merchantImport ? "new-password" : "current-password"}
-                  placeholder={merchantImport ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
+                  autoComplete={merchantRegistration ? "new-password" : "current-password"}
+                  placeholder={merchantRegistration ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
                 />
                 <button
                   type="button"
@@ -407,7 +426,7 @@ export function AddStationWithProfiles({
               {credentialError && <p id="station-credential-error" className="field-error" role="alert">{credentialError}</p>}
               {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
             </label>
-            {merchantImport && <label>
+            {merchantRegistration && <label>
               邮箱验证码
               <div className="verification-code-actions mt-1">
                 <input
@@ -429,24 +448,8 @@ export function AddStationWithProfiles({
               </div>
               {fieldErrors.verificationCode && <p className="field-error">{fieldErrors.verificationCode}</p>}
             </label>}
-            {merchantImport && <label>
-              兑换码
-              <input
-                className="input mt-1"
-                value={redeemCode}
-                onChange={(event) => {
-                  setRedeemCode(event.target.value);
-                  setFieldErrors((current) => ({ ...current, redeemCode: "" }));
-                  setRedemptionResult(null);
-                }}
-                aria-invalid={Boolean(fieldErrors.redeemCode) || redemptionResult?.success === false}
-                autoComplete="off"
-                placeholder="请输入兑换码"
-              />
-              {fieldErrors.redeemCode && <p className="field-error">{fieldErrors.redeemCode}</p>}
-              {redemptionResult && <p className={`field-message ${redemptionResult.success ? "success" : "error"}`} role="status">{redemptionResult.message}</p>}
-            </label>}
-            {!merchantImport && <label>
+            {merchantFreeOffer && redemptionResult && <p className={`field-message ${redemptionResult.success ? "success" : "error"}`} role="status">{redemptionResult.message}</p>}
+            {!merchantRegistration && <label>
               站点类型
               <select
                 className="input mt-1"
@@ -458,7 +461,7 @@ export function AddStationWithProfiles({
                 <option value="sub2api">Sub2API</option>
               </select>
             </label>}
-            {!merchantImport && <label>
+            {!merchantRegistration && <label>
               TOTP 验证码（可选）
               <input
                 className="input mt-1"
@@ -471,8 +474,8 @@ export function AddStationWithProfiles({
             {connectionResult && (
               <div className={`test-result ${connectionResult.success ? "success" : "error"}`}>
                 {connectionResult.success
-                  ? (merchantImport ? "注册、登录与兑换已完成" : "站点连接成功")
-                  : `${merchantImport ? "注册或登录失败" : "站点验证失败"}${connectionResult.reason ? `：${connectionResult.reason}` : ""}`}
+                  ? (merchantFreeOffer && redemptionResult?.success ? "注册、登录与兑换已完成" : "站点连接成功")
+                  : `${merchantRegistration ? "注册或登录失败" : "站点验证失败"}${connectionResult.reason ? `：${connectionResult.reason}` : ""}`}
               </div>
             )}
     </FormDialog>

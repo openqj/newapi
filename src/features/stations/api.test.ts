@@ -5,32 +5,22 @@ vi.mock("../../lib/tauri", () => ({ invokeDesktop }));
 
 import { stationApi } from "./api";
 
-describe("stationApi command contract", () => {
+describe("stationApi", () => {
   beforeEach(() => invokeDesktop.mockReset());
 
-  it("keeps refresh and synchronization command names stable", async () => {
-    await stationApi.refresh("station-1");
-    await stationApi.syncProgress();
-    await stationApi.cancelSync();
+  it("registers a merchant free offer without exposing its redemption code", async () => {
+    const request = {
+      offerId: "offer-1",
+      name: "Example",
+      baseUrl: "https://example.com",
+      email: "user@example.com",
+      password: "password",
+      verificationCode: "123456",
+      kind: "newapi",
+    };
 
-    expect(invokeDesktop).toHaveBeenNthCalledWith(1, "refresh_station", { id: "station-1" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(2, "get_sync_progress");
-    expect(invokeDesktop).toHaveBeenNthCalledWith(3, "cancel_sync");
-  });
+    await stationApi.registerAndRedeemMerchantFreeOffer(request);
 
-  it("keeps add and probe request shapes stable", async () => {
-    await stationApi.probe("https://relay.example.com");
-    await stationApi.add({ name: "Relay", baseUrl: "https://relay.example.com" });
-    await stationApi.update({ id: "station-1", name: "Relay", baseUrl: "https://relay.example.com" });
-
-    expect(invokeDesktop).toHaveBeenNthCalledWith(1, "probe_station", { baseUrl: "https://relay.example.com" });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(2, "add_station", { request: { name: "Relay", baseUrl: "https://relay.example.com" } });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(3, "update_station", { request: { id: "station-1", name: "Relay", baseUrl: "https://relay.example.com" } });
-  });
-
-  it("loads station credentials only for the requested station", async () => {
-    await stationApi.credentials("station-1");
-
-    expect(invokeDesktop).toHaveBeenCalledWith("get_station_credentials", { id: "station-1" });
+    expect(invokeDesktop).toHaveBeenCalledWith("register_and_redeem_merchant_free_offer", { request });
   });
 });
