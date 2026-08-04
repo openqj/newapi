@@ -1068,11 +1068,9 @@ fn poll_qq_once(
     station_url: &str,
     started_at: i64,
 ) -> Result<Option<MailCodeResult>, String> {
-    let tls = native_tls::TlsConnector::builder()
-        .build()
+    let client = imap::ClientBuilder::new("imap.qq.com", 993)
+        .connect()
         .map_err(|e| e.to_string())?;
-    let client =
-        imap::connect(("imap.qq.com", 993), "imap.qq.com", &tls).map_err(|e| e.to_string())?;
     let mut session = client
         .login(&secret.email, &secret.password)
         .map_err(|e| e.0.to_string())?;

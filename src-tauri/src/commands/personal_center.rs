@@ -9,9 +9,10 @@ use crate::{
         AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile,
         AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
         ClaimedMerchantCode, MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer,
-        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
-        PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
-        PersonalCenterStore, PublishMerchantRateRequest, PublishNotificationRequest,
+        MerchantImportResult, MerchantProfile, MerchantRateShare, NotificationPreferences,
+        PersonalCenterAuditEntry, PersonalCenterLoginEvent, PersonalCenterNotification,
+        PersonalCenterRealtimeSession, PersonalCenterStore, PublishMerchantRateRequest,
+        PublishNotificationRequest,
     },
     services::{authorization::require_cloud_admin, cloud_backup},
     support::now,
@@ -47,7 +48,7 @@ fn validate_optional(
     value
         .map(|value| {
             let value = value.trim();
-            if value.len() > max || value.chars().any(char::is_control) {
+            if value.chars().count() > max || value.chars().any(char::is_control) {
                 Err(format!("{field} is invalid"))
             } else {
                 Ok(value.to_string())
@@ -58,11 +59,13 @@ fn validate_optional(
 }
 
 fn validate_text(value: &str, field: &str) -> Result<String, String> {
+    validate_visible_text(value, field, MAX_TEXT_LENGTH)
+}
+
+fn validate_visible_text(value: &str, field: &str, max: usize) -> Result<String, String> {
     let value = value.trim();
-    if value.is_empty() || value.len() > MAX_TEXT_LENGTH || value.chars().any(char::is_control) {
-        return Err(format!(
-            "{field} must contain 1 to {MAX_TEXT_LENGTH} visible characters"
-        ));
+    if value.is_empty() || value.chars().count() > max || value.chars().any(char::is_control) {
+        return Err(format!("{field} must contain 1 to {max} visible characters"));
     }
     Ok(value.to_string())
 }
@@ -355,7 +358,7 @@ pub(crate) async fn save_merchant_profile(
     state: State<'_, AppState>,
     mut profile: MerchantProfile,
 ) -> Result<MerchantProfile, String> {
-    profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.merchant_name = validate_visible_text(&profile.merchant_name, "Merchant name", 80)?;
     profile.description = validate_optional(profile.description, "Merchant description", 160)?;
     profile.qq = validate_optional(profile.qq, "QQ", 40)?;
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
@@ -379,12 +382,12 @@ pub(crate) async fn publish_merchant_rate_share(
     state: State<'_, AppState>,
     mut request: PublishMerchantRateRequest,
 ) -> Result<(), String> {
-    request.station_name = validate_text(&request.station_name, "Station name")?;
+    request.station_name = validate_visible_text(&request.station_name, "Station name", 100)?;
     request.station_url = validate_https(&request.station_url, "Station URL")?;
-    request.group_name = validate_text(&request.group_name, "Group name")?;
+    request.group_name = validate_visible_text(&request.group_name, "Group name", 100)?;
     request.multiplier_summary = request.multiplier_summary.trim().to_string();
     if request.multiplier_summary.is_empty()
-        || request.multiplier_summary.len() > 500
+        || request.multiplier_summary.chars().count() > 500
         || request.multiplier_summary.chars().any(char::is_control)
     {
         return Err("Multiplier summary must contain 1 to 500 visible characters".into());
@@ -396,20 +399,20 @@ pub(crate) async fn publish_merchant_rate_share(
 pub(crate) async fn import_merchant_free_codes(
     state: State<'_, AppState>,
     mut codes: Vec<MerchantFreeCodeInput>,
-) -> Result<(), String> {
+) -> Result<MerchantImportResult, String> {
     if codes.is_empty() || codes.len() > 200 {
         return Err("每次请导入 1 到 200 个兑换码".into());
     }
     for code in &mut codes {
-        code.station_name = validate_text(&code.station_name, "Station name")?;
+        code.station_name = validate_visible_text(&code.station_name, "Station name", 100)?;
         code.station_url = validate_https(&code.station_url, "Station URL")?;
         code.redeem_code = validate_optional(Some(code.redeem_code.clone()), "Redeem code", 128)?
             .unwrap_or_default();
         if code.redeem_code.is_empty() {
             return Err("兑换码不能为空".into());
         }
-        if !code.quota.is_finite() || code.quota < 0.0 {
-            return Err("免费额度必须是大于等于 0 的数字".into());
+        if !code.quota.is_finite() || code.quota <= 0.0 {
+            return Err("免费额度必须是大于 0 的数字".into());
         }
     }
     cloud_backup::import_merchant_codes(&state, &codes).await
@@ -455,7 +458,7 @@ pub(crate) async fn save_admin_merchant_profile(
 ) -> Result<(), String> {
     require_cloud_admin(&state).await?;
     profile.user_id = validate_uuid(&profile.user_id, "Merchant ID")?;
-    profile.merchant_name = validate_text(&profile.merchant_name, "Merchant name")?;
+    profile.merchant_name = validate_visible_text(&profile.merchant_name, "Merchant name", 80)?;
     profile.description = validate_optional(profile.description, "Merchant description", 160)?;
     profile.qq = validate_optional(profile.qq, "QQ", 40)?;
     profile.qq_link = validate_optional(profile.qq_link, "QQ link", 500)?
@@ -487,12 +490,12 @@ pub(crate) async fn save_admin_merchant_rate_share(
         .map(|value| validate_uuid(&value, "Rate share ID"))
         .transpose()?;
     share.merchant_id = validate_uuid(&share.merchant_id, "Merchant ID")?;
-    share.station_name = validate_text(&share.station_name, "Station name")?;
+    share.station_name = validate_visible_text(&share.station_name, "Station name", 100)?;
     share.station_url = validate_https(&share.station_url, "Station URL")?;
-    share.group_name = validate_text(&share.group_name, "Group name")?;
+    share.group_name = validate_visible_text(&share.group_name, "Group name", 100)?;
     share.multiplier_summary = share.multiplier_summary.trim().to_string();
     if share.multiplier_summary.is_empty()
-        || share.multiplier_summary.len() > 500
+        || share.multiplier_summary.chars().count() > 500
         || share.multiplier_summary.chars().any(char::is_control)
     {
         return Err("Multiplier summary must contain 1 to 500 visible characters".into());
@@ -529,15 +532,15 @@ pub(crate) async fn save_admin_merchant_free_code(
         .map(|value| validate_uuid(&value, "Free code ID"))
         .transpose()?;
     code.merchant_id = validate_uuid(&code.merchant_id, "Merchant ID")?;
-    code.station_name = validate_text(&code.station_name, "Station name")?;
+    code.station_name = validate_visible_text(&code.station_name, "Station name", 100)?;
     code.station_url = validate_https(&code.station_url, "Station URL")?;
     code.redeem_code =
         validate_optional(Some(code.redeem_code), "Redeem code", 128)?.unwrap_or_default();
     if code.redeem_code.is_empty() {
         return Err("兑换码不能为空".into());
     }
-    if !code.quota.is_finite() || code.quota < 0.0 {
-        return Err("免费额度必须是大于等于 0 的数字".into());
+    if !code.quota.is_finite() || code.quota <= 0.0 {
+        return Err("免费额度必须是大于 0 的数字".into());
     }
     cloud_backup::save_admin_merchant_free_code(&state, &code).await
 }

@@ -33,7 +33,7 @@ use crate::{
 pub(crate) enum RemoteSession {
     Libssh(Session),
     #[cfg(windows)]
-    OpenSsh(RemoteServer),
+    OpenSsh(Box<RemoteServer>),
 }
 
 impl RemoteSession {
@@ -753,7 +753,7 @@ fn system_ssh_session(
     if status != 0 {
         return Err(format!("Windows OpenSSH 私钥认证失败：{}", output.trim()));
     }
-    Ok(RemoteSession::OpenSsh(server.clone()))
+    Ok(RemoteSession::OpenSsh(Box::new(server.clone())))
 }
 
 fn base64_encode(bytes: &[u8]) -> String {
@@ -1882,7 +1882,7 @@ pub(crate) fn patch_codex_config(
     if provider
         .get("name")
         .and_then(Item::as_str)
-        .map_or(true, |name| name.trim().is_empty())
+        .is_none_or(|name| name.trim().is_empty())
     {
         provider["name"] = toml_value("RelayHub");
     }

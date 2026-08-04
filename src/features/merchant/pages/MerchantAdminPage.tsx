@@ -71,7 +71,7 @@ export function MerchantAdminPage() {
         const state = loadDemoMerchantState();
         const existing = input.id ? state.rates.find((item) => item.id === input.id) : undefined;
         const merchantName = state.profiles.find((item) => item.userId === input.merchantId)?.merchantName ?? existing?.merchantName ?? "模拟商家";
-        const item: AdminMerchantRateShare = { ...input, id: input.id ?? demoId("rate"), merchantName, model: existing?.model, publishedAt: existing?.publishedAt ?? Date.now() };
+        const item: AdminMerchantRateShare = { ...input, id: input.id ?? demoId("rate"), merchantName, publishedAt: existing?.publishedAt ?? Date.now() };
         await commitDemoState({ ...state, rates: existing ? state.rates.map((current) => current.id === item.id ? item : current) : [item, ...state.rates] });
       } else {
         await merchantApi.saveAdminRate(input);
@@ -116,7 +116,7 @@ export function MerchantAdminPage() {
         const state = loadDemoMerchantState();
         const existing = input.id ? state.accounts.find((item) => item.id === input.id) : undefined;
         const merchantName = state.profiles.find((item) => item.userId === input.merchantId)?.merchantName ?? existing?.merchantName ?? "模拟商家";
-        const item: AdminMerchantFreeCode = { ...input, id: input.id ?? demoId("account"), merchantName, model: existing?.model, claimed: existing?.claimed ?? false, createdAt: existing?.createdAt ?? Date.now() };
+        const item: AdminMerchantFreeCode = { ...input, id: input.id ?? demoId("account"), merchantName, claimed: existing?.claimed ?? false, createdAt: existing?.createdAt ?? Date.now() };
         await commitDemoState({ ...state, accounts: existing ? state.accounts.map((current) => current.id === item.id ? item : current) : [item, ...state.accounts] });
       } else {
         await merchantApi.saveAdminFreeCode(input);

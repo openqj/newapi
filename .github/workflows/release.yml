@@ -46,7 +46,16 @@ jobs:
       - run: pnpm build
       - run: pnpm exec playwright install chromium
       - run: pnpm test:ui
-      - run: cargo test
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the Windows Rust dependency graph
+        shell: pwsh
+        run: ./scripts/audit-rustsec.ps1 -ManifestPath src-tauri/Cargo.toml -TargetTriple x86_64-pc-windows-msvc
+      - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test --locked
         working-directory: src-tauri
       - name: Materialize the Authenticode certificate
         shell: pwsh
@@ -74,16 +83,4 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          $artifacts = Get-ChildItem src-tauri/target/release/bundle -Recurse -Include *.exe,*.msi
-          if ($artifacts.Count -lt 2) { throw "Expected signed NSIS and MSI artifacts." }
-          $artifacts | ForEach-Object {
-            $signature = Get-AuthenticodeSignature -FilePath $_.FullName
-            if ($signature.Status -ne "Valid") { throw "Invalid Authenticode signature for $($_.Name): $($signature.Status)" }
-          }
-          $assets = gh release view $env:GITHUB_REF_NAME --json assets,isDraft | ConvertFrom-Json
-          if (-not $assets.isDraft) { throw "The release must remain a draft pending manual approval." }
-          $names = @($assets.assets | ForEach-Object name)
-          if (-not ($names -match '^latest\.json$')) { throw "Draft release is missing latest.json." }
-          if (-not ($names -match '\.sig$')) { throw "Draft release is missing updater signatures." }
-          if (-not ($names -match '\.exe$') -or -not ($names -match '\.msi$')) { throw "Draft release is missing NSIS or MSI assets." }
+        run: ./scripts/verify-release-artifacts.ps1 -BundlePath src-tauri/target/release/bundle -ReleaseTag $env:GITHUB_REF_NAME

@@ -8,19 +8,22 @@ use reqwest::Client;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    Manager, PhysicalPosition, PhysicalSize, WindowEvent,
+    Listener, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent,
 };
 
 use crate::{
-    models::{GroupRate, StationSnapshot},
+    models::GroupRate,
     services::gateway::{
         load_gateway_settings, load_or_create_gateway_token, restore_persisted_gateway_route,
         set_gateway_route, set_tray_routing_mode, GatewayController, RoutingMode,
     },
+    station_snapshot_store::StationSnapshotStore,
     station_store::StationStore,
     store::Store,
     AppState,
 };
+
+use super::STATIONS_CHANGED_EVENT;
 
 #[cfg(windows)]
 use crate::app_ui::sync_caption_colors;
@@ -39,6 +42,185 @@ fn tray_rate_label(rate: &GroupRate) -> String {
         ),
         _ => format!("{} · {} · ×{:.2}", rate.group, rate.model, rate.multiplier),
     }
+}
+
+fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
+    manager: &M,
+    stations_menu: &Submenu<R>,
+    is_local_gateway: bool,
+) -> Result<(), String> {
+    loop {
+        if stations_menu.items().map_err(|error| error.to_string())?.is_empty() {
+            break;
+        }
+        stations_menu
+            .remove_at(0)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let tray_stations = {
+        let state = manager.state::<AppState>();
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "本地数据库不可用".to_string())?;
+        store
+            .list_stations()?
+            .into_iter()
+            .take(12)
+            .map(|station| {
+                let snapshot = store
+                    .load_snapshot(&station.id)?
+                    .map(|(_, snapshot)| snapshot);
+                Ok((station, snapshot))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
+    if tray_stations.is_empty() {
+        let empty_stations = MenuItem::new(manager, "还没有已同步的站点", false, None::<&str>)
+            .map_err(|error| error.to_string())?;
+        stations_menu
+            .append(&empty_stations)
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    for (station, snapshot) in tray_stations {
+        let station_menu = Submenu::new(
+            manager,
+            format!("{} · {}", station.name, station.status),
+            true,
+        )
+        .map_err(|error| error.to_string())?;
+        let balance = MenuItem::new(
+            manager,
+            snapshot
+                .as_ref()
+                .map(|snapshot| tray_balance_label(snapshot.station_balance))
+                .unwrap_or_else(|| "余额 · --".into()),
+            false,
+            None::<&str>,
+        )
+        .map_err(|error| error.to_string())?;
+        station_menu
+            .append(&balance)
+            .map_err(|error| error.to_string())?;
+        let separator = PredefinedMenuItem::separator(manager)
+            .map_err(|error| error.to_string())?;
+        station_menu
+            .append(&separator)
+            .map_err(|error| error.to_string())?;
+        let groups_menu = Submenu::new(manager, "分组与倍率", true)
+            .map_err(|error| error.to_string())?;
+        match snapshot {
+            Some(snapshot) => {
+                let mut groups = BTreeSet::new();
+                for rate in &snapshot.rates {
+                    groups.insert(rate.group.clone());
+                }
+                for key in &snapshot.api_keys {
+                    groups.insert(key.group.clone().unwrap_or_else(|| "默认分组".into()));
+                }
+                if groups.is_empty() {
+                    let empty_groups = MenuItem::new(
+                        manager,
+                        "暂无分组或倍率数据",
+                        false,
+                        None::<&str>,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    groups_menu
+                        .append(&empty_groups)
+                        .map_err(|error| error.to_string())?;
+                }
+                for group in groups {
+                    let group_menu = Submenu::new(manager, &group, true)
+                        .map_err(|error| error.to_string())?;
+                    let group_keys = snapshot
+                        .api_keys
+                        .iter()
+                        .filter(|key| key.group.as_deref().unwrap_or("默认分组") == group)
+                        .collect::<Vec<_>>();
+                    if group_keys.is_empty() {
+                        let no_keys = MenuItem::new(
+                            manager,
+                            "暂无可选密钥",
+                            false,
+                            None::<&str>,
+                        )
+                        .map_err(|error| error.to_string())?;
+                        group_menu
+                            .append(&no_keys)
+                            .map_err(|error| error.to_string())?;
+                    } else {
+                        for key in group_keys {
+                            let key_label = format!("{} · {}", key.name, key.masked_key);
+                            let key_item = MenuItem::with_id(
+                                manager,
+                                format!("gateway-route:{}:{}", station.id, key.id),
+                                key_label,
+                                is_local_gateway,
+                                None::<&str>,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            group_menu
+                                .append(&key_item)
+                                .map_err(|error| error.to_string())?;
+                        }
+                    }
+                    let group_rates = snapshot
+                        .rates
+                        .iter()
+                        .filter(|rate| rate.group == group)
+                        .take(20)
+                        .collect::<Vec<_>>();
+                    if !group_rates.is_empty() {
+                        let separator = PredefinedMenuItem::separator(manager)
+                            .map_err(|error| error.to_string())?;
+                        group_menu
+                            .append(&separator)
+                            .map_err(|error| error.to_string())?;
+                        for rate in group_rates {
+                            let rate_item = MenuItem::new(
+                                manager,
+                                tray_rate_label(rate),
+                                false,
+                                None::<&str>,
+                            )
+                            .map_err(|error| error.to_string())?;
+                            group_menu
+                                .append(&rate_item)
+                                .map_err(|error| error.to_string())?;
+                        }
+                    }
+                    groups_menu
+                        .append(&group_menu)
+                        .map_err(|error| error.to_string())?;
+                }
+            }
+            None => {
+                let stale = MenuItem::new(
+                    manager,
+                    "站点详情请在 RelayHub 中查看",
+                    false,
+                    None::<&str>,
+                )
+                .map_err(|error| error.to_string())?;
+                groups_menu
+                    .append(&stale)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        station_menu
+            .append(&groups_menu)
+            .map_err(|error| error.to_string())?;
+        stations_menu
+            .append(&station_menu)
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 /// Starts the desktop shell after the command handler has been assembled in `lib.rs`.
@@ -78,6 +260,7 @@ pub(crate) fn run() {
             let token = load_or_create_gateway_token()?;
             let gateway = GatewayController::new(client.clone(), token, port);
             app.manage(AppState {
+                app_handle: app.handle().clone(),
                 store: Mutex::new(store),
                 client,
                 gateway,
@@ -86,8 +269,11 @@ pub(crate) fn run() {
                 sync_operations: Arc::new(Mutex::new(HashMap::new())),
                 sync_progress: Mutex::new(HashMap::new()),
             });
-            #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    window.set_icon(icon)?;
+                }
+                #[cfg(windows)]
                 sync_caption_colors(&window);
             }
             if let (Some(main), Some(market)) = (
@@ -125,127 +311,20 @@ pub(crate) fn run() {
             }
             let is_local_gateway = mode == RoutingMode::LocalGateway;
             let gateway_running = app.state::<AppState>().gateway.is_running();
-            let (tray_stations, active_station_id, active_key_id) = {
-                let state = app.state::<AppState>();
-                let store = state
-                    .store
-                    .lock()
-                    .map_err(|_| "本地数据库不可用".to_string())?;
-                let stations = store
-                    .list_stations()?
-                    .into_iter()
-                    .take(12)
-                    .map(|station| (station, None::<StationSnapshot>))
-                    .collect::<Vec<_>>();
-                (stations, None::<String>, None::<String>)
-            };
             let dashboard = MenuItem::with_id(app, "show", "仪表板", true, None::<&str>)?;
             let stations_menu = Submenu::new(app, "站点", true)?;
-            if tray_stations.is_empty() {
-                let empty_stations = MenuItem::new(app, "还没有已同步的站点", false, None::<&str>)?;
-                stations_menu.append(&empty_stations)?;
-            } else {
-                for (station, snapshot) in tray_stations {
-                    let station_menu =
-                        Submenu::new(app, format!("{} · {}", station.name, station.status), true)?;
-                    let balance = MenuItem::new(
-                        app,
-                        snapshot
-                            .as_ref()
-                            .map(|snapshot| tray_balance_label(snapshot.station_balance))
-                            .unwrap_or_else(|| "余额 · --".into()),
-                        false,
-                        None::<&str>,
-                    )?;
-                    station_menu.append(&balance)?;
-                    let separator = PredefinedMenuItem::separator(app)?;
-                    station_menu.append(&separator)?;
-                    let groups_menu = Submenu::new(app, "分组与倍率", true)?;
-                    match snapshot {
-                        Some(snapshot) => {
-                            let mut groups = BTreeSet::new();
-                            for rate in &snapshot.rates {
-                                groups.insert(rate.group.clone());
-                            }
-                            for key in &snapshot.api_keys {
-                                groups
-                                    .insert(key.group.clone().unwrap_or_else(|| "默认分组".into()));
-                            }
-                            if groups.is_empty() {
-                                let empty_groups =
-                                    MenuItem::new(app, "暂无分组或倍率数据", false, None::<&str>)?;
-                                groups_menu.append(&empty_groups)?;
-                            }
-                            for group in groups {
-                                let group_menu = Submenu::new(app, &group, true)?;
-                                let group_keys = snapshot
-                                    .api_keys
-                                    .iter()
-                                    .filter(|key| {
-                                        key.group.as_deref().unwrap_or("默认分组") == group
-                                    })
-                                    .collect::<Vec<_>>();
-                                if group_keys.is_empty() {
-                                    let no_keys =
-                                        MenuItem::new(app, "暂无可选密钥", false, None::<&str>)?;
-                                    group_menu.append(&no_keys)?;
-                                } else {
-                                    for key in group_keys {
-                                        let is_active = active_station_id.as_deref()
-                                            == Some(station.id.as_str())
-                                            && active_key_id.as_deref() == Some(key.id.as_str());
-                                        let key_label = format!(
-                                            "{}{} · {}",
-                                            if is_active { "● " } else { "" },
-                                            key.name,
-                                            key.masked_key
-                                        );
-                                        let key_item = MenuItem::with_id(
-                                            app,
-                                            format!("gateway-route:{}:{}", station.id, key.id),
-                                            key_label,
-                                            is_local_gateway,
-                                            None::<&str>,
-                                        )?;
-                                        group_menu.append(&key_item)?;
-                                    }
-                                }
-                                let group_rates = snapshot
-                                    .rates
-                                    .iter()
-                                    .filter(|rate| rate.group == group)
-                                    .take(20)
-                                    .collect::<Vec<_>>();
-                                if !group_rates.is_empty() {
-                                    let separator = PredefinedMenuItem::separator(app)?;
-                                    group_menu.append(&separator)?;
-                                    for rate in group_rates {
-                                        let rate_item = MenuItem::new(
-                                            app,
-                                            tray_rate_label(rate),
-                                            false,
-                                            None::<&str>,
-                                        )?;
-                                        group_menu.append(&rate_item)?;
-                                    }
-                                }
-                                groups_menu.append(&group_menu)?;
-                            }
-                        }
-                        None => {
-                            let stale = MenuItem::new(
-                                app,
-                                "站点详情请在 RelayHub 中查看",
-                                false,
-                                None::<&str>,
-                            )?;
-                            groups_menu.append(&stale)?;
-                        }
-                    }
-                    station_menu.append(&groups_menu)?;
-                    stations_menu.append(&station_menu)?;
+            refresh_stations_menu(app, &stations_menu, is_local_gateway)?;
+            let tray_app_handle = app.handle().clone();
+            let tray_stations_menu = stations_menu.clone();
+            app.listen(STATIONS_CHANGED_EVENT, move |_| {
+                if let Err(error) = refresh_stations_menu(
+                    &tray_app_handle,
+                    &tray_stations_menu,
+                    is_local_gateway,
+                ) {
+                    eprintln!("failed to refresh tray stations menu: {error}");
                 }
-            }
+            });
             let separator_primary = PredefinedMenuItem::separator(app)?;
             let cc_switch = CheckMenuItem::with_id(
                 app,

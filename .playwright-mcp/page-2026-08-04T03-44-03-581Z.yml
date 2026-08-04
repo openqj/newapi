@@ -1,0 +1,85 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - button "刷新当前中转站与剩余" [ref=e7] [cursor=pointer]
+        - button "商家信息" [ref=e13] [cursor=pointer]
+        - button "自动注册站点账号" [ref=e18] [cursor=pointer]
+        - button "通知，4 条未读" [ref=e22] [cursor=pointer]
+    - generic [ref=e27]:
+      - complementary [ref=e28]:
+        - paragraph [ref=e36]: RelayHub
+        - navigation [ref=e37]:
+          - button "添加站点" [ref=e38] [cursor=pointer]
+          - button "概览" [ref=e40] [cursor=pointer]
+          - button "站点账户" [ref=e47] [cursor=pointer]
+          - button "分组倍率" [ref=e53] [cursor=pointer]
+          - button "API 密钥" [ref=e60] [cursor=pointer]
+          - button "使用记录" [ref=e65] [cursor=pointer]
+          - button "API鉴定" [ref=e69] [cursor=pointer]
+          - button "远程配置" [ref=e78] [cursor=pointer]
+          - button "个人中心" [ref=e91] [cursor=pointer]
+          - button "设置" [ref=e96] [cursor=pointer]
+        - generic [ref=e101]:
+          - tablist "用量范围" [ref=e102]:
+            - tab "全部" [selected] [ref=e103] [cursor=pointer]
+            - tab "当前站点" [ref=e104] [cursor=pointer]
+          - generic [ref=e105]:
+            - paragraph [ref=e106]: 今日 Token
+            - strong [ref=e107]: 1.8M
+            - generic [ref=e108]: "输入: 1.3M / 输出: 539.6K"
+          - generic [ref=e109]:
+            - paragraph [ref=e110]: 今日消费
+            - strong [ref=e111]: $1.1064 / $14.7522
+            - generic [ref=e112]: "总计: $1.9554 / $25.2410"
+      - main [ref=e113]:
+        - generic [ref=e114]:
+          - navigation "个人中心功能导航" [ref=e397]:
+            - generic [ref=e398]:
+              - button "个人概览" [ref=e399] [cursor=pointer]
+              - button "同步功能" [ref=e400] [cursor=pointer]
+              - button "商家端" [ref=e401] [cursor=pointer]
+              - button "通知中心" [ref=e402] [cursor=pointer]
+              - button "用户概览" [ref=e408] [cursor=pointer]
+              - button "会员权限" [ref=e413] [cursor=pointer]
+              - button "商家信息" [ref=e416] [cursor=pointer]
+              - button "操作审计" [ref=e421] [cursor=pointer]
+            - generic [ref=e425]: 管理员
+          - generic [ref=e428]:
+            - generic [ref=e429]:
+              - generic [ref=e436]:
+                - heading "通知规则" [level=3] [ref=e437]
+                - paragraph [ref=e438]: 选择需要同步至个人中心的消息类型。
+              - generic [ref=e439]:
+                - generic [ref=e440] [cursor=pointer]:
+                  - generic [ref=e441]:
+                    - strong [ref=e442]: 桌面通知
+                    - generic [ref=e443]: 在应用运行时显示重要提醒
+                  - checkbox "桌面通知" [checked] [ref=e444]
+                - generic [ref=e445] [cursor=pointer]:
+                  - generic [ref=e446]:
+                    - strong [ref=e447]: 同步状态
+                    - generic [ref=e448]: 备份、恢复和账号同步完成后提醒
+                  - checkbox "同步状态" [checked] [ref=e449]
+                - generic [ref=e450] [cursor=pointer]:
+                  - generic [ref=e451]:
+                    - strong [ref=e452]: 安全告警
+                    - generic [ref=e453]: 账号异常、权限变更等高优先级消息
+                  - checkbox "安全告警" [checked] [ref=e454]
+                - generic [ref=e455] [cursor=pointer]:
+                  - generic [ref=e456]:
+                    - strong [ref=e457]: 套餐优惠
+                    - generic [ref=e458]: 接收站点公告与套餐更新
+                  - checkbox "套餐优惠" [checked] [ref=e459]
+            - generic [ref=e462]:
+              - strong [ref=e463]: 发布云端通知
+              - paragraph [ref=e464]: 向全体用户或指定个人中心账户发送实时通知。
+              - button "发布通知" [ref=e465] [cursor=pointer]
+            - generic [ref=e468]:
+              - generic [ref=e473]:
+                - heading "已发云端通知" [level=3] [ref=e474]
+                - paragraph [ref=e475]: 保留已发记录；撤回会立刻停止展示，删除会永久移除记录。
+              - generic [ref=e476]: 暂无已发云端通知。
+  - generic [ref=e478]:
+    - generic [ref=e482]: 已用开发管理员账号进入个人中心。
+    - button "关闭提示" [ref=e483] [cursor=pointer]

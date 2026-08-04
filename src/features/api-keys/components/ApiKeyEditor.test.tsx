@@ -56,7 +56,7 @@ describe("ApiKeyEditor", () => {
 
   it("syncs the station before loading remote groups", async () => {
     isTauri.mockReturnValue(true);
-    groups.mockResolvedValueOnce([{ name: "vip", multiplier: 0.5 }]);
+    groups.mockResolvedValueOnce([{ name: "vip", description: "高速通道", multiplier: 0.5 }]);
     const onRefreshStation = vi.fn().mockResolvedValue(undefined);
 
     render(
@@ -73,7 +73,7 @@ describe("ApiKeyEditor", () => {
     await waitFor(() => expect(onRefreshStation).toHaveBeenCalledWith("station-1"));
     await waitFor(() => expect(groups).toHaveBeenCalledWith("station-1"));
     fireEvent.click(screen.getByRole("button", { name: "请选择分组" }));
-    expect(screen.getByRole("option", { name: "vip 0.500x" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "vip 高速通道 0.500x" })).toBeInTheDocument();
     expect(onRefreshStation.mock.invocationCallOrder[0]).toBeLessThan(groups.mock.invocationCallOrder[0]);
   });
 

@@ -69,6 +69,8 @@ describe("personalCenterApi", () => {
     expect(await personalCenterApi.notificationPreferences()).toEqual(preferences);
     expect(await personalCenterApi.memberships()).toEqual([membership]);
     expect(await personalCenterApi.auditHistory()).toHaveLength(1);
+    expect(await personalCenterApi.sentNotifications()).toEqual([]);
+    expect(await personalCenterApi.loginEvents()).toEqual([]);
 
     await personalCenterApi.deleteMembership("station-1", "account-1");
     expect(await personalCenterApi.memberships()).toEqual([]);

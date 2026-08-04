@@ -40,6 +40,11 @@ const developmentAdminEmail = "dev@relayhub.local";
 const developmentMemberEmail = "member@relayhub.local";
 const developmentMerchantEmail = "merchant@relayhub.local";
 const epochMilliseconds = (value: number) => value < 10_000_000_000 ? value * 1000 : value;
+const isExpiringSoon = (value?: number | null) => {
+  if (!value) return false;
+  const remaining = epochMilliseconds(value) - Date.now();
+  return remaining > 0 && remaining < 30 * 86400000;
+};
 const formatTime = (value?: number | null) => {
   if (!value) return "长期有效";
   const date = new Date(epochMilliseconds(value));
@@ -51,6 +56,14 @@ function PreferenceSwitch({ checked, label, description, onChange }: { checked: 
 }
 
 const audienceLabels = { all: "所有客户端", members: "会员客户端", guests: "未登录客户端", user: "指定用户" };
+const privilegeLabels: Record<string, string> = {
+  usage: "用量记录",
+  apiKeys: "API 密钥",
+  billing: "账单信息",
+  notifications: "通知规则",
+  members: "成员管理",
+  admin: "管理员设置",
+};
 
 function notificationStatus(notification: PersonalCenterNotification) {
   if (notification.revokedAt) return "已撤回";
@@ -75,7 +88,7 @@ export function AdminConsole({ activeTab = "notifications", preferences = defaul
         <section className="personal-admin-section personal-admin-notification-history"><div className="personal-admin-section-title"><ClipboardList size={17} /><div><h3>已发云端通知</h3><p>保留已发记录；撤回会立刻停止展示，删除会永久移除记录。</p></div></div>{sentNotifications.length ? <div className="personal-admin-notification-list">{sentNotifications.map((notification) => <article key={notification.id}><div><div className="personal-admin-notification-heading"><strong>{notification.title}</strong><span className={notification.revokedAt ? "personal-admin-state" : "personal-admin-state enabled"}>{notificationStatus(notification)}</span></div><p>{notification.body}</p><small>{audienceLabels[notification.audience]}{notification.targetEmail ? ` · ${notification.targetEmail}` : ""} · 发布于 {formatTime(notification.publishedAt)}</small></div><aside><button type="button" className="button-secondary" onClick={() => onEditNotification?.(notification)} disabled={Boolean(notification.revokedAt)}><Pencil size={14} />修改</button>{!notification.revokedAt && <button type="button" className="button-secondary" onClick={() => onRevokeNotification?.(notification)}><Undo2 size={14} />撤回</button>}<button type="button" className="button-secondary" onClick={() => onDeleteNotification?.(notification)}><Trash2 size={14} />删除</button></aside></article>)}</div> : <div className="personal-admin-empty">暂无已发云端通知。</div>}</section>
       </div>}
       {activeTab === "users" && <div className="personal-admin-grid">
-        <section className="personal-admin-section"><div className="personal-admin-section-title"><UsersRound size={17} /><div><h3>已连接用户</h3><p>通过站点账户绑定到当前个人中心的成员。</p></div></div><div className="personal-admin-metrics"><div><span>绑定账户</span><strong>{memberships.length}</strong></div><div><span>已启用权限</span><strong>{activeMemberships.length}</strong></div><div><span>即将到期</span><strong>{memberships.filter((item) => item.expiresAt && epochMilliseconds(item.expiresAt) - Date.now() < 30 * 86400000).length}</strong></div></div>
+        <section className="personal-admin-section"><div className="personal-admin-section-title"><UsersRound size={17} /><div><h3>已连接用户</h3><p>通过站点账户绑定到当前个人中心的成员。</p></div></div><div className="personal-admin-metrics"><div><span>绑定账户</span><strong>{memberships.length}</strong></div><div><span>已启用权限</span><strong>{activeMemberships.length}</strong></div><div><span>即将到期</span><strong>{memberships.filter((item) => isExpiringSoon(item.expiresAt)).length}</strong></div></div>
           {memberships.length ? <div className="personal-admin-user-list">{memberships.slice(0, 3).map((item) => <div key={`${item.stationId}-${item.accountId}`}><span className={item.enabled ? "personal-admin-avatar enabled" : "personal-admin-avatar"}>{item.accountId.slice(0, 1).toUpperCase()}</span><p><strong>{item.accountId}</strong><small>{item.stationId} · {item.plan}</small></p><span className={item.enabled ? "personal-admin-state enabled" : "personal-admin-state"}>{item.enabled ? "已启用" : "已停用"}</span></div>)}</div> : <div className="personal-admin-empty">尚未绑定用户。连接站点账户后会在这里显示。</div>}
         </section>
         <section className="personal-admin-section"><div className="personal-admin-section-title"><ShieldCheck size={17} /><div><h3>最近登录</h3><p>由登录服务记录的来源 IP、结果与设备信息。</p></div></div>{loginEvents.length ? <div className="personal-admin-audit-list">{loginEvents.slice(0, 5).map((event) => <article key={event.id}><span className={`personal-admin-audit-dot ${event.outcome}`} /><div><strong>{event.email}</strong><p>{event.ipAddress ?? "未知 IP"} · {event.outcome === "success" ? "登录成功" : "登录失败"}{event.userAgent ? ` · ${event.userAgent.slice(0, 60)}` : ""}</p></div><time>{formatTime(event.createdAt)}</time></article>)}</div> : <div className="personal-admin-empty">尚无服务端登录记录。</div>}</section>
@@ -109,7 +122,8 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
   const [publishingNotification, setPublishingNotification] = useState(false);
   const [sentNotifications, setSentNotifications] = useState<PersonalCenterNotification[]>([]);
   const [sentNotificationsLoading, setSentNotificationsLoading] = useState(false);
-  const [loginEvents] = useState<PersonalCenterLoginEvent[]>([]);
+  const [loginEvents, setLoginEvents] = useState<PersonalCenterLoginEvent[]>([]);
+  const [loginEventsLoading, setLoginEventsLoading] = useState(false);
   const [activeSection, setActiveSection] = useState<"overview" | "merchant" | "admin">("overview");
   const [activeAdminTab, setActiveAdminTab] = useState<PersonalCenterAdminTab>("notifications");
   const authLoadVersion = useRef(0);
@@ -190,12 +204,22 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
       setSentNotificationsLoading(false);
     }
   };
+  const loadLoginEvents = async () => {
+    setLoginEventsLoading(true);
+    try {
+      setLoginEvents(await personalCenterApi.loginEvents(100));
+    } catch (reason) {
+      notify(errorMessage(reason, "加载登录记录失败。"), "error");
+    } finally {
+      setLoginEventsLoading(false);
+    }
+  };
   const selectAdminTab = (tab: PersonalCenterAdminTab) => {
     setActiveSection("admin");
     setActiveAdminTab(tab);
     if (tab === "notifications") void loadSentNotifications();
     if (tab === "users" || tab === "membership") void loadMemberships();
-    if (tab === "audit") void loadAuditHistory();
+    if (tab === "audit") void Promise.all([loadAuditHistory(), loadLoginEvents()]);
   };
   const revokeNotification = async (notification: PersonalCenterNotification) => {
     const approved = await confirm({ title: "撤回云端通知", description: `确定撤回“${notification.title}”吗？用户将不再看到此通知，但已发记录会保留。`, confirmLabel: "撤回通知", destructive: true });
@@ -221,8 +245,12 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
   };
 
   useEffect(() => {
-    if (auth?.isAdmin) void loadSentNotifications();
-  }, [auth?.isAdmin]);
+    if (auth?.email && (auth.isAdmin || auth.role === "admin")) void loadSentNotifications();
+  }, [auth?.email, auth?.isAdmin, auth?.role]);
+
+  useEffect(() => {
+    if (auth?.email && activeSection === "overview") void loadMemberships();
+  }, [activeSection, auth?.email, loadMemberships]);
 
   if (!auth) return <Panel className="personal-center-panel"><p className="personal-admin-empty">正在加载个人中心…</p></Panel>;
   if (!auth.email) return <PersonalCenterLogin auth={auth} onAuthenticated={acceptAuthStatus} />;
@@ -241,7 +269,7 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
       auditRecords={entries}
       loginEvents={loginEvents}
       sentNotifications={sentNotifications}
-      loading={membershipsLoading || auditLoading || sentNotificationsLoading}
+      loading={membershipsLoading || auditLoading || loginEventsLoading || sentNotificationsLoading}
       onPreferencesChange={(next) => { void onPreferencesChange(next); }}
       onAddMembership={openNewMembership}
       onManageMembership={(membership) => { setEditing(membership); setEditorOpen(true); }}
@@ -251,7 +279,7 @@ export function PersonalCenterPage({ accountRows, preferences, onPreferencesChan
       onRevokeNotification={(notification) => void revokeNotification(notification)}
       onDeleteNotification={(notification) => void deleteNotification(notification)}
     /> : <><Panel className="personal-center-panel personal-standard-panel" title="我的会员权限" description="管理员分配的站点权限由服务器同步到当前账户。">
-      {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><span className={item.enabled ? "personal-admin-state enabled" : "personal-admin-state"}>{item.enabled ? "已启用" : "已停用"}</span><small>有效期：{formatTime(item.expiresAt)}</small></aside></article>)}</div> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
+      {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilegeLabels[privilege] ?? privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><span className={item.enabled ? "personal-admin-state enabled" : "personal-admin-state"}>{item.enabled ? "已启用" : "已停用"}</span><small>有效期：{formatTime(item.expiresAt)}</small></aside></article>)}</div> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
     </Panel><MobileAppConnection email={auth.email} /></>}
     {!isDevelopmentBypass && <CloudBackupPanel onAuthChanged={(status) => { acceptAuthStatus(status); signalPersonalCenterAuthChanged(status); }} />}
     {auth.isAdmin && isEditorOpen && <MembershipEditor accountRows={accountRows} membership={editing} saving={saving} onClose={() => setEditorOpen(false)} onSave={save} onDelete={remove} />}
@@ -375,24 +403,47 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
   };
 
   return <Panel className="personal-center-panel personal-login-panel">
-    <div className="personal-login-heading">
-      <span className="personal-login-icon"><ShieldCheck size={20} /></span>
-      <div><h2>{registering ? "注册个人中心" : "登录个人中心"}</h2><p>{auth.configured ? "使用云端账户登录，管理备份、通知与会员权限。" : "个人中心服务尚未配置。"}</p></div>
+    <div className="personal-login-layout">
+      <section className="personal-login-intro">
+        <span className="personal-login-intro-icon"><ShieldCheck size={24} /></span>
+        <span className="personal-login-eyebrow">RelayHub Cloud</span>
+        <h1>一个账户，连接所有 RelayHub 设备</h1>
+        <p>登录后即可同步桌面端与移动端数据，并集中管理通知、会员权限和云端备份。</p>
+        <ul className="personal-login-benefits">
+          <li><BellRing size={17} /><span><strong>实时通知</strong><small>同步安全告警与服务消息</small></span></li>
+          <li><Crown size={17} /><span><strong>会员权限</strong><small>查看管理员分配的站点权限</small></span></li>
+          <li><Smartphone size={17} /><span><strong>多端连接</strong><small>桌面与手机使用同一账户</small></span></li>
+        </ul>
+      </section>
+      <div className="personal-login-content">
+        <div className="personal-login-heading">
+          <span className="personal-login-icon"><ShieldCheck size={20} /></span>
+          <div><h2>{registering ? "创建个人中心账户" : "登录个人中心"}</h2><p>{auth.configured ? registering ? "创建账户后即可在多端使用同一套个人数据。" : "使用云端账户继续管理你的 RelayHub 数据。" : "个人中心服务尚未配置。"}</p></div>
+        </div>
+        {auth.configured ? <form className="personal-login-form" onSubmit={submit}>
+          <div className="personal-login-fields">
+            <FormField label="邮箱" required><TextField type="email" autoComplete="email" required placeholder="请输入邮箱地址" value={email} onChange={(event) => setEmail(event.target.value)} /></FormField>
+            <FormField label="密码" required><PasswordField autoComplete={registering ? "new-password" : "current-password"} required minLength={8} placeholder={registering ? "请设置至少 8 位密码" : "请输入账户密码"} value={password} onChange={(event) => setPassword(event.target.value)} /></FormField>
+            {registering && <FormField label="确认密码" required><PasswordField autoComplete="new-password" required minLength={8} placeholder="请再次输入密码" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></FormField>}
+          </div>
+          <div className="personal-login-actions">
+            <div className="personal-login-primary-actions">
+              <button type="submit" className="button-primary personal-login-submit" disabled={busy}><LogIn size={16} />{busy ? "请稍候" : registering ? "创建账户" : "登录"}</button>
+              <button type="button" className="button-secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}><UserPlus size={16} />{registering ? "已有账户" : "注册账户"}</button>
+            </div>
+            {!registering && <div className="personal-login-secondary-actions"><button type="button" className="button-secondary" disabled={busy || !email} onClick={() => void resetPassword()}><KeyRound size={16} />忘记密码</button></div>}
+            {import.meta.env.DEV && !registering && <details className="personal-login-dev-tools">
+              <summary>开发调试账号</summary>
+              <div className="personal-login-dev-actions">
+                <button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMemberEmail, false)}><LogIn size={16} />会员</button>
+                <button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMerchantEmail, "merchant")}><Store size={16} />商家</button>
+                <button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentAdminEmail, true)}><ShieldCheck size={16} />管理员</button>
+              </div>
+            </details>}
+          </div>
+        </form> : <p className="cloud-backup-unavailable">Supabase 服务未配置，暂时无法登录个人中心。</p>}
+      </div>
     </div>
-    {auth.configured ? <form className="personal-login-form" onSubmit={submit}>
-      <div className="personal-login-fields">
-        <FormField label="邮箱" required><TextField type="email" autoComplete="email" required placeholder="请输入邮箱地址" value={email} onChange={(event) => setEmail(event.target.value)} /></FormField>
-        <FormField label="密码" required><PasswordField autoComplete={registering ? "new-password" : "current-password"} required minLength={8} placeholder={registering ? "请设置至少 8 位密码" : "请输入账户密码"} value={password} onChange={(event) => setPassword(event.target.value)} /></FormField>
-        {registering && <FormField label="确认密码" required><PasswordField autoComplete="new-password" required minLength={8} placeholder="请再次输入密码" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></FormField>}
-      </div>
-      <div className="personal-login-actions">
-        {import.meta.env.DEV && !registering && <button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMerchantEmail, "merchant")}><Store size={16} />一键登录商家</button>}
-        <button type="button" className="button-secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}><UserPlus size={16} />{registering ? "已有账户" : "注册账户"}</button>
-        {!registering && <button type="button" className="button-secondary" disabled={busy || !email} onClick={() => void resetPassword()}><KeyRound size={16} />忘记密码</button>}
-        {import.meta.env.DEV && !registering && <><button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentAdminEmail, true)}><LogIn size={16} />一键登录管理员</button><button type="button" className="button-secondary" disabled={busy} onClick={() => devSignIn(developmentMemberEmail, false)}><LogIn size={16} />一键登录会员</button></>}
-        <button type="submit" className="button-primary personal-login-submit" disabled={busy}><LogIn size={16} />{busy ? "请稍候" : registering ? "创建账户" : "登录"}</button>
-      </div>
-    </form> : <p className="cloud-backup-unavailable">Supabase 服务未配置，暂时无法登录个人中心。</p>}
   </Panel>;
 }
 

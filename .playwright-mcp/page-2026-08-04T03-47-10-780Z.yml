@@ -1,0 +1,58 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e6]:
+        - button "刷新当前中转站与剩余" [ref=e7] [cursor=pointer]
+        - button "商家信息" [ref=e13] [cursor=pointer]
+        - button "自动注册站点账号" [ref=e18] [cursor=pointer]
+        - button "通知，4 条未读" [ref=e22] [cursor=pointer]
+    - generic [ref=e27]:
+      - complementary [ref=e28]:
+        - paragraph [ref=e36]: RelayHub
+        - navigation [ref=e37]:
+          - button "添加站点" [ref=e38] [cursor=pointer]
+          - button "概览" [ref=e40] [cursor=pointer]
+          - button "站点账户" [ref=e47] [cursor=pointer]
+          - button "分组倍率" [ref=e53] [cursor=pointer]
+          - button "API 密钥" [ref=e60] [cursor=pointer]
+          - button "使用记录" [ref=e65] [cursor=pointer]
+          - button "API鉴定" [ref=e69] [cursor=pointer]
+          - button "远程配置" [ref=e78] [cursor=pointer]
+          - button "个人中心" [ref=e91] [cursor=pointer]
+          - button "设置" [ref=e96] [cursor=pointer]
+        - generic [ref=e101]:
+          - tablist "用量范围" [ref=e102]:
+            - tab "全部" [selected] [ref=e103] [cursor=pointer]
+            - tab "当前站点" [ref=e104] [cursor=pointer]
+          - generic [ref=e105]:
+            - paragraph [ref=e106]: 今日 Token
+            - strong [ref=e107]: 1.8M
+            - generic [ref=e108]: "输入: 1.3M / 输出: 539.6K"
+          - generic [ref=e109]:
+            - paragraph [ref=e110]: 今日消费
+            - strong [ref=e111]: $1.1064 / $14.7522
+            - generic [ref=e112]: "总计: $1.9554 / $25.2410"
+      - main [ref=e113]:
+        - generic [ref=e114]:
+          - navigation "个人中心功能导航" [ref=e196]:
+            - button "个人概览" [ref=e198] [cursor=pointer]
+            - generic [ref=e199]: 普通账号
+          - generic [ref=e200]:
+            - generic [ref=e201]:
+              - heading "我的会员权限" [level=2] [ref=e202]
+              - paragraph [ref=e203]: 管理员分配的站点权限由服务器同步到当前账户。
+            - generic [ref=e204]: 当前账户尚未分配会员权限。
+          - generic [ref=e205]:
+            - generic [ref=e209]:
+              - heading "连接手机 App" [level=2] [ref=e210]
+              - paragraph [ref=e211]: RelayHub Mobile 与桌面端共用个人中心账户。连接后可在手机端查看设备状态、当前密钥与用量概览。
+              - list [ref=e212]:
+                - listitem [ref=e213]: 在手机端打开 RelayHub Mobile。
+                - listitem [ref=e214]: 使用下方个人中心账户登录。
+                - listitem [ref=e215]: 等待手机端显示“已连接”或“数据已同步”。
+            - generic [ref=e216]:
+              - generic [ref=e217]: 连接账户
+              - strong [ref=e218]: member@relayhub.local
+  - generic [ref=e220]:
+    - generic [ref=e224]: 已用开发普通用户账号进入个人中心。
+    - button "关闭提示" [ref=e225] [cursor=pointer]

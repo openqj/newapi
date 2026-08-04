@@ -1,0 +1,73 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - button "刷新当前中转站与剩余" [ref=e7] [cursor=pointer]
+      - button "商家信息" [ref=e13] [cursor=pointer]
+      - button "自动注册站点账号" [ref=e18] [cursor=pointer]
+      - button "通知，4 条未读" [ref=e22] [cursor=pointer]
+  - generic [ref=e27]:
+    - complementary [ref=e28]:
+      - paragraph [ref=e36]: RelayHub
+      - navigation [ref=e37]:
+        - button "添加站点" [ref=e38] [cursor=pointer]
+        - button "概览" [ref=e40] [cursor=pointer]
+        - button "站点账户" [ref=e47] [cursor=pointer]
+        - button "分组倍率" [ref=e53] [cursor=pointer]
+        - button "API 密钥" [ref=e60] [cursor=pointer]
+        - button "使用记录" [ref=e65] [cursor=pointer]
+        - button "API鉴定" [ref=e69] [cursor=pointer]
+        - button "远程配置" [ref=e78] [cursor=pointer]
+        - button "个人中心" [active] [ref=e91] [cursor=pointer]
+        - button "设置" [ref=e96] [cursor=pointer]
+      - generic [ref=e101]:
+        - tablist "用量范围" [ref=e102]:
+          - tab "全部" [selected] [ref=e103] [cursor=pointer]
+          - tab "当前站点" [ref=e104] [cursor=pointer]
+        - generic [ref=e105]:
+          - paragraph [ref=e106]: 今日 Token
+          - strong [ref=e107]: 1.8M
+          - generic [ref=e108]: "输入: 1.3M / 输出: 539.6K"
+        - generic [ref=e109]:
+          - paragraph [ref=e110]: 今日消费
+          - strong [ref=e111]: $1.1064 / $14.7522
+          - generic [ref=e112]: "总计: $1.9554 / $25.2410"
+    - main [ref=e113]:
+      - generic [ref=e117]:
+        - generic [ref=e118]:
+          - generic [ref=e123]: RelayHub Cloud
+          - heading "一个账户，连接所有 RelayHub 设备" [level=1] [ref=e124]
+          - paragraph [ref=e125]: 登录后即可同步桌面端与移动端数据，并集中管理通知、会员权限和云端备份。
+          - list [ref=e126]:
+            - listitem [ref=e127]:
+              - generic [ref=e133]:
+                - strong [ref=e134]: 实时通知
+                - generic [ref=e135]: 同步安全告警与服务消息
+            - listitem [ref=e136]:
+              - generic [ref=e139]:
+                - strong [ref=e140]: 会员权限
+                - generic [ref=e141]: 查看管理员分配的站点权限
+            - listitem [ref=e142]:
+              - generic [ref=e145]:
+                - strong [ref=e146]: 多端连接
+                - generic [ref=e147]: 桌面与手机使用同一账户
+        - generic [ref=e148]:
+          - generic [ref=e154]:
+            - heading "登录个人中心" [level=2] [ref=e155]
+            - paragraph [ref=e156]: 使用云端账户继续管理你的 RelayHub 数据。
+          - generic [ref=e157]:
+            - generic [ref=e158]:
+              - generic [ref=e159]:
+                - generic [ref=e160]: 邮箱 *
+                - textbox "邮箱" [ref=e161]:
+                  - /placeholder: 请输入邮箱地址
+              - generic [ref=e162]:
+                - generic [ref=e163]: 密码 *
+                - textbox "密码" [ref=e164]:
+                  - /placeholder: 请输入账户密码
+            - generic [ref=e165]:
+              - generic [ref=e166]:
+                - button "登录" [ref=e167] [cursor=pointer]
+                - button "注册账户" [ref=e171] [cursor=pointer]
+              - button "忘记密码" [disabled] [ref=e176]
+              - group [ref=e180]:
+                - generic "开发调试账号" [ref=e181] [cursor=pointer]

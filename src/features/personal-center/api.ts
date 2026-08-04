@@ -101,7 +101,9 @@ export const personalCenterApi = {
   publishNotification: (request: PublishNotificationRequest) =>
     invokeDesktop<PersonalCenterNotification>("publish_personal_center_notification", { request }),
 
-  sentNotifications: () => invokeDesktop<PersonalCenterNotification[]>("list_sent_personal_center_notifications"),
+  sentNotifications: () => isTauri()
+    ? invokeDesktop<PersonalCenterNotification[]>("list_sent_personal_center_notifications")
+    : Promise.resolve([]),
 
   updateNotification: (notificationId: string, request: PublishNotificationRequest) =>
     invokeDesktop<PersonalCenterNotification>("update_personal_center_notification", { notificationId, request }),
@@ -117,7 +119,9 @@ export const personalCenterApi = {
 
   realtimeSession: () => invokeDesktop<PersonalCenterRealtimeSession>("get_personal_center_realtime_session"),
 
-  loginEvents: (limit = 100) => invokeDesktop<PersonalCenterLoginEvent[]>("list_personal_center_login_events", { limit }),
+  loginEvents: (limit = 100) => isTauri()
+    ? invokeDesktop<PersonalCenterLoginEvent[]>("list_personal_center_login_events", { limit })
+    : Promise.resolve([]),
 };
 
 export const PERSONAL_CENTER_AUTH_CHANGED_EVENT = "relayhub:personal-center-auth-changed";

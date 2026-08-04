@@ -136,6 +136,7 @@ pub(crate) struct ModelDetectionResult {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GroupOption {
     pub(crate) name: String,
+    pub(crate) description: Option<String>,
     pub(crate) multiplier: Option<f64>,
 }
 

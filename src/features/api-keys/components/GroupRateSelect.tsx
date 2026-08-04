@@ -35,7 +35,10 @@ export function GroupRateSelect({
     ? groups
     : [{ name: value }, ...groups];
   const selected = options.find((option) => option.name === value);
-  const selectedLabel = selected ? `${placeholder}: ${selected.name} ${formatMultiplier(selected.multiplier)}` : placeholder;
+  const selectedDescription = selected?.description?.trim();
+  const selectedLabel = selected
+    ? `${placeholder}: ${selected.name}${selectedDescription ? ` ${selectedDescription}` : ""} ${formatMultiplier(selected.multiplier)}`
+    : placeholder;
 
   const updatePosition = () => {
     const bounds = triggerRef.current?.getBoundingClientRect();
@@ -82,8 +85,11 @@ export function GroupRateSelect({
 
   const menu = open && menuPosition && createPortal(
     <div ref={menuRef} className="group-rate-select-menu" role="listbox" aria-label={placeholder} style={menuPosition}>
-      {allowEmpty && <button type="button" role="option" aria-label={placeholder} aria-selected={!value} onClick={() => choose("")} disabled={disabled}><span>{placeholder}</span><strong>-</strong></button>}
-      {options.map((option) => <button type="button" role="option" aria-label={`${option.name} ${formatMultiplier(option.multiplier)}`} aria-selected={option.name === value} onClick={() => choose(option.name)} disabled={disabled} key={option.name}><span>{option.name}</span><strong>{formatMultiplier(option.multiplier)}</strong></button>)}
+      {allowEmpty && <button type="button" role="option" aria-label={placeholder} aria-selected={!value} onClick={() => choose("")} disabled={disabled}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{placeholder}</span></span><strong>-</strong></button>}
+      {options.map((option) => {
+        const description = option.description?.trim();
+        return <button type="button" role="option" aria-label={`${option.name}${description ? ` ${description}` : ""} ${formatMultiplier(option.multiplier)}`} aria-selected={option.name === value} onClick={() => choose(option.name)} disabled={disabled} key={option.name}><span className="group-rate-select-option-copy"><span className="group-rate-select-option-name">{option.name}</span>{description && <small title={description}>{description}</small>}</span><strong>{formatMultiplier(option.multiplier)}</strong></button>;
+      })}
     </div>,
     document.body,
   );

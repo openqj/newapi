@@ -1,5 +1,4 @@
 export type AccountRole = "member" | "pro" | "merchant" | "admin";
-export type MerchantModel = "claude" | "chatgpt" | "grok";
 export type MerchantTier = "diamond" | "gold" | "silver";
 
 export type MerchantProfile = {
@@ -18,7 +17,6 @@ export type MerchantRateShare = MerchantProfile & {
   groupName: string;
   multiplierSummary: string;
   pinned: boolean;
-  model?: MerchantModel;
   publishedAt: number;
 };
 
@@ -36,6 +34,11 @@ export type MerchantFreeCodeInput = {
   quota: number;
 };
 
+export type MerchantImportResult = {
+  imported: number;
+  skipped: number;
+};
+
 export type MerchantFreeOffer = {
   id: string;
   merchantName: string;
@@ -44,7 +47,6 @@ export type MerchantFreeOffer = {
   stationUrl: string;
   quota: number;
   pinned: boolean;
-  model?: MerchantModel;
   tier?: MerchantTier;
   publishedAt: number;
 };
@@ -70,7 +72,6 @@ export type AdminMerchantRateShare = {
   groupName: string;
   multiplierSummary: string;
   pinned: boolean;
-  model?: MerchantModel;
   publishedAt: number;
 };
 
@@ -85,7 +86,6 @@ export type AdminMerchantFreeCode = {
   redeemCode: string;
   quota: number;
   pinned: boolean;
-  model?: MerchantModel;
   claimed: boolean;
   createdAt: number;
 };

@@ -151,6 +151,13 @@ pub(crate) struct MerchantFreeCodeInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct MerchantImportResult {
+    pub(crate) imported: i32,
+    pub(crate) skipped: i32,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct MerchantFreeOffer {
     pub(crate) id: String,
     pub(crate) merchant_name: String,

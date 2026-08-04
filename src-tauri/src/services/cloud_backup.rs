@@ -8,9 +8,14 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use chrono::Utc;
 use reqwest::{header, StatusCode};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 use uuid::Uuid;
+
+use super::supabase::{
+    auth_headers, config, ensure_success, postgrest_headers, public_postgrest_headers,
+    response_json, storage_headers, SupabaseConfig,
+};
 
 use crate::{
     keyring_store::{
@@ -24,9 +29,9 @@ use crate::{
         AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile,
         AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput,
         ClaimedMerchantCode, MembershipAccess, MerchantFreeCodeInput, MerchantFreeOffer,
-        MerchantProfile, MerchantRateShare, NotificationPreferences, PersonalCenterAuditEntry,
-        PersonalCenterLoginEvent, PersonalCenterNotification, PersonalCenterRealtimeSession,
-        PublishMerchantRateRequest, PublishNotificationRequest,
+        MerchantImportResult, MerchantProfile, MerchantRateShare, NotificationPreferences,
+        PersonalCenterAuditEntry, PersonalCenterLoginEvent, PersonalCenterNotification,
+        PersonalCenterRealtimeSession, PublishMerchantRateRequest, PublishNotificationRequest,
     },
     remote_store::RemoteServerStore,
     station_store::StationStore,
@@ -51,11 +56,6 @@ const BACKUP_TABLES: &[&str] = &[
     "remote_servers",
     "remote_sync_logs",
 ];
-
-struct CloudConfig {
-    url: String,
-    anon_key: String,
-}
 
 #[derive(Deserialize)]
 struct AuthUser {
@@ -116,51 +116,6 @@ struct EncryptedBackup {
     ciphertext: String,
 }
 
-fn parse_environment_value(content: &str, key: &str) -> Option<String> {
-    content
-        .lines()
-        .find_map(|line| {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                return None;
-            }
-            let (name, value) = line.split_once('=')?;
-            (name.trim() == key).then(|| value.trim().trim_matches('"').to_string())
-        })
-        .filter(|value| !value.is_empty())
-}
-
-fn local_environment_value(key: &str) -> Option<String> {
-    let content = std::fs::read_to_string(".env.local")
-        .ok()
-        .or_else(|| std::fs::read_to_string("../.env.local").ok())?;
-    parse_environment_value(&content, key)
-}
-
-fn bundled_environment_value(key: &str) -> Option<String> {
-    parse_environment_value(include_str!("../../supabase.env"), key)
-}
-
-fn config() -> Result<CloudConfig, String> {
-    let url = std::env::var("SUPABASE_URL")
-        .ok()
-        .or_else(|| local_environment_value("SUPABASE_URL"))
-        .or_else(|| bundled_environment_value("SUPABASE_URL"))
-        .unwrap_or_default();
-    let anon_key = std::env::var("SUPABASE_ANON_KEY")
-        .ok()
-        .or_else(|| local_environment_value("SUPABASE_ANON_KEY"))
-        .or_else(|| bundled_environment_value("SUPABASE_ANON_KEY"))
-        .unwrap_or_default();
-    if url.trim().is_empty() || anon_key.trim().is_empty() {
-        return Err("未配置 Supabase。请设置 SUPABASE_URL 和 SUPABASE_ANON_KEY。".into());
-    }
-    Ok(CloudConfig {
-        url: url.trim_end_matches('/').to_string(),
-        anon_key,
-    })
-}
-
 fn status_from_session(configured: bool) -> CloudAuthStatus {
     let session = load_cloud_session().ok();
     let role = session
@@ -188,36 +143,6 @@ fn cloud_role(role: Option<&str>) -> String {
 pub(crate) async fn auth_status(_state: &AppState) -> CloudAuthStatus {
     // Opening the personal center must not create or refresh a cloud session.
     status_from_session(config().is_ok())
-}
-
-fn auth_headers(config: &CloudConfig) -> Result<header::HeaderMap, String> {
-    let mut headers = header::HeaderMap::new();
-    headers.insert(
-        "apikey",
-        config
-            .anon_key
-            .parse::<header::HeaderValue>()
-            .map_err(|error| error.to_string())?,
-    );
-    Ok(headers)
-}
-
-async fn response_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, String> {
-    let status = response.status();
-    let body = response.text().await.map_err(|error| error.to_string())?;
-    if !status.is_success() {
-        return Err(format!("云端请求失败 ({status}): {body}"));
-    }
-    serde_json::from_str(&body).map_err(|error| error.to_string())
-}
-
-async fn ensure_success(response: reqwest::Response) -> Result<(), String> {
-    if response.status().is_success() {
-        return Ok(());
-    }
-    let status = response.status();
-    let body = response.text().await.unwrap_or_default();
-    Err(format!("云端请求失败 ({status}): {body}"))
 }
 
 fn save_auth_response(response: AuthResponse) -> Result<CloudAuthStatus, String> {
@@ -367,7 +292,7 @@ fn validate_auth_input(email: &str, password: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn session(state: &AppState, config: &CloudConfig) -> Result<CloudSession, String> {
+async fn session(state: &AppState, config: &SupabaseConfig) -> Result<CloudSession, String> {
     let current = load_cloud_session()?;
     if current.expires_at > Utc::now().timestamp() + 60 {
         return Ok(current);
@@ -406,7 +331,7 @@ async fn session(state: &AppState, config: &CloudConfig) -> Result<CloudSession,
     Ok(next)
 }
 
-async fn verified_session(state: &AppState, config: &CloudConfig) -> Result<CloudSession, String> {
+async fn verified_session(state: &AppState, config: &SupabaseConfig) -> Result<CloudSession, String> {
     let mut current = session(state, config).await?;
     let response = state
         .client
@@ -444,7 +369,7 @@ pub(crate) async fn is_verified_cloud_admin(state: &AppState) -> Result<bool, St
 
 async fn require_verified_merchant(
     state: &AppState,
-) -> Result<(CloudConfig, CloudSession), String> {
+) -> Result<(SupabaseConfig, CloudSession), String> {
     let config = config()?;
     let current = verified_session(state, &config).await?;
     if current.role == "merchant" || current.is_admin {
@@ -553,13 +478,12 @@ pub(crate) async fn publish_merchant_rate(
 pub(crate) async fn import_merchant_codes(
     state: &AppState,
     codes: &[MerchantFreeCodeInput],
-) -> Result<(), String> {
+) -> Result<MerchantImportResult, String> {
     let (config, current) = require_verified_merchant(state).await?;
     let payload = codes
         .iter()
         .map(|code| {
             serde_json::json!({
-                "merchant_id": current.user_id,
                 "station_name": code.station_name,
                 "station_url": code.station_url,
                 "redemption_code": code.redeem_code,
@@ -569,13 +493,20 @@ pub(crate) async fn import_merchant_codes(
         .collect::<Vec<_>>();
     let response = state
         .client
-        .post(format!("{}/rest/v1/merchant_free_accounts", config.url))
+        .post(format!(
+            "{}/rest/v1/rpc/import_merchant_free_codes",
+            config.url
+        ))
         .headers(postgrest_headers(&config, &current)?)
-        .json(&payload)
+        .json(&serde_json::json!({ "items": payload }))
         .send()
         .await
         .map_err(|error| error.to_string())?;
-    ensure_success(response).await
+    response_json::<Vec<MerchantImportResult>>(response)
+        .await?
+        .into_iter()
+        .next()
+        .ok_or_else(|| "Merchant codes were not imported".into())
 }
 
 pub(crate) async fn merchant_free_offers(
@@ -619,7 +550,7 @@ pub(crate) async fn admin_merchant_profiles(
         .send()
         .await
         .map_err(|error| error.to_string())?;
-    Ok(response_json::<Vec<AdminMerchantProfile>>(response).await?)
+    response_json::<Vec<AdminMerchantProfile>>(response).await
 }
 
 pub(crate) async fn save_admin_merchant_profile(
@@ -1012,33 +943,6 @@ impl From<CloudNotificationPreferences> for NotificationPreferences {
             offer_enabled: value.offer_enabled,
         }
     }
-}
-
-fn postgrest_headers(
-    config: &CloudConfig,
-    session: &CloudSession,
-) -> Result<header::HeaderMap, String> {
-    let mut headers = storage_headers(config, session)?;
-    headers.insert(
-        "Accept",
-        header::HeaderValue::from_static("application/json"),
-    );
-    Ok(headers)
-}
-
-fn public_postgrest_headers(config: &CloudConfig) -> Result<header::HeaderMap, String> {
-    let mut headers = auth_headers(config)?;
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", config.anon_key)
-            .parse::<header::HeaderValue>()
-            .map_err(|error| error.to_string())?,
-    );
-    headers.insert(
-        "Accept",
-        header::HeaderValue::from_static("application/json"),
-    );
-    Ok(headers)
 }
 
 pub(crate) async fn cloud_notification_preferences(
@@ -1628,20 +1532,6 @@ pub(crate) async fn cloud_login_events(
             created_at: event.created_at,
         })
         .collect())
-}
-
-fn storage_headers(
-    config: &CloudConfig,
-    session: &CloudSession,
-) -> Result<header::HeaderMap, String> {
-    let mut headers = auth_headers(config)?;
-    headers.insert(
-        header::AUTHORIZATION,
-        format!("Bearer {}", session.access_token)
-            .parse::<header::HeaderValue>()
-            .map_err(|error| error.to_string())?,
-    );
-    Ok(headers)
 }
 
 fn object_path(session: &CloudSession, id: &str) -> String {

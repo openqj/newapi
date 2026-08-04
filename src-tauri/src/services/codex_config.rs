@@ -254,6 +254,7 @@ fn codex_directory() -> Result<PathBuf, String> {
         .ok_or("Unable to find the Codex configuration directory".to_string())
 }
 
+#[cfg(test)]
 fn active_relay_url(config: &str) -> Option<String> {
     active_relay_credentials(config).map(|(url, _)| url)
 }

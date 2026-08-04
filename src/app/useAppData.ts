@@ -91,6 +91,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     emptySnapshot,
     demo: stationDemo,
     onSyncComplete: refreshFeatureRows,
+    autoRefresh: true,
   });
 
   const { servers: remoteServers, loadRemoteServers } = useRemoteServers({

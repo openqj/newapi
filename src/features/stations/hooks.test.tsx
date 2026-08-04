@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToastProvider } from "../../components/ui";
 import { useStations } from "./hooks";
 import type { StationSnapshot } from "./types";
@@ -26,6 +26,16 @@ function ScopedRefreshProbe({ onSyncComplete, onComplete }: { onSyncComplete: ()
   const { refreshAll: refresh } = useStations({ emptySnapshot, onSyncComplete });
   return <button type="button" onClick={() => void refresh(onComplete)}>刷新指定数据</button>;
 }
+
+function AutoRefreshProbe() {
+  useStations({ emptySnapshot, autoRefresh: true });
+  return null;
+}
+
+afterEach(() => {
+  vi.clearAllMocks();
+  vi.restoreAllMocks();
+});
 
 describe("useStations", () => {
   it("shares one in-flight full refresh and permits a later refresh", async () => {
@@ -60,5 +70,23 @@ describe("useStations", () => {
     fireEvent.click(screen.getByRole("button", { name: "刷新指定数据" }));
     await waitFor(() => expect(scopedComplete).toHaveBeenCalled());
     expect(defaultComplete).not.toHaveBeenCalled();
+  });
+
+  it("refreshes after connectivity returns without retrying while offline", async () => {
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    list.mockResolvedValue([]);
+    refreshAll.mockResolvedValue([]);
+    syncProgress.mockResolvedValue(null);
+
+    render(<ToastProvider><AutoRefreshProbe /></ToastProvider>);
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    refreshAll.mockClear();
+
+    fireEvent(window, new Event("online"));
+    expect(refreshAll).not.toHaveBeenCalled();
+
+    online.mockReturnValue(true);
+    fireEvent(window, new Event("online"));
+    await waitFor(() => expect(refreshAll).toHaveBeenCalledTimes(1));
   });
 });

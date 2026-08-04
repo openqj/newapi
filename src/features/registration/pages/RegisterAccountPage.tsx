@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
-import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2, ScrollText } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, ScrollText } from "lucide-react";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
@@ -290,14 +290,6 @@ export function RegisterAccountPage() {
 
   return <main className="register-account-page">
     <form className="register-account-form" onSubmit={submit} noValidate>
-      <header className="register-account-header">
-        <div>
-          <h1>自动注册站点账号</h1>
-          <p>自动填充账号信息；验证码识别失败时可手工填写后继续。</p>
-        </div>
-        {state === "running" && <Loader2 size={17} className="register-spin" aria-label="注册进行中" />}
-      </header>
-
       <div className="register-account-content">
       <div className="register-fields">
         <label>
@@ -329,7 +321,7 @@ export function RegisterAccountPage() {
 
       {state === "waiting-code" && <p className="register-manual-hint" role="status"><AlertCircle size={15} />自动验证码不可用，请核对邮箱中的验证码后继续。</p>}
 
-      {logs.length > 0 && <section className="register-log-panel" aria-label="注册日志">
+      <section className="register-log-panel" aria-label="注册日志">
         <header className="register-log-heading"><span><ScrollText size={15} />注册日志</span><small>{logs.length} 条</small></header>
         <ol className="register-log" role="log" aria-live="polite">
           {logs.map((entry, index) => <li key={entry.id} ref={index === logs.length - 1 ? logEndRef : undefined} className={`register-log-entry ${entry.level}`}>
@@ -339,7 +331,7 @@ export function RegisterAccountPage() {
             <span>{entry.message}</span>
           </li>)}
         </ol>
-      </section>}
+      </section>
 
       {resultMessage && <div className={`register-result ${state}`} role={state === "error" ? "alert" : "status"}>{resultMessage}</div>}
       </div>

@@ -578,6 +578,7 @@ pub(crate) async fn delete_station(state: State<'_, AppState>, id: String) -> Re
         .map_err(|_| "本地数据库不可用".to_string())?
         .delete_station(&id)?;
     clear_secret(&id);
+    state.emit_stations_changed();
     Ok(())
 }
 
@@ -740,6 +741,7 @@ pub(crate) async fn refresh_all(
     if let Ok(mut operations) = state.sync_operations.lock() {
         operations.remove("all");
     }
+    state.emit_stations_changed();
     let _ = notify_alerts(&app, &state);
     results.sort_by_key(|(position, _)| *position);
     Ok(results.into_iter().map(|(_, result)| result).collect())

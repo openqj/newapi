@@ -17,6 +17,7 @@ export type KeyInfo = {
 
 export type GroupOption = {
   name: string;
+  description?: string;
   multiplier?: number;
 };
 

@@ -7,3 +7,4 @@ pub(crate) mod gateway;
 pub(crate) mod provider_doctor;
 pub(crate) mod remote;
 pub(crate) mod stations;
+pub(crate) mod supabase;

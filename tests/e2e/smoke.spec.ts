@@ -5,23 +5,17 @@ test("loads the application shell and opens desktop update settings", async ({ p
   await expect(page.locator(".app-shell")).toBeVisible();
   await expect(page.getByText("RelayHub").first()).toBeVisible();
   await page.getByRole("button", { name: "设置" }).click();
+  await page.getByRole("button", { name: "更新", exact: true }).click();
   await expect(page.getByText("桌面更新")).toBeVisible();
   await expect(page.getByText("Web 演示")).toBeVisible();
 });
 
 test("keeps the shared data-table shell across core data pages", async ({ page }) => {
   await page.goto("/");
-  const navigation = page.locator(".nav-item");
-  await expect(navigation).toHaveCount(10);
-
-  await navigation.nth(3).click();
-  await expect(page.locator(".data-table").first()).toBeVisible();
-
-  await navigation.nth(4).click();
-  await expect(page.locator(".data-table").first()).toBeVisible();
-
-  await navigation.nth(5).click();
-  await expect(page.locator(".data-table").first()).toBeVisible();
+  for (const label of ["站点账户", "API 密钥", "使用记录"]) {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await expect(page.locator(".data-table").first()).toBeVisible();
+  }
 });
 
 test("opens key dialogs and displays web-mode feedback", async ({ page }) => {

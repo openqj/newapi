@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, time::Duration};
 use chrono::{Datelike, Local, TimeZone};
 use reqwest::{
     header::{self, HeaderMap},
-    Client, Method,
+    Client, Method, Response, StatusCode,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -95,6 +95,8 @@ pub(crate) async fn sync_one_authorized(state: &AppState, id: &str) -> Result<Sy
     if changed {
         store.save_snapshot(id, &fingerprint, &snapshot, &change_summary)?;
     }
+    drop(store);
+    state.emit_stations_changed();
     Ok(SyncResult {
         station,
         snapshot,
@@ -778,12 +780,111 @@ pub(crate) fn endpoint(station: &Station, path: &str) -> String {
     format!("{}{}", base(&station.base_url), path)
 }
 
-pub(crate) async fn request(
+const CLOUDFLARE_BLOCK_MESSAGE: &str = "站点的 Cloudflare/WAF 拒绝了 API 请求。RelayHub 不会尝试绕过人机验证或访问控制；请由站点管理员为 API 路径配置受控访问策略、服务令牌或允许规则，然后重试。";
+
+fn header_contains(headers: &HeaderMap, name: &str, needle: &str) -> bool {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains(needle))
+}
+
+fn is_cloudflare_block(status: StatusCode, headers: &HeaderMap, body: &str) -> bool {
+    if header_contains(headers, "cf-mitigated", "challenge") {
+        return true;
+    }
+    if !matches!(
+        status,
+        StatusCode::FORBIDDEN | StatusCode::SERVICE_UNAVAILABLE
+    ) {
+        return false;
+    }
+    let lower = body.to_ascii_lowercase();
+    let has_cloudflare_header = headers.contains_key("cf-ray")
+        || header_contains(headers, header::SERVER.as_str(), "cloudflare");
+    let has_challenge_marker = [
+        "cdn-cgi/challenge-platform",
+        "cf-chl-",
+        "cf-turnstile",
+        "just a moment",
+        "attention required",
+        "error code: 1020",
+        "cloudflare ray id",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker));
+    has_cloudflare_header && has_challenge_marker
+}
+
+fn rate_limit_hint(headers: &HeaderMap) -> &'static str {
+    if headers.contains_key(header::RETRY_AFTER) {
+        " 请按站点返回的 Retry-After 等待后再重试。"
+    } else {
+        " 请降低同步频率后再重试。"
+    }
+}
+
+async fn decode_json_response(response: Response, fallback: &str) -> Result<Value, String> {
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response
+        .text()
+        .await
+        .map_err(|error| format!("HTTP {status}: 读取站点响应失败：{error}"))?;
+
+    if is_cloudflare_block(status, &headers, &body) {
+        return Err(format!("HTTP {status}: {CLOUDFLARE_BLOCK_MESSAGE}"));
+    }
+
+    let value = serde_json::from_str::<Value>(&body).map_err(|_| {
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            format!(
+                "HTTP {status}: 请求过于频繁。{}",
+                rate_limit_hint(&headers).trim()
+            )
+        } else {
+            format!("HTTP {status}: 站点返回了无法识别的数据")
+        }
+    })?;
+    if !status.is_success()
+        || value.get("success") == Some(&Value::Bool(false))
+        || value.get("code") == Some(&json!(-1))
+    {
+        let message = value
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or(fallback);
+        let rate_limit = if status == StatusCode::TOO_MANY_REQUESTS {
+            rate_limit_hint(&headers)
+        } else {
+            ""
+        };
+        return Err(format!("HTTP {status}: {message}{rate_limit}"));
+    }
+    Ok(value)
+}
+
+#[derive(Clone, Copy, Default)]
+struct RequestAuth<'a> {
+    token: Option<&'a str>,
+    newapi_user_id: Option<&'a str>,
+    newapi_session: Option<&'a str>,
+}
+
+impl<'a> From<&'a Secret> for RequestAuth<'a> {
+    fn from(secret: &'a Secret) -> Self {
+        Self {
+            token: secret.access_token.as_deref(),
+            newapi_user_id: secret.newapi_user_id.as_deref(),
+            newapi_session: secret.newapi_session.as_deref(),
+        }
+    }
+}
+
+async fn request(
     client: &Client,
     station: &Station,
-    token: Option<&str>,
-    newapi_user_id: Option<&str>,
-    newapi_session: Option<&str>,
+    auth: RequestAuth<'_>,
     method: Method,
     path: &str,
     body: Option<Value>,
@@ -792,37 +893,20 @@ pub(crate) async fn request(
         .request(method, endpoint(station, path))
         .timeout(std::time::Duration::from_secs(15));
     if station.kind == "newapi" {
-        if let Some(user_id) = newapi_user_id {
+        if let Some(user_id) = auth.newapi_user_id {
             call = call.header("New-Api-User", user_id);
         }
-        if let Some(session) = newapi_session {
+        if let Some(session) = auth.newapi_session {
             call = call.header(header::COOKIE, session);
         }
-    } else if let Some(token) = token {
+    } else if let Some(token) = auth.token {
         call = call.bearer_auth(token);
     }
     if let Some(body) = body {
         call = call.json(&body);
     }
     let response = call.send().await.map_err(|e| format!("请求失败：{e}"))?;
-    let status = response.status();
-    let value = response
-        .json::<Value>()
-        .await
-        .map_err(|_| format!("HTTP {status}: 站点返回了无法识别的数据"))?;
-    if !status.is_success()
-        || value.get("success") == Some(&Value::Bool(false))
-        || value.get("code") == Some(&json!(-1))
-    {
-        return Err(format!(
-            "HTTP {status}: {}",
-            value
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("站点拒绝了请求")
-        ));
-    }
-    Ok(value)
+    decode_json_response(response, "站点拒绝了请求").await
 }
 
 pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, String> {
@@ -848,9 +932,7 @@ pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, St
     if request(
         client,
         &temp,
-        None,
-        None,
-        None,
+        RequestAuth::default(),
         Method::GET,
         "/api/v1/settings/public",
         None,
@@ -863,9 +945,7 @@ pub(crate) async fn detect_kind(client: &Client, url: &str) -> Result<String, St
     if request(
         client,
         &temp,
-        None,
-        None,
-        None,
+        RequestAuth::default(),
         Method::GET,
         "/api/status",
         None,
@@ -894,10 +974,9 @@ pub(crate) async fn registration_requires_email_verification(
         .send()
         .await
         .ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let value = response.json::<Value>().await.ok()?;
+    let value = decode_json_response(response, "站点拒绝了请求")
+        .await
+        .ok()?;
     let payload = value.get("data").unwrap_or(&value);
     [
         "email_verification",
@@ -934,22 +1013,8 @@ pub(crate) async fn login_request(
         .send()
         .await
         .map_err(|e| format!("请求失败：{e}"))?;
-    let status = response.status();
     let session = session_cookie(response.headers());
-    let value = response
-        .json::<Value>()
-        .await
-        .map_err(|_| format!("站点返回了无法识别的数据 ({status})"))?;
-    if !status.is_success()
-        || value.get("success") == Some(&Value::Bool(false))
-        || value.get("code") == Some(&json!(-1))
-    {
-        return Err(value
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("站点拒绝了请求")
-            .to_string());
-    }
+    let value = decode_json_response(response, "站点拒绝了请求").await?;
     Ok((value, session))
 }
 
@@ -992,21 +1057,7 @@ pub(crate) async fn send_registration_verification_code(
         .send()
         .await
         .map_err(|error| format!("请求失败：{error}"))?;
-    let status = response.status();
-    let value = response
-        .json::<Value>()
-        .await
-        .map_err(|_| format!("站点返回了无法识别的数据 ({status})"))?;
-    if !status.is_success()
-        || value.get("success") == Some(&Value::Bool(false))
-        || value.get("code") == Some(&json!(-1))
-    {
-        return Err(value
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("邮箱验证码发送失败")
-            .to_string());
-    }
+    let value = decode_json_response(response, "邮箱验证码发送失败").await?;
     Ok(value
         .get("message")
         .and_then(Value::as_str)
@@ -1159,9 +1210,7 @@ pub(crate) async fn station_request(
     let response = request(
         &state.client,
         station,
-        secret.access_token.as_deref(),
-        secret.newapi_user_id.as_deref(),
-        secret.newapi_session.as_deref(),
+        RequestAuth::from(&*secret),
         method.clone(),
         path,
         body.clone(),
@@ -1176,9 +1225,7 @@ pub(crate) async fn station_request(
         return request(
             &state.client,
             station,
-            secret.access_token.as_deref(),
-            secret.newapi_user_id.as_deref(),
-            secret.newapi_session.as_deref(),
+            RequestAuth::from(&*secret),
             method,
             path,
             body,
@@ -1350,12 +1397,13 @@ pub(crate) async fn fetch_snapshot(
 #[cfg(test)]
 mod tests {
     use axum::http::{header, HeaderMap};
+    use reqwest::StatusCode;
     use serde_json::json;
 
     use super::{
-        describe_changes, is_unauthorized, map_rates, map_sub2_group_rates, mask_api_key,
-        model_response_text, newapi_display_balance, parse_balance, parse_keys,
-        pricing_group_ratio, session_cookie, usage_from_logs,
+        describe_changes, is_cloudflare_block, is_unauthorized, map_rates, map_sub2_group_rates,
+        mask_api_key, model_response_text, newapi_display_balance, parse_balance, parse_keys,
+        pricing_group_ratio, rate_limit_hint, session_cookie, usage_from_logs,
     };
     use crate::{
         models::{Offer, StationSnapshot},
@@ -1576,5 +1624,35 @@ mod tests {
         assert!(is_unauthorized("HTTP 401: Unauthorized"));
         assert!(is_unauthorized("HTTP 401 Unauthorized: Token has expired"));
         assert!(!is_unauthorized("HTTP 403: Forbidden"));
+    }
+
+    #[test]
+    fn identifies_cloudflare_challenges_without_treating_every_503_as_one() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cf-ray", "test-ray".parse().unwrap());
+        headers.insert(header::SERVER, "cloudflare".parse().unwrap());
+        assert!(is_cloudflare_block(
+            StatusCode::SERVICE_UNAVAILABLE,
+            &headers,
+            "<title>Just a moment...</title><script src='/cdn-cgi/challenge-platform/test'></script>",
+        ));
+        assert!(!is_cloudflare_block(
+            StatusCode::FORBIDDEN,
+            &headers,
+            r#"{"message":"permission denied"}"#,
+        ));
+        assert!(!is_cloudflare_block(
+            StatusCode::SERVICE_UNAVAILABLE,
+            &HeaderMap::new(),
+            r#"{"message":"maintenance"}"#,
+        ));
+    }
+
+    #[test]
+    fn notices_retry_after_rate_limits() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RETRY_AFTER, "120".parse().unwrap());
+        assert!(rate_limit_hint(&headers).contains("Retry-After"));
+        assert!(rate_limit_hint(&HeaderMap::new()).contains("降低同步频率"));
     }
 }

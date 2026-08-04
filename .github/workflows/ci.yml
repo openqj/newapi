@@ -34,16 +34,23 @@ jobs:
       - run: pnpm build
       - run: pnpm exec playwright install chromium
       - run: pnpm test:ui
-      - run: cargo test
+      - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo clippy --locked --all-targets -- -D warnings
+        working-directory: src-tauri
+      - run: cargo test --locked
         working-directory: src-tauri
 
   rust-dependency-audit:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2
-        with:
-          working-directory: src-tauri
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the Windows Rust dependency graph
+        shell: pwsh
+        run: ./scripts/audit-rustsec.ps1 -ManifestPath src-tauri/Cargo.toml -TargetTriple x86_64-pc-windows-msvc
 
   real-station-e2e:
     if: ${{ github.event_name == 'workflow_dispatch' }}

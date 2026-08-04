@@ -59,13 +59,27 @@ function App() {
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
     setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
   }, []);
-  const openRegistrationWindow = useCallback(async () => {
+  const toggleRegistrationWindow = useCallback(async () => {
     if (!isTauri()) {
-      setShowAdd(true);
+      setShowAdd((current) => !current);
       return;
     }
     const registrationWindow = await WebviewWindow.getByLabel("register-account");
     if (!registrationWindow) return;
+    if (await registrationWindow.isVisible()) {
+      await registrationWindow.hide();
+      return;
+    }
+    const mainWindow = getCurrentWindow();
+    const [mainPosition, mainSize, registrationSize] = await Promise.all([
+      mainWindow.outerPosition(),
+      mainWindow.outerSize(),
+      registrationWindow.innerSize(),
+    ]);
+    await Promise.all([
+      registrationWindow.setSize(new PhysicalSize(420, registrationSize.height)),
+      registrationWindow.setPosition(new PhysicalPosition(mainPosition.x + mainSize.width, mainPosition.y)),
+    ]);
     await registrationWindow.show();
     await registrationWindow.setFocus();
   }, []);
@@ -203,7 +217,7 @@ function App() {
   return (
     <AppRouteProvider value={routeContext}>
     <div className="app-shell min-h-screen text-slate-900">
-      <header className="app-toolbar">
+      <header className="app-toolbar" data-tauri-drag-region="deep">
         <div className="window-drag-region" data-tauri-drag-region />
         <div className="app-toolbar-actions">
           <button
@@ -224,19 +238,20 @@ function App() {
           >
             <span className="window-station-name">{activeRelay.name}</span>
           </button>
-          {activeRelay.balance != null && <span
+          {activeRelay.balance != null && <button
+            type="button"
             className="window-station-balance"
-            title={`当前剩余 ${activeRelay.balance.toFixed(2)} USD`}
-            aria-label={`剩余 ${activeRelay.balance.toFixed(2)} USD`}
+            data-tauri-drag-region="false"
+            title={`当前剩余 $${activeRelay.balance.toFixed(2)}`}
+            aria-label={`剩余 $${activeRelay.balance.toFixed(2)}`}
           >
             <span>剩余：</span>
-            <strong>{activeRelay.balance.toFixed(2)}</strong>
-            <span>USD</span>
-          </span>}</>}
+            <strong>${activeRelay.balance.toFixed(2)}</strong>
+          </button>}</>}
           <button type="button" className="window-action-button window-merchant-button" aria-label="商家信息" title="商家信息" onClick={() => void toggleMerchantWindow()}>
             <Store size={16} />
           </button>
-          <button type="button" className="window-action-button" aria-label="自动注册站点账号" title="自动注册站点账号" onClick={() => void openRegistrationWindow()}>
+          <button type="button" className="window-action-button window-merchant-button" aria-label="自动注册站点账号" title="自动注册站点账号" onClick={() => void toggleRegistrationWindow()}>
             <UserPlus size={16} />
           </button>
           <button

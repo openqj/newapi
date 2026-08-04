@@ -46,5 +46,8 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // Four forked workers overwhelm the Windows CI runner and make otherwise
+    // deterministic interaction tests exceed Vitest's 5s assertion timeout.
+    maxWorkers: 2,
   },
 }));

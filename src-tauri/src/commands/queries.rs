@@ -113,6 +113,7 @@ pub(crate) async fn list_key_rows(state: State<'_, AppState>) -> Result<Vec<KeyR
                 }
                 groups.push(GroupOption {
                     name: rate.group.clone(),
+                    description: rate.group_description.clone(),
                     multiplier: Some(rate.multiplier),
                 });
             }
@@ -227,6 +228,7 @@ pub(crate) async fn list_station_groups(
         }
         groups.push(GroupOption {
             name: rate.group,
+            description: rate.group_description,
             multiplier: Some(rate.multiplier),
         });
     }

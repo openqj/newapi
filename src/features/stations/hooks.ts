@@ -10,7 +10,7 @@ type UseStationsOptions<Snapshot extends StationSnapshot> = {
   demo?: { stations: Station[]; snapshots: Record<string, Snapshot> };
   /** Called after a successful sync to refresh feature-specific projections. */
   onSyncComplete?: (stationId?: string) => Promise<void> | void;
-  /** Kept opt-in for gradual migration; the legacy app currently owns the timer. */
+  /** Enables low-frequency synchronisation while the device is online. */
   autoRefresh?: boolean;
   refreshIntervalMs?: number;
 };
@@ -102,8 +102,15 @@ export function useStations<Snapshot extends StationSnapshot>({
   useEffect(() => { void loadSnapshot(selectedId); }, [loadSnapshot, selectedId]);
   useEffect(() => {
     if (!autoRefresh) return;
-    const timer = window.setInterval(() => void refreshAll(), refreshIntervalMs);
-    return () => window.clearInterval(timer);
+    const refreshWhenOnline = () => {
+      if (navigator.onLine) void refreshAll();
+    };
+    const timer = window.setInterval(refreshWhenOnline, refreshIntervalMs);
+    window.addEventListener("online", refreshWhenOnline);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("online", refreshWhenOnline);
+    };
   }, [autoRefresh, refreshAll, refreshIntervalMs]);
   useEffect(() => {
     if (!busy || !isTauri()) return;

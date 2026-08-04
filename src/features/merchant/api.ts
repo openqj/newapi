@@ -1,5 +1,5 @@
 import { invokeDesktop } from "../../lib/tauri";
-import type { AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile, AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput, ClaimedMerchantCode, MerchantFreeCodeInput, MerchantFreeOffer, MerchantProfile, MerchantRateShare, PublishMerchantRateRequest } from "./types";
+import type { AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile, AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput, ClaimedMerchantCode, MerchantFreeCodeInput, MerchantFreeOffer, MerchantImportResult, MerchantProfile, MerchantRateShare, PublishMerchantRateRequest } from "./types";
 
 export const MERCHANT_IMPORT_REQUEST_EVENT = "relayhub:merchant-import-request";
 export const MERCHANT_OFFERS_CHANGED_EVENT = "relayhub:merchant-offers-changed";
@@ -9,7 +9,7 @@ export const merchantApi = {
   saveProfile: (profile: MerchantProfile) => invokeDesktop<MerchantProfile>("save_merchant_profile", { profile }),
   rates: () => invokeDesktop<MerchantRateShare[]>("list_merchant_rate_shares"),
   publishRate: (request: PublishMerchantRateRequest) => invokeDesktop<void>("publish_merchant_rate_share", { request }),
-  importCodes: (codes: MerchantFreeCodeInput[]) => invokeDesktop<void>("import_merchant_free_codes", { codes }),
+  importCodes: (codes: MerchantFreeCodeInput[]) => invokeDesktop<MerchantImportResult>("import_merchant_free_codes", { codes }),
   freeOffers: () => invokeDesktop<MerchantFreeOffer[]>("list_merchant_free_offers"),
   claimCode: (offerId: string) => invokeDesktop<ClaimedMerchantCode>("claim_merchant_free_code", { offerId }),
   releaseCode: (offerId: string) => invokeDesktop<void>("release_merchant_free_code", { offerId }),
