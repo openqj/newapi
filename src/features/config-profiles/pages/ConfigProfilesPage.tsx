@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, ExternalLink, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Check, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { EmptyState, FormField, Panel, SelectField, StatusBadge, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
@@ -138,19 +138,6 @@ export function ConfigProfilesPage({ keyRows }: { keyRows: KeyRow[] }) {
     }
   };
 
-  const exportToCcSwitch = async (profile: ConfigProfile) => {
-    if (!isTauri()) return;
-    setBusy(true);
-    try {
-      await configProfileApi.exportToCcSwitch(profile.id);
-      notify("已将配置发送到 CC Switch", "success");
-    } catch (reason) {
-      notify(errorMessage(reason, "导出到 CC Switch 失败"), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const edit = (profile: ConfigProfile) => setDraft({ ...profile });
 
   const remove = async (profile: ConfigProfile) => {
@@ -238,7 +225,7 @@ export function ConfigProfilesPage({ keyRows }: { keyRows: KeyRow[] }) {
         const isActive = active?.profile.id === profile.id;
         return <article className={`config-profile-row ${isActive ? "active" : ""}`} key={profile.id}>
           <div className="config-profile-main"><div className="config-profile-title"><strong>{profile.name}</strong>{isActive && <StatusBadge status="online">当前</StatusBadge>}</div><div className="config-profile-meta"><span>{applicationLabels[profile.application]}</span><span>{row?.stationName ?? (profile.stationId ? profile.stationId : "外部导入")}</span><span>{profile.model || "未指定模型"}</span></div><code>{displayBaseUrl(profile)}</code></div>
-          <div className="config-profile-actions"><button type="button" className="button-primary" disabled={busy || isActive} onClick={() => void apply(profile)}><Play size={15} />{isActive ? "已应用" : "应用"}</button><button type="button" className="button-secondary" disabled={busy} onClick={() => void exportToCcSwitch(profile)} aria-label={`导出${profile.name}到 CC Switch`}><ExternalLink size={15} /></button>{profile.stationId && <button type="button" className="button-secondary" disabled={busy} onClick={() => edit(profile)} aria-label={`编辑${profile.name}`}><Pencil size={15} /></button>}<button type="button" className="button-secondary" disabled={busy} onClick={() => void remove(profile)} aria-label={`删除${profile.name}`}><Trash2 size={15} /></button></div>
+          <div className="config-profile-actions"><button type="button" className="button-primary" disabled={busy || isActive} onClick={() => void apply(profile)}><Play size={15} />{isActive ? "已应用" : "应用"}</button>{profile.stationId && <button type="button" className="button-secondary" disabled={busy} onClick={() => edit(profile)} aria-label={`编辑${profile.name}`}><Pencil size={15} /></button>}<button type="button" className="button-secondary" disabled={busy} onClick={() => void remove(profile)} aria-label={`删除${profile.name}`}><Trash2 size={15} /></button></div>
         </article>;
       })}</div>}
     </Panel>

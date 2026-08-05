@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CloudSync, KeyRound, Layers3, Megaphone, Settings2, UserRound } from "lucide-react";
+import { KeyRound, Layers3, Megaphone, Settings2, UserRound } from "lucide-react";
 import { Panel, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { UpdateSettings } from "../UpdateSettings";
@@ -8,6 +8,7 @@ import { AlertHistoryPage } from "../../alerts/pages/AlertHistoryPage";
 import { LoginProfilesPage } from "../../profiles";
 import { ConfigProfilesPage } from "../../config-profiles";
 import { GatewaySettings } from "../../gateway";
+import { UsageStatistics } from "../../usage-stats";
 import type { KeyRow } from "../../api-keys";
 import { BACKGROUND_REFRESH_OPTIONS, MIN_BACKGROUND_REFRESH_MINUTES, settingsApi } from "../api";
 import { AutoRegistrationSettings } from "../components/AutoRegistrationSettings";
@@ -16,7 +17,7 @@ import type { LoginProfile } from "../../profiles";
 import type { StationSnapshot } from "../../stations";
 import "./SettingsPage.css";
 
-export type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "configProfiles" | "gateway" | "autoRegistration" | "codex" | "updates";
+export type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "configProfiles" | "gateway" | "usage" | "autoRegistration" | "codex" | "updates";
 
 const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "gateway", label: "Gateway" },
@@ -25,6 +26,7 @@ const settingsTabs: { id: SettingsTab; label: string }[] = [
   { id: "alertHistory", label: "告警历史与趋势" },
   { id: "profiles", label: "常用登录" },
   { id: "configProfiles", label: "配置档案" },
+  { id: "usage", label: "使用统计" },
   { id: "autoRegistration", label: "自动注册" },
   { id: "codex", label: "Codex" },
   { id: "updates", label: "更新" },
@@ -52,6 +54,7 @@ export function SettingsPage({ demoProfiles, keyRows, syncStatuses, backgroundRe
       {activeTab === "profiles" && <ProfilesSettings demoProfiles={demoProfiles} />}
       {activeTab === "configProfiles" && <ConfigProfilesPage keyRows={keyRows} />}
       {activeTab === "gateway" && <GatewaySettings keyRows={keyRows} />}
+      {activeTab === "usage" && <UsageStatistics />}
       {activeTab === "autoRegistration" && <AutoRegistrationSettings />}
       {activeTab === "codex" && <CodexEnhancement />}
       {activeTab === "updates" && <Panel className="settings-panel"><UpdateSettings /></Panel>}
@@ -84,21 +87,20 @@ function SettingsHeader({ syncStatuses }: { syncStatuses?: StationSnapshot["sync
           <p>管理本地应用、站点同步与 Gateway 行为</p>
         </div>
       </div>
-      {syncStatuses && <div className={`settings-sync-summary is-${summaryState}`}>
-        <span className="settings-sync-summary-icon" aria-hidden="true"><CloudSync size={18} /></span>
-        <span className="settings-sync-summary-copy"><span>站点同步</span><strong>{summaryDetail}</strong></span>
-        <span className="settings-sync-summary-state">{summaryLabel}</span>
-      </div>}
+      {syncStatuses && <SyncStatusCards syncStatuses={syncStatuses} summaryDetail={summaryDetail} summaryLabel={summaryLabel} summaryState={summaryState} />}
     </div>
-    {syncStatuses && <SyncStatusCards syncStatuses={syncStatuses} />}
   </header>;
 }
 
-function SyncStatusCards({ syncStatuses }: { syncStatuses: StationSnapshot["syncStatuses"] }) {
+function SyncStatusCards({ syncStatuses, summaryDetail, summaryLabel, summaryState }: { syncStatuses: StationSnapshot["syncStatuses"]; summaryDetail: string; summaryLabel: string; summaryState: "success" | "warning" | "pending" }) {
   return <section className="settings-sync-panel" aria-labelledby="settings-sync-title">
     <div className="settings-sync-panel-heading">
       <div><span className="settings-sync-kicker">数据状态</span><h2 id="settings-sync-title">同步概览</h2></div>
-      <span>随站点刷新自动更新</span>
+      <div className={`settings-sync-panel-meta is-${summaryState}`} aria-live="polite">
+        <strong>{summaryDetail}</strong>
+        <span>{summaryLabel}</span>
+        <small>随站点刷新自动更新</small>
+      </div>
     </div>
     <div className="settings-sync-grid">
       {syncItems.map(([key, label, Icon]) => {

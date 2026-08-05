@@ -18,7 +18,7 @@ type ApiKeyEditorProps = {
   onError: (reason: unknown) => void;
 };
 
-const keyNamePresets = ["Codex", "CC Switch", "开发测试", "日常使用"];
+const keyNamePresets = ["直转", "本地路由", "开发测试", "日常使用"];
 
 const formatMoney = (value?: number) => value == null ? "-" : `${value.toFixed(4)} 额度`;
 

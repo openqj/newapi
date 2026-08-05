@@ -32,6 +32,35 @@ impl Store {
                 station_id TEXT NOT NULL, log_id TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL,
                 PRIMARY KEY (station_id, log_id)
              );
+             CREATE TABLE IF NOT EXISTS local_usage_logs (
+                request_id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, provider_name TEXT NOT NULL,
+                app_type TEXT NOT NULL, model TEXT NOT NULL, request_model TEXT,
+                input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                input_token_semantics INTEGER NOT NULL DEFAULT 0,
+                input_cost_usd REAL NOT NULL DEFAULT 0, output_cost_usd REAL NOT NULL DEFAULT 0,
+                cache_read_cost_usd REAL NOT NULL DEFAULT 0, cache_creation_cost_usd REAL NOT NULL DEFAULT 0,
+                total_cost_usd REAL NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0,
+                first_token_ms INTEGER, duration_ms INTEGER, status_code INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT, is_streaming INTEGER NOT NULL DEFAULT 0,
+                endpoint TEXT, key_id TEXT, created_at INTEGER NOT NULL,
+                data_source TEXT NOT NULL DEFAULT 'local_gateway'
+             );
+             CREATE INDEX IF NOT EXISTS idx_local_usage_created_at ON local_usage_logs(created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_local_usage_provider ON local_usage_logs(provider_name, provider_id);
+             CREATE INDEX IF NOT EXISTS idx_local_usage_model ON local_usage_logs(model);
+             CREATE INDEX IF NOT EXISTS idx_local_usage_app_created_at ON local_usage_logs(app_type, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_local_usage_app_provider_model_created_at
+                ON local_usage_logs(app_type, provider_name, model, created_at DESC);
+             CREATE INDEX IF NOT EXISTS idx_local_usage_provider_model_created_at
+                ON local_usage_logs(provider_name, model, created_at DESC);
+             CREATE TABLE IF NOT EXISTS local_model_pricing (
+                model_id TEXT PRIMARY KEY, display_name TEXT NOT NULL,
+                input_cost_per_million REAL NOT NULL DEFAULT 0,
+                output_cost_per_million REAL NOT NULL DEFAULT 0,
+                cache_read_cost_per_million REAL NOT NULL DEFAULT 0,
+                cache_creation_cost_per_million REAL NOT NULL DEFAULT 0
+             );
              CREATE TABLE IF NOT EXISTS model_discovery_cache (
                 station_id TEXT NOT NULL, key_id TEXT NOT NULL, payload TEXT NOT NULL, fetched_at INTEGER NOT NULL,
                 PRIMARY KEY (station_id, key_id)
@@ -126,6 +155,25 @@ impl Store {
             "ALTER TABLE login_profiles ADD COLUMN email TEXT NOT NULL DEFAULT ''",
             [],
         );
+        connection
+            .execute_batch(
+                "INSERT OR IGNORE INTO local_model_pricing
+                 (model_id, display_name, input_cost_per_million, output_cost_per_million, cache_read_cost_per_million, cache_creation_cost_per_million)
+                 VALUES
+                 ('claude-3-5-sonnet', 'Claude 3.5 Sonnet', 3, 15, 0.3, 3.75),
+                 ('claude-3-7-sonnet', 'Claude 3.7 Sonnet', 3, 15, 0.3, 3.75),
+                 ('claude-sonnet-4', 'Claude Sonnet 4', 3, 15, 0.3, 3.75),
+                 ('claude-opus-4', 'Claude Opus 4', 15, 75, 1.5, 18.75),
+                 ('gpt-4o', 'GPT-4o', 2.5, 10, 1.25, 0),
+                 ('gpt-4o-mini', 'GPT-4o mini', 0.15, 0.6, 0.075, 0),
+                 ('gpt-4.1', 'GPT-4.1', 2, 8, 0.5, 0),
+                 ('gpt-4.1-mini', 'GPT-4.1 mini', 0.4, 1.6, 0.1, 0),
+                 ('o3', 'o3', 2, 8, 0.5, 0),
+                 ('o4-mini', 'o4-mini', 1.1, 4.4, 0.275, 0),
+                 ('gemini-2.5-pro', 'Gemini 2.5 Pro', 1.25, 10, 0.3125, 0),
+                 ('gemini-2.5-flash', 'Gemini 2.5 Flash', 0.3, 2.5, 0.075, 0);",
+            )
+            .map_err(|e| e.to_string())?;
         Ok(Self { connection, path })
     }
 

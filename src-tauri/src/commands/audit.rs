@@ -10,8 +10,8 @@ use crate::{
     models::{AuditEvent, RemoteServerRollbackSnapshot},
     remote_store::RemoteServerStore,
     services::remote::{
-        acquire_operation as acquire_remote_operation, apply_snapshot, restore_codex_config_state,
-        restore_relay_key, RemoteCodexConfigState,
+        acquire_operation as acquire_remote_operation, apply_snapshot, host_key_fingerprints_match,
+        restore_codex_config_state, restore_relay_key, RemoteCodexConfigState,
     },
     support::now,
     AppState, RemoteServer,
@@ -107,7 +107,10 @@ pub(crate) fn finalize_remote_relay_rollback_snapshot(
     current: &RemoteCodexConfigState,
 ) -> Result<RemoteRelayRollbackReference, String> {
     let mut snapshot = load_secure_remote_relay_snapshot(&reference.id)?;
-    if snapshot.original.host_key_fingerprint != current.host_key_fingerprint {
+    if !host_key_fingerprints_match(
+        &snapshot.original.host_key_fingerprint,
+        &current.host_key_fingerprint,
+    ) {
         return Err(
             "The remote SSH host key changed while applying the relay configuration".into(),
         );

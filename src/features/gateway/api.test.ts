@@ -16,6 +16,7 @@ describe("gatewayApi command contract", () => {
     await gatewayApi.setPort(18765);
     await gatewayApi.start();
     await gatewayApi.stop();
+    await gatewayApi.setRoute("station-1", "key-1");
     await gatewayApi.setRoutes(routes);
     await gatewayApi.resetRouteHealth("station-1", "key-1");
 
@@ -24,7 +25,8 @@ describe("gatewayApi command contract", () => {
     expect(invokeDesktop).toHaveBeenNthCalledWith(3, "set_gateway_port", { port: 18765 });
     expect(invokeDesktop).toHaveBeenNthCalledWith(4, "start_gateway");
     expect(invokeDesktop).toHaveBeenNthCalledWith(5, "stop_gateway");
-    expect(invokeDesktop).toHaveBeenNthCalledWith(6, "set_active_gateway_routes", { routes });
-    expect(invokeDesktop).toHaveBeenNthCalledWith(7, "reset_gateway_route_health", { stationId: "station-1", keyId: "key-1" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(6, "set_active_gateway_route", { stationId: "station-1", keyId: "key-1" });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(7, "set_active_gateway_routes", { routes });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(8, "reset_gateway_route_health", { stationId: "station-1", keyId: "key-1" });
   });
 });

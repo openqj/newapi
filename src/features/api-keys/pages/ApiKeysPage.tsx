@@ -1,9 +1,11 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { stationApi, type Station } from "../../stations";
+import { gatewayApi } from "../../gateway/api";
+import type { RoutingMode } from "../../gateway/types";
 import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
 import { ApiKeyTable } from "../components/ApiKeyTable";
@@ -46,7 +48,20 @@ export function ApiKeysPage({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [testRunning, setTestRunning] = useState(false);
   const [testStates, setTestStates] = useState<Record<string, ApiKeyTestState>>({});
+  const [routingMode, setRoutingMode] = useState<RoutingMode>("ccSwitch");
   const stationRefreshes = useRef(new Map<string, Promise<void>>());
+  useEffect(() => {
+    if (!isTauri()) return;
+    let mounted = true;
+    void gatewayApi.status()
+      .then((status) => {
+        if (mounted) setRoutingMode(status.mode);
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
   const refreshStationGroups = useCallback(async (stationId: string) => {
     if (!isTauri()) return;
     const existing = stationRefreshes.current.get(stationId);
@@ -121,7 +136,10 @@ export function ApiKeysPage({
     const id = `codex:${rowId(row)}`;
     setSaving(id);
     try {
-      await apiKeyApi.applyToCodex(row.stationId, row.key.id);
+      const mode = isTauri() ? (await gatewayApi.status()).mode : "ccSwitch";
+      setRoutingMode(mode);
+      if (isTauri()) await gatewayApi.setRoute(row.stationId, row.key.id);
+      else await apiKeyApi.applyToCodex(row.stationId, row.key.id);
       await onCodexApplied?.();
       notify("API 密钥已启用到 Codex", "success");
     } catch (reason) {
@@ -140,13 +158,6 @@ export function ApiKeysPage({
       showError(reason);
     } finally {
       setSaving(null);
-    }
-  };
-  const importToCcSwitch = async (row: KeyRow) => {
-    try {
-      await apiKeyApi.importToCcSwitch(row.stationId, row.key.id, "codex");
-    } catch (reason) {
-      showError(reason);
     }
   };
   const remove = async (row: KeyRow) => {
@@ -251,11 +262,11 @@ export function ApiKeysPage({
       saving={saving}
       selectedIds={selectedIds}
       testStates={testStates}
+      localGatewayMode={routingMode === "localGateway"}
       onToggleSelected={toggleSelected}
       onToggleAll={toggleAllSelected}
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
-      onImport={(row) => void importToCcSwitch(row)}
       onApplyToClaude={(row) => void applyToClaude(row)}
       onApplyToCodex={(row) => void applyToCodex(row)}
       onTest={(row) => void testSingle(row)}

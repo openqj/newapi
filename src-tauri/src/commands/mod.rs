@@ -5,6 +5,7 @@ pub(crate) mod config_backups;
 pub(crate) mod config_profiles;
 pub(crate) mod detection;
 pub(crate) mod gateway;
+pub(crate) mod local_usage;
 pub(crate) mod personal_center;
 pub(crate) mod profiles;
 pub(crate) mod provider_doctor;

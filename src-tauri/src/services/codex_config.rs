@@ -5,6 +5,7 @@ use std::{
 };
 
 use reqwest::Method;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use toml_edit::{value, DocumentMut, Item, Table};
 
@@ -26,7 +27,18 @@ use crate::{
 };
 
 const PRESERVE_OFFICIAL_AUTH_SETTING: &str = "preserveCodexOfficialAuthOnSwitch";
+const LOCAL_GATEWAY_SNAPSHOT_SETTING: &str = "codexLocalGatewaySnapshot";
+const LOCAL_GATEWAY_PROVIDER: &str = "relayhub_local";
 const DEFAULT_MODEL: &str = "gpt-5-codex";
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalGatewaySnapshot {
+    original_config: Option<String>,
+    original_auth: Option<String>,
+    managed_config: Option<String>,
+    managed_auth: Option<String>,
+}
 
 pub(crate) fn status(state: &AppState) -> Result<CodexIntegrationStatus, String> {
     Ok(CodexIntegrationStatus {
@@ -141,9 +153,9 @@ async fn fetch_config_balance(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or("当前 config.toml 没有 API 密钥，无法查询余额".to_string())?;
-    // CC Switch's generic balance script queries `/v1/usage` and reads the
-    // returned `remaining`/`balance` field. Preserve a configured `/v1` path
-    // so providers that already include it do not receive `/v1/v1/usage`.
+    // The generic balance probe queries `/v1/usage` and reads the returned
+    // `remaining`/`balance` field. Preserve a configured `/v1` path so
+    // providers that already include it do not receive `/v1/v1/usage`.
     let usage_path = if base_url.ends_with("/v1") {
         "/usage"
     } else {
@@ -243,6 +255,149 @@ pub(crate) fn set_preserve_official_login(
             &preserve_official_login.to_string(),
         )?;
     status(state)
+}
+
+pub(crate) fn activate_local_gateway(
+    state: &AppState,
+    base_url: &str,
+    gateway_token: &str,
+) -> Result<(), String> {
+    let directory = codex_directory()?;
+    fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    let config_path = directory.join("config.toml");
+    let auth_path = directory.join("auth.json");
+    let current_config = read_file_state(&config_path)?;
+    let current_auth = read_file_state(&auth_path)?;
+    let existing = load_local_gateway_snapshot(state)?;
+
+    let snapshot = if let Some(snapshot) = existing {
+        if current_config != snapshot.managed_config || current_auth != snapshot.managed_auth {
+            return Err(
+                "检测到 Codex 配置在本地路由接管期间被手动修改，请先恢复或确认配置后再切换模式"
+                    .into(),
+            );
+        }
+        snapshot
+    } else {
+        LocalGatewaySnapshot {
+            original_config: current_config.clone(),
+            original_auth: current_auth.clone(),
+            managed_config: current_config.clone(),
+            managed_auth: current_auth.clone(),
+        }
+    };
+
+    let source = current_config.as_deref().unwrap_or_default();
+    let next_config = build_local_gateway_config(source, base_url, gateway_token)?;
+    write_file_state(&config_path, Some(&next_config))?;
+    let next_snapshot = LocalGatewaySnapshot {
+        managed_config: Some(next_config),
+        managed_auth: current_auth,
+        ..snapshot
+    };
+    save_local_gateway_snapshot(state, &next_snapshot)
+}
+
+/// Applies a direct station route to Codex. Direct mode keeps the same
+/// provider shape as local routing, but authenticates with the station key.
+pub(crate) fn activate_direct_route(
+    provider_name: &str,
+    endpoint: &str,
+    api_key: &str,
+) -> Result<(), String> {
+    let directory = codex_directory()?;
+    apply_to_directory_with_backup(&directory, provider_name, endpoint, api_key, false, None)?;
+    Ok(())
+}
+
+pub(crate) fn restore_local_gateway(state: &AppState) -> Result<(), String> {
+    let Some(snapshot) = load_local_gateway_snapshot(state)? else {
+        return Ok(());
+    };
+    let directory = codex_directory()?;
+    let config_path = directory.join("config.toml");
+    let auth_path = directory.join("auth.json");
+    let current_config = read_file_state(&config_path)?;
+    let current_auth = read_file_state(&auth_path)?;
+    if current_config != snapshot.managed_config || current_auth != snapshot.managed_auth {
+        return Err(
+                "检测到 Codex 配置在本地路由接管期间被手动修改，未覆盖用户文件；请先检查 config.toml 和 auth.json"
+                .into(),
+        );
+    }
+    write_file_state(&config_path, snapshot.original_config.as_deref())?;
+    write_file_state(&auth_path, snapshot.original_auth.as_deref())?;
+    clear_local_gateway_snapshot(state)
+}
+
+fn build_local_gateway_config(
+    source: &str,
+    base_url: &str,
+    gateway_token: &str,
+) -> Result<String, String> {
+    let mut document = if source.trim().is_empty() {
+        DocumentMut::new()
+    } else {
+        source
+            .parse::<DocumentMut>()
+            .map_err(|error| format!("Codex config.toml 格式无效: {error}"))?
+    };
+    document["model_provider"] = value(LOCAL_GATEWAY_PROVIDER);
+    if document.get("model").is_none() {
+        document["model"] = value(DEFAULT_MODEL);
+    }
+    if document.get("model_providers").is_none() {
+        document["model_providers"] = Item::Table(Table::new());
+    }
+    let providers = document["model_providers"]
+        .as_table_mut()
+        .ok_or("Codex model_providers 必须是 TOML 表")?;
+    if !providers.contains_key(LOCAL_GATEWAY_PROVIDER) {
+        providers[LOCAL_GATEWAY_PROVIDER] = Item::Table(Table::new());
+    }
+    let provider = providers[LOCAL_GATEWAY_PROVIDER]
+        .as_table_mut()
+        .ok_or("Codex 本地 Gateway provider 必须是 TOML 表")?;
+    provider["name"] = value("RelayHub Local Gateway");
+    provider["base_url"] = value(base_url.trim_end_matches('/'));
+    provider["wire_api"] = value("responses");
+    provider["requires_openai_auth"] = value(true);
+    provider["experimental_bearer_token"] = value(gateway_token);
+    provider.remove("api_key");
+    provider.remove("env_key");
+    document.remove("experimental_bearer_token");
+    Ok(document.to_string())
+}
+
+fn load_local_gateway_snapshot(state: &AppState) -> Result<Option<LocalGatewaySnapshot>, String> {
+    let raw = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .setting(LOCAL_GATEWAY_SNAPSHOT_SETTING)?;
+    raw.filter(|value| !value.trim().is_empty())
+        .map(|value| serde_json::from_str(&value).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+fn save_local_gateway_snapshot(
+    state: &AppState,
+    snapshot: &LocalGatewaySnapshot,
+) -> Result<(), String> {
+    let value = serde_json::to_string(snapshot).map_err(|error| error.to_string())?;
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_setting(LOCAL_GATEWAY_SNAPSHOT_SETTING, &value)
+}
+
+fn clear_local_gateway_snapshot(state: &AppState) -> Result<(), String> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .save_setting(LOCAL_GATEWAY_SNAPSHOT_SETTING, "")
 }
 
 pub(crate) async fn apply_api_key(
@@ -522,6 +677,24 @@ fn read_optional(path: &Path) -> Result<String, String> {
         fs::read_to_string(path).map_err(|error| error.to_string())
     } else {
         Ok(String::new())
+    }
+}
+
+fn read_file_state(path: &Path) -> Result<Option<String>, String> {
+    if path.exists() {
+        fs::read_to_string(path)
+            .map(Some)
+            .map_err(|error| error.to_string())
+    } else {
+        Ok(None)
+    }
+}
+
+fn write_file_state(path: &Path, contents: Option<&str>) -> Result<(), String> {
+    match contents {
+        Some(contents) => fs::write(path, contents).map_err(|error| error.to_string()),
+        None if path.exists() => fs::remove_file(path).map_err(|error| error.to_string()),
+        None => Ok(()),
     }
 }
 

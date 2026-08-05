@@ -3,6 +3,7 @@ pub(crate) mod authorization;
 pub(crate) mod claude_config;
 pub(crate) mod client_backup;
 pub(crate) mod cloud_backup;
+pub(crate) mod chat_protocol;
 pub(crate) mod codex_config;
 pub(crate) mod config_backups;
 pub(crate) mod detection;

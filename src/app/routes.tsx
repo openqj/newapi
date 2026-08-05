@@ -120,15 +120,20 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   overview: {
     view: "overview",
     navigation: { label: "概览", Icon: LayoutDashboard },
-    createPage: ({ stations, keyRows, accountRows, usageSummary, usageLogs, onRefreshAll, navigate }) => (
+    createPage: ({ stations, keyRows, remoteServers, accountRows, usageSummary, usageLogs, onRefreshAll, navigate, onSettingsTabChange }) => (
       <DashboardPage
         stations={stations}
         keys={keyRows}
+        remoteServers={remoteServers}
         accountRows={accountRows}
         summary={usageSummary}
         usageRows={usageLogs}
         onRefresh={onRefreshAll}
         onNavigate={navigate}
+        onOpenUpdates={() => {
+          onSettingsTabChange("updates");
+          navigate("settings");
+        }}
       />
     ),
   },

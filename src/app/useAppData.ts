@@ -132,9 +132,9 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     else if (view === "overview") void loadUsageLogs();
   }, [loadUsageLogs, refreshUsageLogs, view]);
   useEffect(() => {
-    if (view === "remote") {
+    if (view === "remote" || view === "overview") {
       void loadRemoteServers();
-      void loadKeyRows();
+      if (view === "remote") void loadKeyRows();
     }
   }, [loadKeyRows, loadRemoteServers, view]);
 

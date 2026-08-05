@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { identifyClientApplication, parseConfigImportUrl } from "./ConfigImportDialog";
 
 describe("config deep-link import", () => {
-  it("parses the CC Switch provider link without losing encoded values", () => {
+  it("parses an external provider link without losing encoded values", () => {
     const result = parseConfigImportUrl(
       "relayhub://v1/import?resource=provider&app=claude&name=Daily%20Claude&endpoint=https%3A%2F%2Frelay.example%2Fv1&apiKey=sk-test-1234&model=claude-sonnet-4-5&protocol=anthropic",
     );

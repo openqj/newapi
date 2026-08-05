@@ -25,9 +25,9 @@ describe("ApiKeyEditor", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "直转" }));
 
-    expect(screen.getByLabelText("密钥名称")).toHaveValue("Codex");
+    expect(screen.getByLabelText("密钥名称")).toHaveValue("直转");
   });
 
   it("keeps the editor open and reports a failed save", async () => {

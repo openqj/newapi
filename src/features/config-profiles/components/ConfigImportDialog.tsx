@@ -75,7 +75,7 @@ export function parseConfigImportUrl(value: string): ParsedConfigImport | null {
       model: model || undefined,
       protocol: protocol || undefined,
       homepage: firstParam(url.searchParams, ["homepage", "homePage"]) || undefined,
-      source: "ccswitch",
+      source: "external",
     };
   } catch {
     return null;
@@ -152,7 +152,7 @@ export function ConfigImportDialog({ onImported }: { onImported?: () => void }) 
 
   return <FormDialog
     title="导入配置档案"
-    description="已识别 CC Switch 配置。确认前只展示掩码密钥，明文密钥不会写入 RelayHub 数据库。"
+    description="已识别外部客户端配置。确认前只展示掩码密钥，明文密钥不会写入 RelayHub 数据库。"
     ariaLabel="导入配置档案"
     onClose={close}
     footer={<>

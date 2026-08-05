@@ -1,3 +1,26 @@
+## 2026-08-05: Local Gateway Usage Statistics
+
+**Findings**
+
+- [P2, fixed] Local usage statistics were implemented as a settings tab while the existing usage-record page remains remote-station backed.
+  Location: `src/features/settings/pages/SettingsPage.tsx`, `src/features/usage-stats/`, `src-tauri/src/local_usage_store.rs`, `src-tauri/src/services/gateway.rs`.
+  Fix: Gateway requests are persisted locally and aggregated with cache-normalized tokens, costs, trends, providers, models, and request details.
+- [P2, fixed] Provider/model filters and cache-write availability now follow the CC Switch dependency and protocol rules.
+  Evidence: desktop and 390x844 mobile captures; tabs, date presets, request detail drawer, pricing disclosure, and responsive toolbar were exercised in the local preview.
+
+**Open Questions**
+
+- The RelayHub navigation shell remains around the cloned content because this is an existing application. The comparison evaluates the usage-statistics content region.
+
+**Evidence**
+
+- Source visual truth: `C:\Users\Wecoo\AppData\Local\Temp\codex-clipboard-0b582928-f080-4869-9341-7be646222c80.png`
+- Desktop capture: `D:\work\newapi\output\playwright\usage-stats-desktop.png`
+- Mobile capture: `D:\work\newapi\output\playwright\usage-stats-mobile.png`
+- Verification: frontend build/typecheck passed; Vitest 36 files / 82 tests passed; Rust 119 tests passed, 4 ignored.
+
+final result: passed
+
 **Findings**
 
 - [P1, fixed] Mobile shell compressed the usage page into a narrow column.

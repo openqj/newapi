@@ -4,8 +4,10 @@ import { ConfirmationProvider, ToastProvider } from "../../../components/ui";
 import { ApiKeysPage } from "./ApiKeysPage";
 import type { KeyRow } from "../types";
 
-const { applyToClaude, groups, isTauri, reauthenticate, refresh, testModels } = vi.hoisted(() => ({
+const { applyToClaude, gatewayStatus, groups, isTauri, reauthenticate, refresh, setRoute, testModels } = vi.hoisted(() => ({
   applyToClaude: vi.fn(),
+  gatewayStatus: vi.fn(() => Promise.resolve({ mode: "ccSwitch" })),
+  setRoute: vi.fn(),
   groups: vi.fn(),
   isTauri: vi.fn(() => false),
   reauthenticate: vi.fn(),
@@ -18,6 +20,7 @@ vi.mock("../../stations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../stations")>();
   return { ...actual, stationApi: { ...actual.stationApi, reauthenticate, refresh } };
 });
+vi.mock("../../gateway/api", () => ({ gatewayApi: { status: gatewayStatus, setRoute } }));
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
   return { apiKeyApi: { ...actual.apiKeyApi, applyToClaude, groups, testModels } };
@@ -43,9 +46,11 @@ describe("ApiKeysPage selection and testing", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    isTauri.mockReturnValue(false);
+    gatewayStatus.mockResolvedValue({ mode: "ccSwitch" });
   });
 
-  it("places the Claude action before import and applies the selected key", async () => {
+  it("keeps the client actions without an external importer", async () => {
     render(
       <ToastProvider>
         <ConfirmationProvider>
@@ -60,8 +65,7 @@ describe("ApiKeysPage selection and testing", () => {
     );
 
     const claudeAction = screen.getByRole("button", { name: "Claude" });
-    const importAction = screen.getByRole("button", { name: "导入" });
-    expect(claudeAction.compareDocumentPosition(importAction)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument();
 
     fireEvent.click(claudeAction);
 
@@ -181,5 +185,24 @@ describe("ApiKeysPage selection and testing", () => {
 
     expect(screen.queryByText("测试密钥")).not.toBeInTheDocument();
     expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
+  });
+
+  it("shows that ChatGPT does not need a restart in local Gateway mode", async () => {
+    isTauri.mockReturnValue(true);
+    gatewayStatus.mockResolvedValue({ mode: "localGateway" });
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[row]}
+            stations={[]}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "启用" })).toHaveAttribute("title", "无需重启chatgpt"));
   });
 });

@@ -2,6 +2,7 @@ use std::{
     collections::{BTreeSet, HashMap},
     fs,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use reqwest::Client;
@@ -13,6 +14,7 @@ use tauri::{
 
 use crate::{
     models::GroupRate,
+    services::codex_config,
     services::gateway::{
         load_gateway_settings, load_or_create_gateway_token, restore_persisted_gateway_route,
         set_gateway_route, set_tray_routing_mode, GatewayController, RoutingMode,
@@ -241,14 +243,18 @@ pub(crate) fn run() {
                     std::env::consts::OS,
                     std::env::consts::ARCH
                 ))
+                .connect_timeout(Duration::from_secs(10))
+                .tcp_keepalive(Duration::from_secs(60))
+                .http2_adaptive_window(true)
                 .build()
                 .map_err(|e| e.to_string())?;
             let (mode, port) = load_gateway_settings(&store)?;
             let token = load_or_create_gateway_token()?;
-            let gateway = GatewayController::new(client.clone(), token, port);
+            let store = Arc::new(Mutex::new(store));
+            let gateway = GatewayController::new(client.clone(), token, port, store.clone());
             app.manage(AppState {
                 app_handle: app.handle().clone(),
-                store: Mutex::new(store),
+                store,
                 client,
                 gateway,
                 auth_backoff: Mutex::new(HashMap::new()),
@@ -293,8 +299,19 @@ pub(crate) fn run() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<AppState>();
-                    let _ = restore_persisted_gateway_route(&state).await;
-                    let _ = state.gateway.start().await;
+                    if restore_persisted_gateway_route(&state).await.is_ok() {
+                        let runtime = state.gateway.runtime_snapshot().await;
+                        if !runtime.routes.is_empty()
+                            && codex_config::activate_local_gateway(
+                                &state,
+                                &format!("http://127.0.0.1:{}/v1", runtime.port),
+                                &runtime.token,
+                            )
+                            .is_ok()
+                        {
+                            let _ = state.gateway.start().await;
+                        }
+                    }
                 });
             }
             let is_local_gateway = mode == RoutingMode::LocalGateway;
@@ -312,10 +329,10 @@ pub(crate) fn run() {
                 }
             });
             let separator_primary = PredefinedMenuItem::separator(app)?;
-            let cc_switch = CheckMenuItem::with_id(
+            let direct = CheckMenuItem::with_id(
                 app,
-                "mode-cc-switch",
-                "CC Switch",
+                "mode-direct",
+                "直转",
                 true,
                 !is_local_gateway,
                 None::<&str>,
@@ -323,13 +340,13 @@ pub(crate) fn run() {
             let local_gateway = CheckMenuItem::with_id(
                 app,
                 "mode-local-gateway",
-                "本地稳定入口",
+                "本地路由",
                 true,
                 is_local_gateway,
                 None::<&str>,
             )?;
             let routing_mode =
-                Submenu::with_items(app, "中转模式", true, &[&cc_switch, &local_gateway])?;
+                Submenu::with_items(app, "中转模式", true, &[&direct, &local_gateway])?;
             let gateway_status = MenuItem::with_id(
                 app,
                 "gateway-status",
@@ -340,7 +357,7 @@ pub(crate) fn run() {
                         format!("本地网关 · 未运行 · 127.0.0.1:{port}")
                     }
                 } else {
-                    "本地网关 · 已暂停（CC Switch 模式）".into()
+                    "本地网关 · 已暂停（直转模式）".into()
                 },
                 false,
                 None::<&str>,
@@ -413,10 +430,10 @@ pub(crate) fn run() {
                         let _ = window.show();
                     }
                 }
-                "mode-cc-switch" => {
-                    let _ = cc_switch.set_checked(true);
+                "mode-direct" => {
+                    let _ = direct.set_checked(true);
                     let _ = local_gateway.set_checked(false);
-                    let _ = gateway_status.set_text("本地网关 · 已暂停（CC Switch 模式）");
+                    let _ = gateway_status.set_text("本地网关 · 已暂停（直转模式）");
                     let _ = start_gateway.set_enabled(false);
                     let _ = stop_gateway.set_enabled(false);
                     let app = app.clone();
@@ -425,7 +442,7 @@ pub(crate) fn run() {
                     });
                 }
                 "mode-local-gateway" => {
-                    let _ = cc_switch.set_checked(false);
+                    let _ = direct.set_checked(false);
                     let _ = local_gateway.set_checked(true);
                     let _ =
                         gateway_status.set_text(format!("本地网关 · 正在启动 · 127.0.0.1:{port}"));

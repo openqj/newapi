@@ -121,7 +121,7 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
 
   const switchMode = (mode: RoutingMode) => {
     if (mode === status?.mode || busyAction) return;
-    void run("mode", () => gatewayApi.setMode(mode), mode === "localGateway" ? "已切换到本地 Gateway" : "已切换到 CC Switch", true);
+    void run("mode", () => gatewayApi.setMode(mode), mode === "localGateway" ? "已切换到本地路由" : "已切换到直转", true);
   };
 
   const savePort = () => {
@@ -178,17 +178,17 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
   const isTauriApp = isTauri();
 
   return <div className="gateway-settings">
-    <Panel className="settings-panel gateway-panel" title="Gateway 动态路由" description="让 Claude、Codex 或 Gemini 连接固定本地地址，再由 RelayHub 按优先级和健康状态选择上游。">
+    <Panel className="settings-panel gateway-panel" title="Gateway 动态路由" description="让 ChatGPT / Codex 连接固定本地地址，再由 RelayHub 按优先级和健康状态选择上游。">
       {!isTauriApp && <InlineAlert kind="info">Gateway 仅在 RelayHub 桌面应用中运行。</InlineAlert>}
       {error && <InlineAlert onDismiss={() => setError(null)}>{error}</InlineAlert>}
       <div className="gateway-topline">
         <div>
           <span className="gateway-eyebrow">路由入口</span>
           <div className="gateway-mode-switch" role="group" aria-label="Gateway 路由模式">
-            <button type="button" className={`test-mode-button ${status?.mode === "ccSwitch" ? "active" : ""}`} aria-pressed={status?.mode === "ccSwitch"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("ccSwitch")}>CC Switch</button>
-            <button type="button" className={`test-mode-button ${status?.mode === "localGateway" ? "active" : ""}`} aria-pressed={status?.mode === "localGateway"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("localGateway")}>本地 Gateway</button>
+            <button type="button" className={`test-mode-button ${status?.mode === "ccSwitch" ? "active" : ""}`} aria-pressed={status?.mode === "ccSwitch"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("ccSwitch")}>直转</button>
+            <button type="button" className={`test-mode-button ${status?.mode === "localGateway" ? "active" : ""}`} aria-pressed={status?.mode === "localGateway"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("localGateway")}>本地路由</button>
           </div>
-          <p className="gateway-helper">CC Switch 模式保持原有客户端配置；本地 Gateway 模式使用下方固定地址。</p>
+          <p className="gateway-helper">直转写入站点地址和 API 密钥；本地路由写入下方固定地址，由 Gateway 负责转发。</p>
         </div>
         <div className="gateway-running-actions">
           <span className={`gateway-running-badge ${status?.running ? "online" : "offline"}`}><i />{status?.running ? "运行中" : "已停止"}</span>
@@ -234,7 +234,7 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
       })}</div>}
 
       <footer className="gateway-route-footer"><span>{draftRoutes.length} 条路由 · 当前顺序决定失败转移优先级</span><button type="button" className="button-primary" disabled={!status || status.mode !== "localGateway" || !draftRoutes.length || !draftDirtyRef.current || Boolean(busyAction) || !isTauriApp} onClick={saveRoutes}><Save size={15} />{busyAction === "routes" ? "保存中" : "保存路由池"}</button></footer>
-      {status?.mode !== "localGateway" && <p className="gateway-mode-hint">当前为 CC Switch 模式。切换到本地 Gateway 后，路由池才会写入并参与转发。</p>}
+      {status?.mode !== "localGateway" && <p className="gateway-mode-hint">当前为直转模式。切换到本地路由后，路由池才会参与转发。</p>}
     </Panel>
   </div>;
 }

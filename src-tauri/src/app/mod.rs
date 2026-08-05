@@ -19,7 +19,7 @@ pub(crate) const STATIONS_CHANGED_EVENT: &str = "relayhub:stations-changed";
 
 pub(crate) struct AppState {
     pub(crate) app_handle: tauri::AppHandle<tauri::Wry>,
-    pub(crate) store: Mutex<Store>,
+    pub(crate) store: Arc<Mutex<Store>>,
     pub(crate) client: Client,
     pub(crate) gateway: GatewayController,
     pub(crate) auth_backoff: Mutex<HashMap<String, AuthBackoff>>,

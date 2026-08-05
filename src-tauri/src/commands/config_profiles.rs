@@ -349,7 +349,7 @@ pub(crate) async fn export_config_profile_to_cc_switch(
     id: String,
 ) -> Result<(), String> {
     if current_routing_mode(&state)? != RoutingMode::CcSwitch {
-        return Err("请先切换到 CC Switch 模式再导出配置".into());
+        return Err("请先切换到直转模式再导出配置".into());
     }
     let profile = state
         .store
@@ -400,5 +400,5 @@ pub(crate) async fn export_config_profile_to_cc_switch(
     }
     app.opener()
         .open_url(link.as_str(), None::<&str>)
-        .map_err(|error| format!("无法启动 CC Switch：{error}"))
+        .map_err(|error| format!("无法打开外部配置导入：{error}"))
 }

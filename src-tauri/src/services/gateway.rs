@@ -1,22 +1,26 @@
+use std::collections::VecDeque;
 use std::{
     collections::{HashMap, HashSet},
     net::SocketAddr,
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
 use axum::{
-    body::{to_bytes, Body},
+    body::{to_bytes, Body, Bytes},
     extract::{OriginalUri, State as AxumState},
-    http::{header, HeaderMap, HeaderName, Request, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, Request, StatusCode},
     response::{IntoResponse, Response},
     routing::any,
     Router,
 };
 use chrono::Utc;
+use futures_util::{stream, Stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::{oneshot, RwLock};
@@ -24,19 +28,27 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
-    keyring_store::credential_entry, services::api_keys::read_api_key,
-    settings_store::SettingsStore, store::Store, support::api_base_url, AppState,
+    keyring_store::credential_entry,
+    local_usage_store::LocalUsageRecord,
+    services::api_keys::read_api_key,
+    services::{chat_protocol, codex_config},
+    settings_store::SettingsStore,
+    store::Store,
+    support::api_base_url,
+    AppState,
 };
 
 pub(crate) const DEFAULT_GATEWAY_PORT: u16 = 18765;
 pub(crate) const GATEWAY_TOKEN_ID: &str = "local-gateway-token";
 const ACTIVE_GATEWAY_ROUTES_SETTING: &str = "activeGatewayRoutes";
+const DIRECT_GATEWAY_ROUTE_SETTING: &str = "directGatewayRoute";
 const DEFAULT_CIRCUIT_FAILURE_THRESHOLD: u32 = 4;
 const DEFAULT_CIRCUIT_SUCCESS_THRESHOLD: u32 = 2;
 const DEFAULT_CIRCUIT_RECOVERY: Duration = Duration::from_secs(60);
 const DEFAULT_CIRCUIT_ERROR_RATE_THRESHOLD: f64 = 0.6;
 const DEFAULT_CIRCUIT_MIN_REQUESTS: u32 = 10;
 const GATEWAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const MAX_GATEWAY_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -70,6 +82,7 @@ pub(crate) struct GatewayCredentials {
 pub(crate) struct GatewayRoute {
     pub(crate) station_id: String,
     pub(crate) key_id: String,
+    pub(crate) provider_name: String,
     pub(crate) upstream_base_url: String,
     pub(crate) api_key: String,
 }
@@ -108,6 +121,7 @@ pub(crate) struct GatewayRuntime {
 struct GatewayServiceState {
     runtime: Arc<RwLock<GatewayRuntime>>,
     client: Client,
+    local_store: Option<Arc<Mutex<Store>>>,
     circuit_breakers: Arc<Mutex<HashMap<String, GatewayCircuitBreaker>>>,
     circuit_config: GatewayCircuitConfig,
 }
@@ -115,6 +129,7 @@ struct GatewayServiceState {
 pub(crate) struct GatewayController {
     runtime: Arc<RwLock<GatewayRuntime>>,
     client: Client,
+    local_store: Option<Arc<Mutex<Store>>>,
     circuit_breakers: Arc<Mutex<HashMap<String, GatewayCircuitBreaker>>>,
     circuit_config: GatewayCircuitConfig,
     shutdown: Mutex<Option<oneshot::Sender<()>>>,
@@ -420,6 +435,26 @@ fn persist_route_selections(
     Ok(())
 }
 
+fn load_direct_route(store: &Store) -> Result<Option<GatewayRouteSelection>, String> {
+    let Some(raw) = store.setting(DIRECT_GATEWAY_ROUTE_SETTING)? else {
+        return Ok(None);
+    };
+    let selection = serde_json::from_str::<GatewayRouteSelection>(&raw).ok();
+    selection
+        .map(|selection| {
+            normalize_route_selections(vec![selection])?
+                .into_iter()
+                .next()
+                .ok_or("直转路由配置为空".to_string())
+        })
+        .transpose()
+}
+
+fn persist_direct_route(store: &Store, selection: &GatewayRouteSelection) -> Result<(), String> {
+    let serialized = serde_json::to_string(selection).map_err(|error| error.to_string())?;
+    store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, &serialized)
+}
+
 async fn resolve_route_selections(
     state: &AppState,
     selections: &[GatewayRouteSelection],
@@ -437,6 +472,7 @@ async fn resolve_route_selections(
         routes.push(GatewayRoute {
             station_id: selection.station_id.clone(),
             key_id: selection.key_id.clone(),
+            provider_name: station.name.clone(),
             upstream_base_url: api_base_url(&station.base_url),
             api_key,
         });
@@ -446,24 +482,7 @@ async fn resolve_route_selections(
 
 pub(crate) async fn set_tray_routing_mode(app: AppHandle, mode: RoutingMode) -> Result<(), String> {
     let state = app.state::<AppState>();
-    match mode {
-        RoutingMode::CcSwitch => {
-            state.gateway.stop();
-            state.gateway.clear_route().await;
-        }
-        RoutingMode::LocalGateway => {
-            if state.gateway.runtime_snapshot().await.route.is_none() {
-                let _ = restore_persisted_gateway_route(&state).await;
-            }
-            state.gateway.start().await?;
-        }
-    }
-    let result = state
-        .store
-        .lock()
-        .map_err(|_| "本地数据库不可用".to_string())?
-        .save_setting("routingMode", routing_mode_setting(&mode));
-    result
+    set_routing_mode(&state, mode).await.map(|_| ())
 }
 
 pub(crate) async fn set_gateway_route(
@@ -471,7 +490,34 @@ pub(crate) async fn set_gateway_route(
     station_id: String,
     key_id: String,
 ) -> Result<(), String> {
-    set_gateway_routes(state, vec![GatewayRouteSelection { station_id, key_id }]).await
+    let selection = normalize_route_selections(vec![GatewayRouteSelection { station_id, key_id }])?
+        .into_iter()
+        .next()
+        .ok_or("至少需要启用一个 API 密钥作为路由")?;
+    if current_routing_mode(state)? == RoutingMode::LocalGateway {
+        set_gateway_routes(state, vec![selection]).await?;
+        return Ok(());
+    }
+
+    let route = resolve_route_selections(state, std::slice::from_ref(&selection))
+        .await?
+        .into_iter()
+        .next()
+        .ok_or("无法解析直转路由")?;
+    {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "本地数据库不可用".to_string())?;
+        persist_direct_route(&store, &selection)?;
+    }
+    state.gateway.clear_route().await;
+    codex_config::activate_direct_route(
+        &route.provider_name,
+        &route.upstream_base_url,
+        &route.api_key,
+    )?;
+    Ok(())
 }
 
 pub(crate) async fn set_gateway_routes(
@@ -493,37 +539,58 @@ pub(crate) async fn set_gateway_routes(
             .lock()
             .map_err(|_| "本地数据库不可用".to_string())?;
         persist_route_selections(&store, &selections)?;
+        persist_direct_route(&store, &selections[0])?;
     }
+    let runtime = state.gateway.runtime_snapshot().await;
+    codex_config::activate_local_gateway(state, &gateway_base_url(runtime.port), &runtime.token)?;
     state.gateway.start().await
 }
 
 pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String> {
     let mode = current_routing_mode(state)?;
     let runtime = state.gateway.runtime_snapshot().await;
-    let route_queue = if runtime.routes.is_empty() {
+    let (route_queue, direct_route) = if runtime.routes.is_empty() {
         let store = state
             .store
             .lock()
             .map_err(|_| "本地数据库不可用".to_string())?;
-        load_persisted_route_selections(&store)?
+        (
+            load_persisted_route_selections(&store)?,
+            load_direct_route(&store)?,
+        )
     } else {
-        runtime
-            .routes
-            .iter()
-            .map(|route| GatewayRouteSelection {
-                station_id: route.station_id.clone(),
-                key_id: route.key_id.clone(),
-            })
-            .collect()
+        (
+            runtime
+                .routes
+                .iter()
+                .map(|route| GatewayRouteSelection {
+                    station_id: route.station_id.clone(),
+                    key_id: route.key_id.clone(),
+                })
+                .collect(),
+            None,
+        )
     };
+    let active_route = runtime
+        .route
+        .as_ref()
+        .map(|route| GatewayRouteSelection {
+            station_id: route.station_id.clone(),
+            key_id: route.key_id.clone(),
+        })
+        .or_else(|| {
+            (mode == RoutingMode::CcSwitch)
+                .then_some(direct_route)
+                .flatten()
+        });
     Ok(GatewayStatus {
         mode,
         running: state.gateway.is_running(),
         port: runtime.port,
         base_url: gateway_base_url(runtime.port),
-        active_station_id: runtime.route.as_ref().map(|route| route.station_id.clone()),
-        active_key_id: runtime.route.as_ref().map(|route| route.key_id.clone()),
-        has_active_route: runtime.route.is_some(),
+        active_station_id: active_route.as_ref().map(|route| route.station_id.clone()),
+        active_key_id: active_route.as_ref().map(|route| route.key_id.clone()),
+        has_active_route: active_route.is_some(),
         route_queue,
         route_health: state.gateway.route_health().await,
     })
@@ -545,27 +612,187 @@ pub(crate) async fn credentials(state: &AppState) -> Result<GatewayCredentials, 
     })
 }
 
+async fn restore_gateway_runtime(
+    state: &AppState,
+    previous_runtime: &GatewayRuntime,
+    was_running: bool,
+) -> Result<(), String> {
+    state.gateway.stop();
+    state.gateway.clear_route().await;
+    let routes = if previous_runtime.routes.is_empty() {
+        previous_runtime
+            .route
+            .clone()
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        previous_runtime.routes.clone()
+    };
+    if !routes.is_empty() {
+        state.gateway.set_routes(routes).await;
+    }
+    if was_running {
+        state.gateway.start().await?;
+    }
+    Ok(())
+}
+
+fn restore_direct_route_setting(
+    state: &AppState,
+    previous_value: Option<&str>,
+) -> Result<(), String> {
+    state
+        .store
+        .lock()
+        .map_err(|_| "鏈湴鏁版嵁搴撲笉鍙敤".to_string())?
+        .save_setting(
+            DIRECT_GATEWAY_ROUTE_SETTING,
+            previous_value.unwrap_or_default(),
+        )
+}
+
+fn transition_error(error: String, rollback: Result<(), String>) -> String {
+    match rollback {
+        Ok(()) => error,
+        Err(rollback_error) => format!("{error}；状态回滚失败：{rollback_error}"),
+    }
+}
+
+async fn rollback_to_local_gateway(
+    state: &AppState,
+    previous_runtime: &GatewayRuntime,
+    was_running: bool,
+) -> Result<(), String> {
+    codex_config::activate_local_gateway(
+        state,
+        &gateway_base_url(previous_runtime.port),
+        &previous_runtime.token,
+    )?;
+    restore_gateway_runtime(state, previous_runtime, was_running).await
+}
+
+async fn rollback_to_direct_route(
+    state: &AppState,
+    previous_runtime: &GatewayRuntime,
+    was_running: bool,
+) -> Result<(), String> {
+    codex_config::restore_local_gateway(state)?;
+    restore_gateway_runtime(state, previous_runtime, was_running).await
+}
+
 pub(crate) async fn set_routing_mode(
     state: &AppState,
     mode: RoutingMode,
 ) -> Result<GatewayStatus, String> {
+    let previous_mode = current_routing_mode(state)?;
+    if previous_mode == mode {
+        return get_status(state).await;
+    }
+    let previous_runtime = state.gateway.runtime_snapshot().await;
+    let was_running = state.gateway.is_running();
+    let previous_direct_route_setting = {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "鏈湴鏁版嵁搴撲笉鍙敤".to_string())?;
+        store.setting(DIRECT_GATEWAY_ROUTE_SETTING)?
+    };
+
     match mode {
         RoutingMode::CcSwitch => {
+            let selection = {
+                let store = state
+                    .store
+                    .lock()
+                    .map_err(|_| "本地数据库不可用".to_string())?;
+                load_direct_route(&store)?.or_else(|| {
+                    load_persisted_route_selections(&store)
+                        .ok()
+                        .and_then(|items| items.into_iter().next())
+                })
+            }
+            .ok_or("直转至少需要一条站点 / API 密钥")?;
+            let route = resolve_route_selections(state, std::slice::from_ref(&selection))
+                .await?
+                .into_iter()
+                .next()
+                .ok_or("无法解析直转路由")?;
+            {
+                let store = state
+                    .store
+                    .lock()
+                    .map_err(|_| "本地数据库不可用".to_string())?;
+                if let Err(error) = persist_direct_route(&store, &selection) {
+                    let rollback = restore_direct_route_setting(
+                        state,
+                        previous_direct_route_setting.as_deref(),
+                    );
+                    return Err(transition_error(error, rollback));
+                }
+            }
+            if let Err(error) = codex_config::restore_local_gateway(state) {
+                let rollback =
+                    restore_direct_route_setting(state, previous_direct_route_setting.as_deref());
+                return Err(transition_error(error, rollback));
+            }
             state.gateway.stop();
             state.gateway.clear_route().await;
+            if let Err(error) = codex_config::activate_direct_route(
+                &route.provider_name,
+                &route.upstream_base_url,
+                &route.api_key,
+            ) {
+                let rollback =
+                    rollback_to_local_gateway(state, &previous_runtime, was_running).await;
+                let rollback = rollback.and_then(|()| {
+                    restore_direct_route_setting(state, previous_direct_route_setting.as_deref())
+                });
+                return Err(transition_error(error, rollback));
+            }
         }
         RoutingMode::LocalGateway => {
-            if state.gateway.runtime_snapshot().await.route.is_none() {
-                let _ = restore_persisted_gateway_route(state).await;
+            if state.gateway.runtime_snapshot().await.routes.is_empty() {
+                restore_persisted_gateway_route(state).await?;
             }
-            state.gateway.start().await?;
+            let runtime = state.gateway.runtime_snapshot().await;
+            if runtime.routes.is_empty() {
+                return Err("本地路由至少需要一条站点 / API 密钥".into());
+            }
+            if let Err(error) = codex_config::activate_local_gateway(
+                state,
+                &gateway_base_url(runtime.port),
+                &runtime.token,
+            ) {
+                let rollback = restore_gateway_runtime(state, &previous_runtime, was_running).await;
+                return Err(transition_error(error, rollback));
+            }
+            if let Err(error) = state.gateway.start().await {
+                let rollback =
+                    rollback_to_direct_route(state, &previous_runtime, was_running).await;
+                return Err(transition_error(error, rollback));
+            }
         }
     }
-    state
+    let mode_save = state
         .store
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
-        .save_setting("routingMode", routing_mode_setting(&mode))?;
+        .save_setting("routingMode", routing_mode_setting(&mode));
+    if let Err(error) = mode_save {
+        let rollback = match mode {
+            RoutingMode::CcSwitch => {
+                let rollback =
+                    rollback_to_local_gateway(state, &previous_runtime, was_running).await;
+                rollback.and_then(|()| {
+                    restore_direct_route_setting(state, previous_direct_route_setting.as_deref())
+                })
+            }
+            RoutingMode::LocalGateway => {
+                rollback_to_direct_route(state, &previous_runtime, was_running).await
+            }
+        };
+        return Err(transition_error(error, rollback));
+    }
     get_status(state).await
 }
 
@@ -578,6 +805,14 @@ pub(crate) async fn set_port(state: &AppState, port: u16) -> Result<GatewayStatu
         state.gateway.stop();
     }
     state.gateway.set_port(port).await;
+    if current_routing_mode(state)? == RoutingMode::LocalGateway {
+        let runtime = state.gateway.runtime_snapshot().await;
+        codex_config::activate_local_gateway(
+            state,
+            &gateway_base_url(runtime.port),
+            &runtime.token,
+        )?;
+    }
     state
         .store
         .lock()
@@ -591,22 +826,36 @@ pub(crate) async fn set_port(state: &AppState, port: u16) -> Result<GatewayStatu
 
 pub(crate) async fn start(state: &AppState) -> Result<GatewayStatus, String> {
     if current_routing_mode(state)? != RoutingMode::LocalGateway {
-        return Err("请先切换到本地稳定入口模式".into());
+        return Err("请先切换到本地路由模式".into());
     }
+    if state.gateway.runtime_snapshot().await.routes.is_empty() {
+        restore_persisted_gateway_route(state).await?;
+    }
+    let runtime = state.gateway.runtime_snapshot().await;
+    if runtime.routes.is_empty() {
+        return Err("本地路由至少需要一条站点 / API 密钥".into());
+    }
+    codex_config::activate_local_gateway(state, &gateway_base_url(runtime.port), &runtime.token)?;
     state.gateway.start().await?;
     get_status(state).await
 }
 
 pub(crate) async fn rotate_token(state: &AppState) -> Result<GatewayCredentials, String> {
     if current_routing_mode(state)? != RoutingMode::LocalGateway {
-        return Err("请先切换到本地稳定入口模式".into());
+        return Err("请先切换到本地路由模式".into());
     }
     let token = format!("rh-{}", Uuid::new_v4().simple());
+    let old_token = state.gateway.runtime_snapshot().await.token;
+    let port = state.gateway.runtime_snapshot().await.port;
+    codex_config::activate_local_gateway(state, &gateway_base_url(port), &token)?;
     credential_entry(GATEWAY_TOKEN_ID)?
         .set_password(&token)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            let _ =
+                codex_config::activate_local_gateway(state, &gateway_base_url(port), &old_token);
+            error.to_string()
+        })?;
     state.gateway.rotate_token(token.clone()).await;
-    let port = state.gateway.runtime_snapshot().await.port;
     Ok(GatewayCredentials {
         base_url: gateway_base_url(port),
         token,
@@ -621,10 +870,10 @@ pub(crate) async fn import_to_cc_switch(
     target_app: String,
 ) -> Result<(), String> {
     if current_routing_mode(state)? != RoutingMode::CcSwitch {
-        return Err("本地稳定入口模式下不能导入 CC Switch".into());
+        return Err("本地路由模式下不能导出外部配置".into());
     }
     if !matches!(target_app.as_str(), "claude" | "codex" | "gemini") {
-        return Err("CC Switch 目标仅支持 Claude、Codex 或 Gemini".into());
+        return Err("外部配置目标仅支持 Claude、Codex 或 Gemini".into());
     }
     let (station, key) = read_api_key(state, &station_id, &key_id).await?;
     let mut link = Url::parse("ccswitch://v1/import").map_err(|error| error.to_string())?;
@@ -638,12 +887,23 @@ pub(crate) async fn import_to_cc_switch(
         .append_pair("apiKey", &key);
     app.opener()
         .open_url(link.as_str(), None::<&str>)
-        .map_err(|error| format!("无法启动 CC Switch：{error}"))
+        .map_err(|error| format!("无法打开外部配置导入：{error}"))
 }
 
 impl GatewayController {
-    pub(crate) fn new(client: Client, token: String, port: u16) -> Self {
-        Self::new_with_circuit_config(client, token, port, GatewayCircuitConfig::default())
+    pub(crate) fn new(
+        client: Client,
+        token: String,
+        port: u16,
+        local_store: Arc<Mutex<Store>>,
+    ) -> Self {
+        Self::new_with_circuit_config(
+            client,
+            token,
+            port,
+            GatewayCircuitConfig::default(),
+            Some(local_store),
+        )
     }
 
     fn new_with_circuit_config(
@@ -651,6 +911,7 @@ impl GatewayController {
         token: String,
         port: u16,
         circuit_config: GatewayCircuitConfig,
+        local_store: Option<Arc<Mutex<Store>>>,
     ) -> Self {
         Self {
             runtime: Arc::new(RwLock::new(GatewayRuntime {
@@ -660,6 +921,7 @@ impl GatewayController {
                 routes: Vec::new(),
             })),
             client,
+            local_store,
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             circuit_config,
             shutdown: Mutex::new(None),
@@ -698,6 +960,7 @@ impl GatewayController {
             .with_state(GatewayServiceState {
                 runtime: self.runtime.clone(),
                 client: self.client.clone(),
+                local_store: self.local_store.clone(),
                 circuit_breakers: self.circuit_breakers.clone(),
                 circuit_config: self.circuit_config,
             });
@@ -808,6 +1071,32 @@ fn gateway_request_authorized(headers: &HeaderMap, token: &str) -> bool {
         .is_some_and(|value| value.strip_prefix("Bearer ") == Some(token))
 }
 
+fn forwarded_request_headers(headers: &HeaderMap) -> HeaderMap {
+    let mut forwarded = HeaderMap::new();
+    for (name, value) in headers {
+        if name == header::AUTHORIZATION
+            || name == header::HOST
+            || name == header::CONTENT_LENGTH
+            || is_hop_by_hop_header(name)
+        {
+            continue;
+        }
+        forwarded.append(name.clone(), value.clone());
+    }
+    forwarded
+}
+
+fn can_stream_request(headers: &HeaderMap, route_count: usize, is_responses_request: bool) -> bool {
+    if is_responses_request || route_count != 1 {
+        return false;
+    }
+    headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length <= MAX_GATEWAY_REQUEST_BYTES as u64)
+}
+
 fn is_hop_by_hop_header(name: &HeaderName) -> bool {
     matches!(
         name.as_str().to_ascii_lowercase().as_str(),
@@ -822,15 +1111,23 @@ fn is_hop_by_hop_header(name: &HeaderName) -> bool {
     )
 }
 
-fn gateway_upstream_url(upstream_base_url: &str, uri: &axum::http::Uri) -> Result<String, String> {
-    let path_and_query = uri
-        .path_and_query()
-        .map(|value| value.as_str())
-        .unwrap_or("/v1");
-    let suffix = path_and_query
-        .strip_prefix("/v1")
-        .ok_or("网关仅支持 /v1 请求")?;
-    let target = format!("{}{}", upstream_base_url.trim_end_matches('/'), suffix);
+fn gateway_upstream_url(
+    upstream_base_url: &str,
+    uri: &axum::http::Uri,
+    replacement_path: Option<&str>,
+) -> Result<String, String> {
+    let path = replacement_path.unwrap_or(uri.path());
+    let suffix = path.strip_prefix("/v1").ok_or("网关仅支持 /v1 请求")?;
+    let query = uri
+        .query()
+        .map(|value| format!("?{value}"))
+        .unwrap_or_default();
+    let target = format!(
+        "{}{}{}",
+        upstream_base_url.trim_end_matches('/'),
+        suffix,
+        query
+    );
     Url::parse(&target).map_err(|_| "活动路由的上游地址无效".to_string())?;
     Ok(target)
 }
@@ -839,7 +1136,8 @@ fn gateway_upstream_url(upstream_base_url: &str, uri: &axum::http::Uri) -> Resul
 struct BufferedGatewayResponse {
     status: StatusCode,
     headers: HeaderMap,
-    body: Vec<u8>,
+    body: Bytes,
+    route: GatewayRoute,
 }
 
 fn gateway_route_key(route: &GatewayRoute) -> String {
@@ -903,6 +1201,684 @@ fn build_gateway_response(status: StatusCode, headers: &HeaderMap, body: Body) -
     })
 }
 
+#[derive(Default)]
+struct ParsedLocalUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_creation_tokens: u64,
+    model: Option<String>,
+}
+
+fn json_integer(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|value| u64::try_from(value).ok()))
+        .or_else(|| value.as_f64().map(|value| value.max(0.0) as u64))
+        .or_else(|| value.as_str().and_then(|value| value.parse::<u64>().ok()))
+}
+
+fn json_field(value: &Value, names: &[&str]) -> Option<u64> {
+    names
+        .iter()
+        .find_map(|name| value.get(*name).and_then(json_integer))
+}
+
+fn json_path_field(value: &Value, paths: &[&[&str]]) -> Option<u64> {
+    paths.iter().find_map(|path| {
+        let mut current = value;
+        for key in *path {
+            current = current.get(*key)?;
+        }
+        json_integer(current)
+    })
+}
+
+fn collect_usage_values<'a>(value: &'a Value, output: &mut Vec<&'a Value>) {
+    match value {
+        Value::Object(fields) => {
+            for (key, child) in fields {
+                if matches!(
+                    key.to_ascii_lowercase().as_str(),
+                    "usage" | "usagemetadata" | "usage_metadata" | "token_usage"
+                ) {
+                    output.push(child);
+                }
+                collect_usage_values(child, output);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_usage_values(item, output);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn merge_usage_value(usage: &mut ParsedLocalUsage, value: &Value) {
+    let input = json_field(
+        value,
+        &[
+            "input_tokens",
+            "inputTokens",
+            "prompt_tokens",
+            "promptTokenCount",
+        ],
+    );
+    let output = json_field(
+        value,
+        &[
+            "output_tokens",
+            "outputTokens",
+            "completion_tokens",
+            "candidatesTokenCount",
+        ],
+    );
+    let cache_read = json_field(
+        value,
+        &[
+            "cache_read_input_tokens",
+            "cache_read_tokens",
+            "cached_tokens",
+            "cachedContentTokenCount",
+        ],
+    )
+    .or_else(|| {
+        json_path_field(
+            value,
+            &[
+                &["input_tokens_details", "cached_tokens"],
+                &["prompt_tokens_details", "cached_tokens"],
+                &["input_tokens_details", "cache_read_tokens"],
+                &["prompt_tokens_details", "cache_read_tokens"],
+            ],
+        )
+    });
+    let cache_creation = json_field(
+        value,
+        &[
+            "cache_creation_input_tokens",
+            "cache_creation_tokens",
+            "cache_write_tokens",
+        ],
+    )
+    .or_else(|| {
+        json_path_field(
+            value,
+            &[
+                &["input_tokens_details", "cache_write_tokens"],
+                &["prompt_tokens_details", "cache_write_tokens"],
+            ],
+        )
+    });
+    if let Some(value) = input {
+        usage.input_tokens = usage.input_tokens.max(value);
+    }
+    if let Some(value) = output {
+        usage.output_tokens = usage.output_tokens.max(value);
+    }
+    if let Some(value) = cache_read {
+        usage.cache_read_tokens = usage.cache_read_tokens.max(value);
+    }
+    if let Some(value) = cache_creation {
+        usage.cache_creation_tokens = usage.cache_creation_tokens.max(value);
+    }
+}
+
+fn find_model(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(fields) => fields
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| fields.values().find_map(find_model)),
+        Value::Array(items) => items.iter().find_map(find_model),
+        _ => None,
+    }
+}
+
+fn merge_local_usage_value(usage: &mut ParsedLocalUsage, value: &Value) {
+    if usage.model.is_none() {
+        usage.model = find_model(value);
+    }
+    let mut usage_values = Vec::new();
+    collect_usage_values(value, &mut usage_values);
+    for value in usage_values {
+        merge_usage_value(usage, value);
+    }
+}
+
+fn parse_local_usage(body: &[u8]) -> ParsedLocalUsage {
+    let mut values = Vec::new();
+    if let Ok(value) = serde_json::from_slice::<Value>(body) {
+        values.push(value);
+    } else {
+        for line in String::from_utf8_lossy(body).lines() {
+            let Some(data) = line.trim().strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            if let Ok(value) = serde_json::from_str::<Value>(data) {
+                values.push(value);
+            }
+        }
+    }
+    let mut usage = ParsedLocalUsage::default();
+    for value in &values {
+        merge_local_usage_value(&mut usage, value);
+    }
+    usage
+}
+
+#[derive(Default)]
+struct LocalUsageAccumulator {
+    pending: Vec<u8>,
+    usage: ParsedLocalUsage,
+}
+
+impl LocalUsageAccumulator {
+    fn push(&mut self, chunk: &[u8]) {
+        self.pending.extend_from_slice(chunk);
+        while let Some(newline) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line = self.pending.drain(..=newline).collect::<Vec<_>>();
+            self.process_line(&line);
+        }
+    }
+
+    fn finish(&mut self) -> ParsedLocalUsage {
+        if !self.pending.is_empty() {
+            let line = std::mem::take(&mut self.pending);
+            self.process_line(&line);
+        }
+        std::mem::take(&mut self.usage)
+    }
+
+    fn process_line(&mut self, line: &[u8]) {
+        let line = String::from_utf8_lossy(line);
+        let Some(data) = line.trim().strip_prefix("data:").map(str::trim) else {
+            return;
+        };
+        if data.is_empty() || data == "[DONE]" {
+            return;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(data) {
+            merge_local_usage_value(&mut self.usage, &value);
+        }
+    }
+}
+
+fn request_model_from_value(value: &Value) -> Option<String> {
+    value
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn request_model(payload: &[u8]) -> Option<String> {
+    serde_json::from_slice::<Value>(payload)
+        .ok()
+        .and_then(|value| request_model_from_value(&value))
+}
+
+fn gateway_app_type(uri: &axum::http::Uri, headers: &HeaderMap) -> String {
+    let marker = headers
+        .get("x-cc-switch-app")
+        .or_else(|| headers.get("x-relayhub-app"))
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_ascii_lowercase);
+    let path = uri.path().to_ascii_lowercase();
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let candidate = marker.as_deref().unwrap_or_default();
+    if candidate.contains("claude") || path.contains("messages") || user_agent.contains("claude") {
+        "claude".into()
+    } else if candidate.contains("gemini")
+        || path.contains("generatecontent")
+        || user_agent.contains("gemini")
+    {
+        "gemini".into()
+    } else if candidate.contains("grok") {
+        "grokbuild".into()
+    } else if candidate.contains("codex")
+        || path.contains("responses")
+        || user_agent.contains("codex")
+    {
+        "codex".into()
+    } else {
+        "openai".into()
+    }
+}
+
+fn cache_inclusive_app(app_type: &str) -> bool {
+    matches!(app_type, "codex" | "gemini" | "grokbuild" | "openai")
+}
+
+fn elapsed_ms(started_at: Instant) -> i64 {
+    started_at.elapsed().as_millis().min(i64::MAX as u128) as i64
+}
+
+fn record_local_usage(
+    local_store: Option<&Arc<Mutex<Store>>>,
+    route: &GatewayRoute,
+    uri: &axum::http::Uri,
+    app_type: &str,
+    request_model: Option<&str>,
+    response_body: &[u8],
+    status: StatusCode,
+    latency_ms: i64,
+    duration_ms: Option<i64>,
+    first_token_ms: Option<i64>,
+    is_streaming: bool,
+    error_message: Option<String>,
+) {
+    let parsed = parse_local_usage(response_body);
+    record_local_usage_parsed(
+        local_store,
+        route,
+        uri,
+        app_type,
+        request_model,
+        parsed,
+        status,
+        latency_ms,
+        duration_ms,
+        first_token_ms,
+        is_streaming,
+        error_message,
+    );
+}
+
+fn record_local_usage_parsed(
+    local_store: Option<&Arc<Mutex<Store>>>,
+    route: &GatewayRoute,
+    uri: &axum::http::Uri,
+    app_type: &str,
+    request_model: Option<&str>,
+    parsed: ParsedLocalUsage,
+    status: StatusCode,
+    latency_ms: i64,
+    duration_ms: Option<i64>,
+    first_token_ms: Option<i64>,
+    is_streaming: bool,
+    error_message: Option<String>,
+) {
+    let Some(local_store) = local_store else {
+        return;
+    };
+    let requested_model = request_model
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string);
+    let model = parsed
+        .model
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| requested_model.clone())
+        .unwrap_or_else(|| "unknown".into());
+    let status_error = if status.as_u16() >= 400 {
+        Some(format!("上游返回 HTTP {}", status.as_u16()))
+    } else {
+        None
+    };
+    let record = LocalUsageRecord {
+        request_id: Uuid::new_v4().to_string(),
+        provider_id: route.station_id.clone(),
+        provider_name: route.provider_name.clone(),
+        app_type: app_type.to_string(),
+        model,
+        request_model: requested_model,
+        input_tokens: parsed.input_tokens.min(i64::MAX as u64) as i64,
+        output_tokens: parsed.output_tokens.min(i64::MAX as u64) as i64,
+        cache_read_tokens: parsed.cache_read_tokens.min(i64::MAX as u64) as i64,
+        cache_creation_tokens: parsed.cache_creation_tokens.min(i64::MAX as u64) as i64,
+        input_token_semantics: if cache_inclusive_app(app_type) { 1 } else { 0 },
+        latency_ms,
+        first_token_ms,
+        duration_ms,
+        status_code: status.as_u16(),
+        error_message: error_message.or(status_error),
+        is_streaming,
+        endpoint: Some(uri.path().to_string()),
+        key_id: Some(route.key_id.clone()),
+        created_at: Utc::now().timestamp(),
+    };
+    if let Ok(store) = local_store.lock() {
+        let _ = store.record_local_usage(&record);
+    }
+}
+
+struct LoggingResponseMeta {
+    local_store: Option<Arc<Mutex<Store>>>,
+    route: GatewayRoute,
+    uri: axum::http::Uri,
+    app_type: String,
+    request_model: Option<String>,
+    status: StatusCode,
+    latency_ms: i64,
+    started_at: Instant,
+}
+
+struct LoggingResponseStream<E> {
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, E>> + Send>>,
+    usage: LocalUsageAccumulator,
+    meta: LoggingResponseMeta,
+    completed: bool,
+}
+
+impl<E> LoggingResponseStream<E> {
+    fn new(
+        stream: impl Stream<Item = Result<Bytes, E>> + Send + 'static,
+        meta: LoggingResponseMeta,
+    ) -> Self {
+        Self {
+            inner: Box::pin(stream),
+            usage: LocalUsageAccumulator::default(),
+            meta,
+            completed: false,
+        }
+    }
+
+    fn finish(&mut self, error_message: Option<String>) {
+        if self.completed {
+            return;
+        }
+        self.completed = true;
+        let parsed = self.usage.finish();
+        let duration_ms = elapsed_ms(self.meta.started_at);
+        record_local_usage_parsed(
+            self.meta.local_store.as_ref(),
+            &self.meta.route,
+            &self.meta.uri,
+            &self.meta.app_type,
+            self.meta.request_model.as_deref(),
+            parsed,
+            self.meta.status,
+            self.meta.latency_ms,
+            Some(duration_ms),
+            Some(self.meta.latency_ms),
+            true,
+            error_message,
+        );
+    }
+}
+
+impl<E> Stream for LoggingResponseStream<E>
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    type Item = Result<Bytes, E>;
+
+    fn poll_next(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+        match this.inner.as_mut().poll_next(context) {
+            Poll::Ready(Some(Ok(chunk))) => {
+                this.usage.push(&chunk);
+                Poll::Ready(Some(Ok(chunk)))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                this.finish(Some(format!("流式响应读取失败：{error}")));
+                Poll::Ready(Some(Err(error)))
+            }
+            Poll::Ready(None) => {
+                this.finish(None);
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<E> Drop for LoggingResponseStream<E> {
+    fn drop(&mut self) {
+        self.finish(Some("流式响应未完整结束".into()));
+    }
+}
+
+fn protocol_error_body(body: &[u8]) -> Vec<u8> {
+    let value = serde_json::from_slice::<Value>(body).ok().or_else(|| {
+        String::from_utf8_lossy(body).lines().find_map(|line| {
+            let data = line.trim().strip_prefix("data:")?.trim();
+            (data != "[DONE]").then(|| serde_json::from_str::<Value>(data).ok())?
+        })
+    });
+    serde_json::to_vec(&chat_protocol::chat_error_to_response(value.as_ref())).unwrap_or_else(|_| {
+        br#"{"error":{"message":"Upstream Chat Completions request failed","type":"upstream_error"}}"#
+            .to_vec()
+    })
+}
+
+fn protocol_response_headers(headers: &HeaderMap, streaming: bool) -> HeaderMap {
+    let mut output = headers.clone();
+    output.remove(header::CONTENT_LENGTH);
+    if streaming {
+        output.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        );
+    } else {
+        output.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("application/json"),
+        );
+    }
+    output
+}
+
+fn convert_chat_stream(
+    upstream: impl Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+    context: chat_protocol::ChatProtocolContext,
+) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
+    let upstream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>> =
+        Box::pin(upstream);
+    stream::unfold(
+        (
+            upstream,
+            chat_protocol::ChatSseConverter::new(context),
+            VecDeque::<Bytes>::new(),
+            false,
+        ),
+        |(mut upstream, mut converter, mut pending, mut finished)| async move {
+            loop {
+                if let Some(chunk) = pending.pop_front() {
+                    return Some((Ok(chunk), (upstream, converter, pending, finished)));
+                }
+                if finished {
+                    return None;
+                }
+                match upstream.as_mut().next().await {
+                    Some(Ok(chunk)) => {
+                        for event in converter.push(&chunk) {
+                            pending.push_back(Bytes::from(event));
+                        }
+                        finished = converter.is_finished();
+                    }
+                    Some(Err(error)) => {
+                        for event in converter.fail(format!("上游流式响应读取失败：{error}"))
+                        {
+                            pending.push_back(Bytes::from(event));
+                        }
+                        finished = true;
+                    }
+                    None => {
+                        for event in converter.finish() {
+                            pending.push_back(Bytes::from(event));
+                        }
+                        finished = true;
+                    }
+                }
+            }
+        },
+    )
+}
+
+async fn gateway_proxy_streaming_request(
+    state: GatewayServiceState,
+    uri: axum::http::Uri,
+    parts: axum::http::request::Parts,
+    body: Body,
+    route: GatewayRoute,
+) -> Response {
+    let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
+        return gateway_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "all_routes_circuit_open",
+            "所有本地网关路由均处于熔断状态",
+        );
+    };
+
+    let target = match gateway_upstream_url(&route.upstream_base_url, &uri, None) {
+        Ok(target) => target,
+        Err(error) => {
+            record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            return gateway_error(StatusCode::BAD_GATEWAY, "invalid_upstream", error);
+        }
+    };
+
+    let app_type = gateway_app_type(&uri, &parts.headers);
+    let forwarded_headers = forwarded_request_headers(&parts.headers);
+    let request_started_at = Instant::now();
+    let mut outbound = state
+        .client
+        .request(parts.method, target)
+        .timeout(GATEWAY_REQUEST_TIMEOUT)
+        .bearer_auth(&route.api_key)
+        .body(reqwest::Body::wrap_stream(body.into_data_stream()));
+    for (name, value) in &forwarded_headers {
+        outbound = outbound.header(name.clone(), value.clone());
+    }
+
+    let upstream = match outbound.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            return gateway_error(
+                StatusCode::BAD_GATEWAY,
+                "upstream_request_failed",
+                format!("上游请求失败：{error}"),
+            );
+        }
+    };
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let response_latency_ms = elapsed_ms(request_started_at);
+    if is_retryable_upstream_status(status) {
+        match upstream.bytes().await {
+            Ok(body) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                record_local_usage(
+                    state.local_store.as_ref(),
+                    &route,
+                    &uri,
+                    &app_type,
+                    None,
+                    &body,
+                    status,
+                    response_latency_ms,
+                    Some(elapsed_ms(request_started_at)),
+                    None,
+                    false,
+                    None,
+                );
+                return build_gateway_response(status, &upstream_headers, Body::from(body));
+            }
+            Err(error) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                record_local_usage(
+                    state.local_store.as_ref(),
+                    &route,
+                    &uri,
+                    &app_type,
+                    None,
+                    &[],
+                    status,
+                    response_latency_ms,
+                    Some(elapsed_ms(request_started_at)),
+                    None,
+                    false,
+                    Some(format!("上游响应读取失败：{error}")),
+                );
+                return gateway_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_response_read_failed",
+                    "上游响应读取失败",
+                );
+            }
+        }
+    }
+
+    record_gateway_route_result(&state, &route, used_half_open_probe, true);
+    state.runtime.write().await.route = Some(route.clone());
+    let is_streaming = upstream_headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().contains("text/event-stream"));
+    if is_streaming {
+        let response_body = Body::from_stream(LoggingResponseStream::new(
+            upstream.bytes_stream(),
+            LoggingResponseMeta {
+                local_store: state.local_store.clone(),
+                route,
+                uri,
+                app_type,
+                request_model: None,
+                status,
+                latency_ms: response_latency_ms,
+                started_at: request_started_at,
+            },
+        ));
+        return build_gateway_response(status, &upstream_headers, response_body);
+    }
+
+    match upstream.bytes().await {
+        Ok(body) => {
+            record_local_usage(
+                state.local_store.as_ref(),
+                &route,
+                &uri,
+                &app_type,
+                None,
+                &body,
+                status,
+                response_latency_ms,
+                Some(elapsed_ms(request_started_at)),
+                None,
+                false,
+                None,
+            );
+            build_gateway_response(status, &upstream_headers, Body::from(body))
+        }
+        Err(error) => {
+            record_local_usage(
+                state.local_store.as_ref(),
+                &route,
+                &uri,
+                &app_type,
+                None,
+                &[],
+                status,
+                response_latency_ms,
+                Some(elapsed_ms(request_started_at)),
+                None,
+                false,
+                Some(format!("上游响应读取失败：{error}")),
+            );
+            gateway_error(
+                StatusCode::BAD_GATEWAY,
+                "upstream_response_read_failed",
+                "上游响应读取失败",
+            )
+        }
+    }
+}
+
 async fn gateway_proxy(
     AxumState(state): AxumState<GatewayServiceState>,
     OriginalUri(uri): OriginalUri,
@@ -931,7 +1907,19 @@ async fn gateway_proxy(
         );
     }
 
-    let payload = match to_bytes(body, 64 * 1024 * 1024).await {
+    let is_responses_request = chat_protocol::is_responses_path(uri.path());
+    if can_stream_request(&parts.headers, routes.len(), is_responses_request) {
+        let Some(route) = routes.first().cloned() else {
+            return gateway_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "no_active_route",
+                "没有可用的本地网关路由",
+            );
+        };
+        return gateway_proxy_streaming_request(state, uri, parts, body, route).await;
+    }
+
+    let payload = match to_bytes(body, MAX_GATEWAY_REQUEST_BYTES).await {
         Ok(payload) => payload,
         Err(_) => {
             return gateway_error(
@@ -942,17 +1930,66 @@ async fn gateway_proxy(
         }
     };
 
+    let (outbound_payload, protocol_context, replacement_path, request_model) =
+        if chat_protocol::is_responses_path(uri.path()) {
+            let body = match serde_json::from_slice::<Value>(&payload) {
+                Ok(body) => body,
+                Err(error) => {
+                    return gateway_error(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_json",
+                        format!("Responses 请求体不是有效 JSON：{error}"),
+                    )
+                }
+            };
+            let request_model = request_model_from_value(&body);
+            let (chat_body, context) = match chat_protocol::responses_request_to_chat(body) {
+                Ok(result) => result,
+                Err(error) => {
+                    return gateway_error(
+                        StatusCode::BAD_REQUEST,
+                        "responses_transform_failed",
+                        error,
+                    )
+                }
+            };
+            let payload = match serde_json::to_vec(&chat_body) {
+                Ok(payload) => Bytes::from(payload),
+                Err(error) => {
+                    return gateway_error(
+                        StatusCode::BAD_REQUEST,
+                        "responses_transform_failed",
+                        format!("无法创建 Chat Completions 请求：{error}"),
+                    )
+                }
+            };
+            (
+                payload,
+                Some(context),
+                Some(chat_protocol::chat_completions_path(uri.path())),
+                request_model,
+            )
+        } else {
+            let request_model = request_model(&payload);
+            (payload, None, None, request_model)
+        };
+    let app_type = gateway_app_type(&uri, &parts.headers);
+    let forwarded_headers = forwarded_request_headers(&parts.headers);
+    let request_started_at = Instant::now();
+
     let mut attempted = false;
     let mut last_error = None;
     let mut last_response = None;
+    let mut last_route = None;
 
     for route in routes {
         let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
             continue;
         };
         attempted = true;
+        last_route = Some(route.clone());
 
-        let target = match gateway_upstream_url(&route.upstream_base_url, &uri) {
+        let target = match gateway_upstream_url(&route.upstream_base_url, &uri, replacement_path) {
             Ok(target) => target,
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
@@ -966,15 +2003,8 @@ async fn gateway_proxy(
             .request(parts.method.clone(), target)
             .timeout(GATEWAY_REQUEST_TIMEOUT)
             .bearer_auth(&route.api_key)
-            .body(payload.clone());
-        for (name, value) in &parts.headers {
-            if name == header::AUTHORIZATION
-                || name == header::HOST
-                || name == header::CONTENT_LENGTH
-                || is_hop_by_hop_header(name)
-            {
-                continue;
-            }
+            .body(outbound_payload.clone());
+        for (name, value) in &forwarded_headers {
             outbound = outbound.header(name.clone(), value.clone());
         }
 
@@ -989,13 +2019,18 @@ async fn gateway_proxy(
 
         let status = upstream.status();
         if is_retryable_upstream_status(status) {
-            let headers = upstream.headers().clone();
+            let mut headers = upstream.headers().clone();
             match upstream.bytes().await {
-                Ok(body) => {
+                Ok(mut body) => {
+                    if protocol_context.is_some() {
+                        body = Bytes::from(protocol_error_body(&body));
+                        headers = protocol_response_headers(&headers, false);
+                    }
                     last_response = Some(BufferedGatewayResponse {
                         status,
                         headers,
-                        body: body.to_vec(),
+                        body,
+                        route: route.clone(),
                     });
                 }
                 Err(error) => {
@@ -1007,13 +2042,158 @@ async fn gateway_proxy(
         }
 
         record_gateway_route_result(&state, &route, used_half_open_probe, true);
-        state.runtime.write().await.route = Some(route);
-        let response_headers = upstream.headers().clone();
-        let response_body = Body::from_stream(upstream.bytes_stream());
-        return build_gateway_response(status, &response_headers, response_body);
+        state.runtime.write().await.route = Some(route.clone());
+        let upstream_headers = upstream.headers().clone();
+        let response_latency_ms = elapsed_ms(request_started_at);
+        let upstream_is_streaming = upstream_headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.to_ascii_lowercase().contains("text/event-stream"));
+        let is_streaming = upstream_is_streaming;
+        if is_streaming {
+            let response_headers = if protocol_context.is_some() {
+                protocol_response_headers(&upstream_headers, true)
+            } else {
+                upstream_headers.clone()
+            };
+            let response_body = if let Some(context) = protocol_context.clone() {
+                Body::from_stream(LoggingResponseStream::new(
+                    convert_chat_stream(upstream.bytes_stream(), context),
+                    LoggingResponseMeta {
+                        local_store: state.local_store.clone(),
+                        route,
+                        uri: uri.clone(),
+                        app_type: app_type.clone(),
+                        request_model: request_model.clone(),
+                        status,
+                        latency_ms: response_latency_ms,
+                        started_at: request_started_at,
+                    },
+                ))
+            } else {
+                Body::from_stream(LoggingResponseStream::new(
+                    upstream.bytes_stream(),
+                    LoggingResponseMeta {
+                        local_store: state.local_store.clone(),
+                        route,
+                        uri: uri.clone(),
+                        app_type: app_type.clone(),
+                        request_model: request_model.clone(),
+                        status,
+                        latency_ms: response_latency_ms,
+                        started_at: request_started_at,
+                    },
+                ))
+            };
+            return build_gateway_response(status, &response_headers, response_body);
+        }
+        match upstream.bytes().await {
+            Ok(body) => {
+                let (body, response_headers) = if let Some(context) = protocol_context.as_ref() {
+                    if status.is_client_error() || status.is_server_error() {
+                        (
+                            Bytes::from(protocol_error_body(&body)),
+                            protocol_response_headers(&upstream_headers, false),
+                        )
+                    } else {
+                        let value = match serde_json::from_slice::<Value>(&body) {
+                            Ok(value) => value,
+                            Err(error) => {
+                                record_local_usage(
+                                    state.local_store.as_ref(),
+                                    &route,
+                                    &uri,
+                                    &app_type,
+                                    request_model.as_deref(),
+                                    &body,
+                                    StatusCode::BAD_GATEWAY,
+                                    response_latency_ms,
+                                    Some(elapsed_ms(request_started_at)),
+                                    None,
+                                    false,
+                                    Some(format!("Chat Completions 响应不是有效 JSON：{error}")),
+                                );
+                                return gateway_error(
+                                    StatusCode::BAD_GATEWAY,
+                                    "response_transform_failed",
+                                    "上游 Chat Completions 响应无法转换",
+                                );
+                            }
+                        };
+                        let response =
+                            match chat_protocol::chat_response_to_responses(value, context) {
+                                Ok(response) => response,
+                                Err(error) => {
+                                    return gateway_error(
+                                        StatusCode::BAD_GATEWAY,
+                                        "response_transform_failed",
+                                        error,
+                                    )
+                                }
+                            };
+                        (
+                            Bytes::from(serde_json::to_vec(&response).unwrap_or_default()),
+                            protocol_response_headers(&upstream_headers, false),
+                        )
+                    }
+                } else {
+                    (body, upstream_headers.clone())
+                };
+                record_local_usage(
+                    state.local_store.as_ref(),
+                    &route,
+                    &uri,
+                    &app_type,
+                    request_model.as_deref(),
+                    &body,
+                    status,
+                    response_latency_ms,
+                    Some(elapsed_ms(request_started_at)),
+                    None,
+                    false,
+                    None,
+                );
+                return build_gateway_response(status, &response_headers, Body::from(body));
+            }
+            Err(error) => {
+                record_local_usage(
+                    state.local_store.as_ref(),
+                    &route,
+                    &uri,
+                    &app_type,
+                    request_model.as_deref(),
+                    &[],
+                    status,
+                    response_latency_ms,
+                    Some(elapsed_ms(request_started_at)),
+                    None,
+                    false,
+                    Some(format!("上游响应读取失败：{error}")),
+                );
+                return gateway_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_response_read_failed",
+                    "上游响应读取失败",
+                );
+            }
+        }
     }
 
     if let Some(response) = last_response {
+        record_local_usage(
+            state.local_store.as_ref(),
+            &response.route,
+            &uri,
+            &app_type,
+            request_model.as_deref(),
+            &response.body,
+            response.status,
+            elapsed_ms(request_started_at),
+            Some(elapsed_ms(request_started_at)),
+            None,
+            false,
+            last_error.clone(),
+        );
         return build_gateway_response(
             response.status,
             &response.headers,
@@ -1025,6 +2205,22 @@ async fn gateway_proxy(
             StatusCode::SERVICE_UNAVAILABLE,
             "all_routes_circuit_open",
             "所有本地网关路由均处于熔断状态",
+        );
+    }
+    if let Some(route) = last_route {
+        record_local_usage(
+            state.local_store.as_ref(),
+            &route,
+            &uri,
+            &app_type,
+            request_model.as_deref(),
+            &[],
+            StatusCode::BAD_GATEWAY,
+            elapsed_ms(request_started_at),
+            Some(elapsed_ms(request_started_at)),
+            None,
+            false,
+            last_error.clone(),
         );
     }
     gateway_error(
@@ -1044,7 +2240,12 @@ async fn restore_persisted_gateway_routes(state: &AppState) -> Result<(), String
             .store
             .lock()
             .map_err(|_| "本地数据库不可用".to_string())?;
-        load_persisted_route_selections(&store)?
+        let routes = load_persisted_route_selections(&store)?;
+        if routes.is_empty() {
+            load_direct_route(&store)?.into_iter().collect()
+        } else {
+            routes
+        }
     };
     if selections.is_empty() {
         return Ok(());
@@ -1063,6 +2264,7 @@ async fn restore_persisted_gateway_routes(state: &AppState) -> Result<(), String
         routes.push(GatewayRoute {
             station_id: selection.station_id.clone(),
             key_id: selection.key_id.clone(),
+            provider_name: station.name.clone(),
             upstream_base_url: api_base_url(&station.base_url),
             api_key,
         });
@@ -1117,6 +2319,83 @@ mod tests {
         (format!("http://{address}/v1"), count, shutdown_tx)
     }
 
+    #[derive(Clone)]
+    struct ProtocolUpstreamResponse {
+        status: StatusCode,
+        content_type: &'static str,
+        chunks: Vec<Vec<u8>>,
+    }
+
+    #[derive(Clone)]
+    struct ProtocolUpstreamState {
+        capture: Arc<Mutex<Option<(String, String, Vec<u8>)>>>,
+        response: ProtocolUpstreamResponse,
+    }
+
+    async fn protocol_upstream_handler(
+        AxumState(state): AxumState<ProtocolUpstreamState>,
+        request: Request<Body>,
+    ) -> Response {
+        let path = request.uri().path().to_string();
+        let authorization = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        let body = to_bytes(request.into_body(), 64 * 1024 * 1024)
+            .await
+            .expect("read protocol test request");
+        *state.capture.lock().expect("capture protocol request") =
+            Some((path, authorization, body.to_vec()));
+
+        let response = state.response;
+        let builder = Response::builder()
+            .status(response.status)
+            .header(header::CONTENT_TYPE, response.content_type);
+        if response.content_type == "text/event-stream" {
+            let chunks = response
+                .chunks
+                .into_iter()
+                .map(|chunk| Ok::<Bytes, std::convert::Infallible>(Bytes::from(chunk)));
+            builder
+                .body(Body::from_stream(stream::iter(chunks)))
+                .expect("build protocol SSE response")
+        } else {
+            let body = response.chunks.into_iter().flatten().collect::<Vec<_>>();
+            builder
+                .body(Body::from(body))
+                .expect("build protocol response")
+        }
+    }
+
+    async fn spawn_protocol_upstream(
+        response: ProtocolUpstreamResponse,
+    ) -> (String, ProtocolUpstreamState, oneshot::Sender<()>) {
+        let state = ProtocolUpstreamState {
+            capture: Arc::new(Mutex::new(None)),
+            response,
+        };
+        let app = Router::new()
+            .route("/v1/{*path}", any(protocol_upstream_handler))
+            .with_state(state.clone());
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind protocol test upstream");
+        let address = listener
+            .local_addr()
+            .expect("get protocol test upstream address");
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app)
+                .with_graceful_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await;
+        });
+        (format!("http://{address}/v1"), state, shutdown_tx)
+    }
+
     async fn spawn_test_gateway(state: GatewayServiceState) -> (String, oneshot::Sender<()>) {
         let app = Router::new()
             .route("/v1", any(gateway_proxy))
@@ -1141,6 +2420,7 @@ mod tests {
         GatewayRoute {
             station_id: station_id.into(),
             key_id: key_id.into(),
+            provider_name: station_id.into(),
             upstream_base_url,
             api_key: format!("key-{key_id}"),
         }
@@ -1158,6 +2438,7 @@ mod tests {
                 routes,
             })),
             client: Client::new(),
+            local_store: None,
             circuit_breakers: Arc::new(Mutex::new(HashMap::new())),
             circuit_config,
         }
@@ -1328,12 +2609,14 @@ mod tests {
                 failure_threshold: 1,
                 ..GatewayCircuitConfig::default()
             },
+            None,
         );
         let route = test_route("station-a", "key-a", "http://127.0.0.1:1/v1".into());
         controller.set_routes(vec![route.clone()]).await;
         let state = GatewayServiceState {
             runtime: controller.runtime.clone(),
             client: controller.client.clone(),
+            local_store: None,
             circuit_breakers: controller.circuit_breakers.clone(),
             circuit_config: controller.circuit_config,
         };
@@ -1353,5 +2636,198 @@ mod tests {
         assert_eq!(reset_health[0].state, "closed");
         assert_eq!(reset_health[0].failed_requests, 0);
         assert_eq!(reset_health[0].cooldown_remaining_ms, 0);
+    }
+
+    #[tokio::test]
+    async fn gateway_converts_responses_request_and_response_over_http() {
+        let upstream_body = serde_json::to_vec(&json!({
+            "id": "chatcmpl_123",
+            "object": "chat.completion",
+            "created": 123,
+            "model": "gpt-5-codex",
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hello from upstream"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7}
+        }))
+        .expect("serialize protocol test response");
+        let (upstream_url, upstream_state, upstream_shutdown) =
+            spawn_protocol_upstream(ProtocolUpstreamResponse {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                chunks: vec![upstream_body],
+            })
+            .await;
+        let state = test_gateway_state(
+            vec![test_route("station-a", "key-a", upstream_url)],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        let response = Client::new()
+            .post(format!("{gateway_url}/v1/responses"))
+            .bearer_auth("gateway-token")
+            .json(&json!({
+                "model": "gpt-5-codex",
+                "instructions": "Be concise.",
+                "input": [{
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "Hello"}]
+                }]
+            }))
+            .send()
+            .await
+            .expect("send Responses request");
+        assert_eq!(response.status(), StatusCode::OK);
+        let response_body = response
+            .json::<Value>()
+            .await
+            .expect("read Responses response");
+        assert_eq!(response_body["object"], "response");
+        assert_eq!(
+            response_body["output"][0]["content"][0]["text"],
+            "Hello from upstream"
+        );
+        assert_eq!(response_body["usage"]["total_tokens"], 7);
+
+        let (path, authorization, request_body) = upstream_state
+            .capture
+            .lock()
+            .expect("read captured protocol request")
+            .clone()
+            .expect("protocol request was captured");
+        let request_body =
+            serde_json::from_slice::<Value>(&request_body).expect("parse Chat request");
+        assert_eq!(path, "/v1/chat/completions");
+        assert_eq!(authorization, "Bearer key-key-a");
+        assert_eq!(request_body["messages"][0]["role"], "system");
+        assert_eq!(request_body["messages"][1]["content"][0]["text"], "Hello");
+
+        let _ = gateway_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_converts_responses_error_body_without_changing_status() {
+        let upstream_body = serde_json::to_vec(&json!({
+            "error": {"message": "invalid request", "type": "invalid_request_error", "code": "bad_input"}
+        }))
+        .expect("serialize protocol test error");
+        let (upstream_url, _upstream_state, upstream_shutdown) =
+            spawn_protocol_upstream(ProtocolUpstreamResponse {
+                status: StatusCode::BAD_REQUEST,
+                content_type: "application/json",
+                chunks: vec![upstream_body],
+            })
+            .await;
+        let state = test_gateway_state(
+            vec![test_route("station-a", "key-a", upstream_url)],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        let response = Client::new()
+            .post(format!("{gateway_url}/v1/responses"))
+            .bearer_auth("gateway-token")
+            .json(&json!({"model": "gpt-5-codex", "input": "Hello"}))
+            .send()
+            .await
+            .expect("send Responses error request");
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response_body = response
+            .json::<Value>()
+            .await
+            .expect("read Responses error");
+        assert_eq!(response_body["error"]["message"], "invalid request");
+        assert_eq!(response_body["error"]["type"], "invalid_request_error");
+        assert_eq!(response_body["error"]["code"], "bad_input");
+
+        let _ = gateway_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_converts_responses_sse_stream() {
+        let first_chunk = br#"data: {"id":"chatcmpl_stream","model":"gpt-5-codex","created":1,"choices":[{"delta":{"role":"assistant","content":"he"},"finish_reason":null}]}
+
+"#;
+        let second_chunk =
+            br#"data: {"choices":[{"delta":{"content":"llo"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#;
+        let (upstream_url, upstream_state, upstream_shutdown) =
+            spawn_protocol_upstream(ProtocolUpstreamResponse {
+                status: StatusCode::OK,
+                content_type: "text/event-stream",
+                chunks: vec![first_chunk.to_vec(), second_chunk.to_vec()],
+            })
+            .await;
+        let state = test_gateway_state(
+            vec![test_route("station-a", "key-a", upstream_url)],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+
+        let response = Client::new()
+            .post(format!("{gateway_url}/v1/responses"))
+            .bearer_auth("gateway-token")
+            .header(header::ACCEPT, "text/event-stream")
+            .json(&json!({
+                "model": "gpt-5-codex",
+                "input": "Hello",
+                "stream": true
+            }))
+            .send()
+            .await
+            .expect("send streaming Responses request");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream")));
+        let response_body = response
+            .text()
+            .await
+            .expect("read converted Responses stream");
+        assert!(response_body.contains("response.output_text.delta"));
+        assert!(response_body.contains("\"delta\":\"he\""));
+        assert!(response_body.contains("\"delta\":\"llo\""));
+        assert!(response_body.contains("response.completed"));
+
+        let capture = upstream_state
+            .capture
+            .lock()
+            .expect("read captured streaming request")
+            .clone()
+            .expect("streaming request was captured");
+        assert_eq!(capture.0, "/v1/chat/completions");
+
+        let _ = gateway_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[test]
+    fn local_usage_accumulator_handles_split_sse_events() {
+        let mut accumulator = LocalUsageAccumulator::default();
+        accumulator.push(
+            br#"data: {"model":"gpt-5-codex","usage":{"prompt_tokens":4,"completion_tokens":3"#,
+        );
+        accumulator.push(
+            br#"}}
+
+data: [DONE]
+"#,
+        );
+
+        let usage = accumulator.finish();
+        assert_eq!(usage.model.as_deref(), Some("gpt-5-codex"));
+        assert_eq!(usage.input_tokens, 4);
+        assert_eq!(usage.output_tokens, 3);
     }
 }

@@ -7,6 +7,7 @@ mod command_contract;
 mod commands;
 mod config_profiles;
 mod keyring_store;
+mod local_usage_store;
 mod login_profiles;
 mod mail_oauth;
 mod model_discovery_store;
@@ -43,6 +44,11 @@ use commands::gateway::{
     get_gateway_credentials, get_gateway_status, import_to_cc_switch, reset_gateway_route_health,
     rotate_gateway_token, set_active_gateway_route, set_active_gateway_routes, set_gateway_port,
     set_routing_mode, start_gateway, stop_gateway,
+};
+use commands::local_usage::{
+    clear_local_usage_logs, delete_local_usage_pricing, get_local_usage_dashboard,
+    get_local_usage_pricing, get_local_usage_refresh_interval, save_local_usage_pricing,
+    save_local_usage_refresh_interval,
 };
 use commands::personal_center::{
     claim_and_redeem_merchant_free_offer, delete_admin_merchant_free_code,
@@ -186,6 +192,13 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         get_usage_summary,
         list_usage_logs,
         refresh_usage_logs,
+        get_local_usage_dashboard,
+        get_local_usage_refresh_interval,
+        save_local_usage_refresh_interval,
+        get_local_usage_pricing,
+        save_local_usage_pricing,
+        delete_local_usage_pricing,
+        clear_local_usage_logs,
         get_history,
         list_audit_events,
         rollback_audit_event,

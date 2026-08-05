@@ -7,6 +7,7 @@ export const gatewayApi = {
   setPort: (port: number) => invokeDesktop<GatewayStatus>("set_gateway_port", { port }),
   start: () => invokeDesktop<GatewayStatus>("start_gateway"),
   stop: () => invokeDesktop<GatewayStatus>("stop_gateway"),
+  setRoute: (stationId: string, keyId: string) => invokeDesktop<GatewayStatus>("set_active_gateway_route", { stationId, keyId }),
   setRoutes: (routes: GatewayRouteSelection[]) => invokeDesktop<GatewayStatus>("set_active_gateway_routes", { routes }),
   resetRouteHealth: (stationId: string, keyId: string) => invokeDesktop<GatewayStatus>("reset_gateway_route_health", { stationId, keyId }),
 };

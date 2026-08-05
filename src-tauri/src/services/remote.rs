@@ -15,7 +15,7 @@ use std::{
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use ssh2::Session;
+use ssh2::{HostKeyType, Session};
 use tauri::Emitter;
 use toml_edit::{value as toml_value, DocumentMut, Item, Table};
 use uuid::Uuid;
@@ -39,6 +39,9 @@ pub(crate) enum RemoteSession {
 }
 
 pub(crate) const REMOTE_CODEX_INSTALL_LOG_EVENT: &str = "relayhub:remote-codex-install-log";
+const SSH_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const SSH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
+const SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -527,7 +530,7 @@ pub(crate) fn install_or_update_server_codex(
     if action == "update" && !server.codex_update_available {
         return Err("当前未检测到可用更新，请先测试 SSH 连接刷新版本状态".into());
     }
-    let snapshot = match install_or_update_codex(&server, Some(&operation), Some(&logger)) {
+    let snapshot = match install_or_update_codex(&server, action, Some(&operation), Some(&logger)) {
         Ok(snapshot) => snapshot,
         Err(error) => {
             logger.finish(false, format!("Codex CLI 安装失败：{error}"));
@@ -741,16 +744,54 @@ pub(crate) fn remote_socket(host: &str, port: u16) -> Result<SocketAddr, String>
         .ok_or_else(|| "未解析到服务器地址".into())
 }
 
-fn libssh_host_key_fingerprint(session: &Session) -> Result<String, String> {
-    let (host_key, _) = session.host_key().ok_or("服务器未提供 SSH 主机密钥")?;
+struct ProbedHostKey {
+    key: Vec<u8>,
+    key_type: HostKeyType,
+    fingerprint: String,
+}
+
+fn host_key_fingerprint_from_bytes(host_key: &[u8]) -> String {
     let digest = Sha256::digest(host_key);
-    Ok(format!(
-        "SHA256:{}",
-        digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    ))
+    format!("SHA256:{}", base64_encode(&digest).trim_end_matches('='),)
+}
+
+fn libssh_host_key_material(session: &Session) -> Result<ProbedHostKey, String> {
+    let (host_key, key_type) = session.host_key().ok_or("服务器未提供 SSH 主机密钥")?;
+    let key = host_key.to_vec();
+    Ok(ProbedHostKey {
+        fingerprint: host_key_fingerprint_from_bytes(&key),
+        key,
+        key_type,
+    })
+}
+
+fn libssh_host_key_fingerprint(session: &Session) -> Result<String, String> {
+    Ok(libssh_host_key_material(session)?.fingerprint)
+}
+
+fn canonical_host_key_fingerprint(value: &str) -> String {
+    let trimmed = value.trim();
+    let Some(suffix) = trimmed.strip_prefix("SHA256:") else {
+        return trimmed.to_string();
+    };
+    if suffix.len() == 64 && suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        let mut digest = [0u8; 32];
+        for (index, pair) in suffix.as_bytes().chunks_exact(2).enumerate() {
+            let value = std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+            let Some(value) = value else {
+                return trimmed.to_string();
+            };
+            digest[index] = value;
+        }
+        return format!("SHA256:{}", base64_encode(&digest).trim_end_matches('='));
+    }
+    format!("SHA256:{}", suffix.trim_end_matches('='))
+}
+
+pub(crate) fn host_key_fingerprints_match(expected: &str, observed: &str) -> bool {
+    canonical_host_key_fingerprint(expected) == canonical_host_key_fingerprint(observed)
 }
 
 pub(crate) fn host_key_fingerprint(session: &RemoteSession) -> Result<String, String> {
@@ -783,19 +824,65 @@ fn append_system_ssh_line(
 }
 
 #[cfg(windows)]
+fn ssh_known_host_key_type(key_type: HostKeyType) -> Result<&'static str, String> {
+    match key_type {
+        HostKeyType::Rsa => Ok("ssh-rsa"),
+        HostKeyType::Dss => Ok("ssh-dss"),
+        HostKeyType::Ecdsa256 => Ok("ecdsa-sha2-nistp256"),
+        HostKeyType::Ecdsa384 => Ok("ecdsa-sha2-nistp384"),
+        HostKeyType::Ecdsa521 => Ok("ecdsa-sha2-nistp521"),
+        HostKeyType::Ed25519 => Ok("ssh-ed25519"),
+        HostKeyType::Unknown => Err("unsupported SSH host key type".into()),
+    }
+}
+
+#[cfg(windows)]
+fn pinned_known_hosts_file(
+    server: &RemoteServer,
+    expected_fingerprint: &str,
+) -> Result<tempfile::TempDir, String> {
+    let material = probe_host_key_material(&server.host, server.port)?;
+    if !host_key_fingerprints_match(expected_fingerprint, &material.fingerprint) {
+        return Err(format!(
+            "SSH host fingerprint mismatch: expected {expected_fingerprint}, observed {}",
+            material.fingerprint
+        ));
+    }
+    let key_type = ssh_known_host_key_type(material.key_type)?;
+    let host = if server.port == 22 {
+        server.host.clone()
+    } else {
+        format!("[{}]:{}", server.host, server.port)
+    };
+    let directory = tempfile::tempdir().map_err(|error| {
+        format!("unable to create temporary SSH known-hosts directory: {error}")
+    })?;
+    let path = directory.path().join("known_hosts");
+    let contents = format!("{} {} {}\n", host, key_type, base64_encode(&material.key),);
+    fs::write(&path, contents)
+        .map_err(|error| format!("unable to create temporary SSH known-hosts file: {error}"))?;
+    Ok(directory)
+}
+
+#[cfg(windows)]
 fn system_ssh_with_host_key_policy(
     server: &RemoteServer,
     script: &str,
     timeout: Duration,
-    use_known_hosts: bool,
+    expected_host_key_fingerprint: Option<&str>,
+    operation: Option<&RemoteOperationGuard>,
     logger: Option<&RemoteCodexInstallLogger>,
     log_phase: &str,
 ) -> Result<(i32, String), String> {
+    ensure_active(operation)?;
     let private_key = server
         .private_key_path
         .as_deref()
         .filter(|path| !path.contains("-----BEGIN"))
         .ok_or("Windows OpenSSH 回退仅支持密钥文件路径")?;
+    let pinned_known_hosts = expected_host_key_fingerprint
+        .map(|expected| pinned_known_hosts_file(server, expected))
+        .transpose()?;
     let mut command = Command::new("ssh");
     command
         .arg("-i")
@@ -804,25 +891,25 @@ fn system_ssh_with_host_key_policy(
         .arg("IdentitiesOnly=yes")
         .arg("-o")
         .arg("BatchMode=yes");
-    if use_known_hosts {
-        command.arg("-o").arg("StrictHostKeyChecking=accept-new");
-    } else {
-        // The caller has already verified the host key through libssh2. Use
-        // an isolated known-hosts file so an obsolete user entry cannot block
-        // this one-shot validation.
+    if let Some(directory) = &pinned_known_hosts {
+        let known_hosts = directory.path().join("known_hosts");
         command
             .arg("-o")
-            .arg("StrictHostKeyChecking=no")
+            .arg("StrictHostKeyChecking=yes")
             .arg("-o")
-            .arg("UserKnownHostsFile=NUL");
+            .arg(format!("UserKnownHostsFile={}", known_hosts.display()))
+            .arg("-o")
+            .arg("GlobalKnownHostsFile=NUL");
+    } else {
+        command.arg("-o").arg("StrictHostKeyChecking=accept-new");
     }
     let mut child = command
         .arg("-o")
-        .arg("ConnectTimeout=15")
+        .arg(format!("ConnectTimeout={}", SSH_CONNECT_TIMEOUT.as_secs()))
         .arg("-p")
         .arg(server.port.to_string())
         .arg(system_ssh_target(server))
-        .arg("bash -s")
+        .arg("sh -s")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -837,10 +924,15 @@ fn system_ssh_with_host_key_policy(
         .map_err(|error| format!("无法发送远程 SSH 命令：{error}"))?;
     drop(stdin);
     if let Some(logger) = logger {
-        return stream_system_ssh_output(child, timeout, logger, log_phase);
+        return stream_system_ssh_output(child, timeout, operation, logger, log_phase);
     }
     let started = std::time::Instant::now();
     loop {
+        if operation.is_some_and(RemoteOperationGuard::is_cancelled) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("操作已取消".into());
+        }
         if let Some(status) = child
             .try_wait()
             .map_err(|error| format!("无法等待 Windows OpenSSH：{error}"))?
@@ -878,6 +970,7 @@ fn system_ssh_with_host_key_policy(
 fn stream_system_ssh_output(
     mut child: std::process::Child,
     timeout: Duration,
+    operation: Option<&RemoteOperationGuard>,
     logger: &RemoteCodexInstallLogger,
     log_phase: &str,
 ) -> Result<(i32, String), String> {
@@ -906,6 +999,14 @@ fn stream_system_ssh_output(
     let mut output = String::new();
     let started = std::time::Instant::now();
     loop {
+        if operation.is_some_and(RemoteOperationGuard::is_cancelled) {
+            let _ = child.kill();
+            let _ = child.wait();
+            for reader in readers {
+                let _ = reader.join();
+            }
+            return Err("操作已取消".into());
+        }
         while let Ok(line) = line_receiver.try_recv() {
             append_system_ssh_line(&mut output, Some(logger), log_phase, line);
         }
@@ -940,25 +1041,14 @@ fn stream_system_ssh_output(
 fn system_ssh_session(
     server: &RemoteServer,
     operation: Option<&RemoteOperationGuard>,
-    use_known_hosts: bool,
 ) -> Result<RemoteSession, String> {
     ensure_active(operation)?;
-    let fingerprint = probe_host_key(&server.host, server.port)?;
-    if let Some(expected) = &server.host_key_fingerprint {
-        if expected != &fingerprint {
-            return Err(format!(
-                "SSH 主机指纹不匹配：预期 {expected}，实际 {fingerprint}"
-            ));
-        }
-    }
-    if !use_known_hosts && server.host_key_fingerprint.is_none() {
-        return Err("使用隔离的 OpenSSH 主机密钥验证前必须先确认主机指纹".into());
-    }
     let (status, output) = system_ssh_with_host_key_policy(
         server,
         "true\n",
-        Duration::from_secs(20),
-        use_known_hosts,
+        SSH_HANDSHAKE_TIMEOUT,
+        server.host_key_fingerprint.as_deref(),
+        operation,
         None,
         "command",
     )?;
@@ -996,21 +1086,25 @@ fn base64_encode(bytes: &[u8]) -> String {
     encoded
 }
 
-pub(crate) fn probe_host_key(host: &str, port: u16) -> Result<String, String> {
+fn probe_host_key_material(host: &str, port: u16) -> Result<ProbedHostKey, String> {
     let socket = remote_socket(host, port)?;
-    let tcp = TcpStream::connect_timeout(&socket, Duration::from_secs(15))
+    let tcp = TcpStream::connect_timeout(&socket, SSH_CONNECT_TIMEOUT)
         .map_err(|error| format!("SSH TCP 连接失败：{error}"))?;
-    tcp.set_read_timeout(Some(Duration::from_secs(20)))
+    tcp.set_read_timeout(Some(SSH_HANDSHAKE_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    tcp.set_write_timeout(Some(Duration::from_secs(20)))
+    tcp.set_write_timeout(Some(SSH_HANDSHAKE_TIMEOUT))
         .map_err(|error| error.to_string())?;
     let mut session = Session::new().map_err(|error| format!("无法创建 SSH 会话：{error}"))?;
     session.set_tcp_stream(tcp);
-    session.set_timeout(20_000);
+    session.set_timeout(SSH_HANDSHAKE_TIMEOUT.as_millis() as u32);
     session
         .handshake()
         .map_err(|error| format!("SSH 握手失败：{error}"))?;
-    libssh_host_key_fingerprint(&session)
+    libssh_host_key_material(&session)
+}
+
+pub(crate) fn probe_host_key(host: &str, port: u16) -> Result<String, String> {
+    Ok(probe_host_key_material(host, port)?.fingerprint)
 }
 
 pub(crate) fn ensure_active(operation: Option<&RemoteOperationGuard>) -> Result<(), String> {
@@ -1028,23 +1122,23 @@ fn session_transport(
 ) -> Result<Session, String> {
     ensure_active(operation)?;
     let socket = remote_socket(host, port)?;
-    let tcp = TcpStream::connect_timeout(&socket, Duration::from_secs(15))
+    let tcp = TcpStream::connect_timeout(&socket, SSH_CONNECT_TIMEOUT)
         .map_err(|error| format!("SSH TCP 连接失败：{error}"))?;
     ensure_active(operation)?;
-    tcp.set_read_timeout(Some(Duration::from_secs(20)))
+    tcp.set_read_timeout(Some(SSH_HANDSHAKE_TIMEOUT))
         .map_err(|error| error.to_string())?;
-    tcp.set_write_timeout(Some(Duration::from_secs(20)))
+    tcp.set_write_timeout(Some(SSH_HANDSHAKE_TIMEOUT))
         .map_err(|error| error.to_string())?;
     let mut session = Session::new().map_err(|error| format!("无法创建 SSH 会话：{error}"))?;
     session.set_tcp_stream(tcp);
-    session.set_timeout(20_000);
+    session.set_timeout(SSH_HANDSHAKE_TIMEOUT.as_millis() as u32);
     session
         .handshake()
         .map_err(|error| format!("SSH 握手失败：{error}"))?;
     ensure_active(operation)?;
     let fingerprint = libssh_host_key_fingerprint(&session)?;
     if let Some(expected) = expected_host_key_fingerprint {
-        if expected != fingerprint {
+        if !host_key_fingerprints_match(expected, &fingerprint) {
             return Err(format!(
                 "SSH 主机指纹不匹配：预期 {expected}，实际 {fingerprint}"
             ));
@@ -1155,10 +1249,7 @@ pub(crate) fn session(
     }
     #[cfg(windows)]
     if server.auth_type == "key" {
-        // A persisted fingerprint has already been checked by the libssh2
-        // probe, so stale user known-hosts entries must not block the fallback.
-        let use_known_hosts = server.host_key_fingerprint.is_none();
-        return system_ssh_session(server, operation, use_known_hosts).map_err(|fallback_error| {
+        return system_ssh_session(server, operation).map_err(|fallback_error| {
             format!("{last_error}; Windows OpenSSH 回退失败：{fallback_error}")
         });
     }
@@ -1167,6 +1258,13 @@ pub(crate) fn session(
 
 pub(crate) fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+fn remote_command_with_timeout(seconds: u64, command: &str) -> String {
+    let command = shell_quote(command);
+    format!(
+        "if command -v timeout >/dev/null 2>&1; then timeout {seconds} sh -c {command}; else sh -c {command}; fi"
+    )
 }
 
 fn libssh_command(session: &Session, command: &str) -> Result<(i32, String), String> {
@@ -1189,12 +1287,15 @@ fn libssh_command(session: &Session, command: &str) -> Result<(i32, String), Str
 fn command_with_install_log(
     session: &RemoteSession,
     command: &str,
+    operation: Option<&RemoteOperationGuard>,
     logger: Option<&RemoteCodexInstallLogger>,
     log_phase: &str,
 ) -> Result<(i32, String), String> {
+    ensure_active(operation)?;
     match session {
         RemoteSession::Libssh(session) => {
             let result = libssh_command(session, command)?;
+            ensure_active(operation)?;
             if let Some(logger) = logger {
                 logger.output(log_phase, &result.1);
             }
@@ -1204,16 +1305,25 @@ fn command_with_install_log(
         RemoteSession::OpenSsh(server) => system_ssh_with_host_key_policy(
             server,
             command,
-            Duration::from_secs(300),
-            server.host_key_fingerprint.is_none(),
+            SSH_COMMAND_TIMEOUT,
+            server.host_key_fingerprint.as_deref(),
+            operation,
             logger,
             log_phase,
         ),
     }
 }
 
+pub(crate) fn command_with_operation(
+    session: &RemoteSession,
+    command: &str,
+    operation: Option<&RemoteOperationGuard>,
+) -> Result<(i32, String), String> {
+    command_with_install_log(session, command, operation, None, "command")
+}
+
 pub(crate) fn command(session: &RemoteSession, command: &str) -> Result<(i32, String), String> {
-    command_with_install_log(session, command, None, "command")
+    command_with_operation(session, command, None)
 }
 
 fn password_session(
@@ -1270,7 +1380,7 @@ fn private_key_session(
             last_sync_error: None,
             updated_at: now(),
         };
-        return system_ssh_session(&server, None, false)
+        return system_ssh_session(&server, None)
             .map(|_| ())
             .map_err(|error| {
                 format!("生成的 SSH 私钥认证失败：Windows OpenSSH 验证失败：{error}")
@@ -1545,12 +1655,21 @@ pub(crate) fn home(session: &RemoteSession) -> Result<String, String> {
 }
 
 pub(crate) fn read_file(session: &RemoteSession, path: &str) -> Result<Option<String>, String> {
-    let (status, content) = command(
+    read_file_with_operation(session, path, None)
+}
+
+fn read_file_with_operation(
+    session: &RemoteSession,
+    path: &str,
+    operation: Option<&RemoteOperationGuard>,
+) -> Result<Option<String>, String> {
+    let (status, content) = command_with_operation(
         session,
         &format!(
             "if [ -e {path} ]; then cat -- {path}; else exit 44; fi",
             path = shell_quote(path)
         ),
+        operation,
     )?;
     match status {
         0 => Ok(Some(content)),
@@ -1560,6 +1679,16 @@ pub(crate) fn read_file(session: &RemoteSession, path: &str) -> Result<Option<St
 }
 
 pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> Result<(), String> {
+    write_file_with_operation(session, path, content, None)
+}
+
+fn write_file_with_operation(
+    session: &RemoteSession,
+    path: &str,
+    content: &str,
+    operation: Option<&RemoteOperationGuard>,
+) -> Result<(), String> {
+    ensure_active(operation)?;
     let directory = Path::new(path)
         .parent()
         .ok_or("无效的服务器文件路径")?
@@ -1578,7 +1707,8 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
             server,
             &script,
             Duration::from_secs(30),
-            server.host_key_fingerprint.is_none(),
+            server.host_key_fingerprint.as_deref(),
+            operation,
             None,
             "command",
         )?;
@@ -1600,6 +1730,7 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
             directory = shell_quote(&directory)
         ))
         .map_err(|error| error.to_string())?;
+    ensure_active(operation)?;
     channel.send_eof().map_err(|error| error.to_string())?;
     channel.wait_close().map_err(|error| error.to_string())?;
     let status = channel.exit_status().map_err(|error| error.to_string())?;
@@ -1616,6 +1747,7 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
         file.flush()
             .map_err(|error| format!("刷新远端临时文件失败 ({temporary}): {error}"))?;
     }
+    ensure_active(operation)?;
     if let Err(sftp_error) = sftp.rename(
         Path::new(&temporary),
         Path::new(path),
@@ -1633,6 +1765,7 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
         }
     }
     let (status, _) = libssh_command(session, &format!("chmod 600 -- {}", shell_quote(path)))?;
+    ensure_active(operation)?;
     if status != 0 {
         return Err(format!("无法设置服务器文件权限：{path}"));
     }
@@ -1644,10 +1777,24 @@ pub(crate) fn restore_file(
     path: &str,
     original: Option<&str>,
 ) -> Result<(), String> {
+    restore_file_with_operation(session, path, original, None)
+}
+
+fn restore_file_with_operation(
+    session: &RemoteSession,
+    path: &str,
+    original: Option<&str>,
+    operation: Option<&RemoteOperationGuard>,
+) -> Result<(), String> {
+    ensure_active(operation)?;
     match original {
-        Some(content) => write_file(session, path, content),
+        Some(content) => write_file_with_operation(session, path, content, operation),
         None => {
-            let (status, _) = command(session, &format!("rm -f -- {}", shell_quote(path)))?;
+            let (status, _) = command_with_operation(
+                session,
+                &format!("rm -f -- {}", shell_quote(path)),
+                operation,
+            )?;
             if status == 0 {
                 Ok(())
             } else {
@@ -1660,11 +1807,14 @@ pub(crate) fn restore_file(
 fn codex_config_state(
     session: &RemoteSession,
     home: &str,
+    operation: Option<&RemoteOperationGuard>,
 ) -> Result<RemoteCodexConfigState, String> {
-    let config = read_file(session, &format!("{home}/.codex/config.toml"))?;
-    let auth = read_file(session, &format!("{home}/.codex/auth.json"))?;
-    let relay_env = read_file(session, &format!("{home}/.codex/relayhub.env"))?;
-    let bashrc = read_file(session, &format!("{home}/.bashrc"))?;
+    let config =
+        read_file_with_operation(session, &format!("{home}/.codex/config.toml"), operation)?;
+    let auth = read_file_with_operation(session, &format!("{home}/.codex/auth.json"), operation)?;
+    let relay_env =
+        read_file_with_operation(session, &format!("{home}/.codex/relayhub.env"), operation)?;
+    let bashrc = read_file_with_operation(session, &format!("{home}/.bashrc"), operation)?;
     let host_key_fingerprint = host_key_fingerprint(session)?;
     let config_fingerprint = config_fingerprint(config.as_deref(), auth.as_deref());
     let state_fingerprint = rollback_state_fingerprint(
@@ -1694,7 +1844,7 @@ pub(crate) fn capture_codex_config_state(
     let session = session(server, operation)?;
     let home = home(&session)?;
     ensure_active(operation)?;
-    codex_config_state(&session, &home)
+    codex_config_state(&session, &home, operation)
 }
 
 /// Restores the exact files captured before a relay change. Refuse to write
@@ -1709,8 +1859,11 @@ pub(crate) fn restore_codex_config_state(
     ensure_active(operation)?;
     let session = session(server, operation)?;
     let home = home(&session)?;
-    let current = codex_config_state(&session, &home)?;
-    if current.host_key_fingerprint != original.host_key_fingerprint {
+    let current = codex_config_state(&session, &home, operation)?;
+    if !host_key_fingerprints_match(
+        &current.host_key_fingerprint,
+        &original.host_key_fingerprint,
+    ) {
         return Err(
             "The remote SSH host key changed since this rollback snapshot was created".into(),
         );
@@ -1719,28 +1872,32 @@ pub(crate) fn restore_codex_config_state(
         return Err("The remote Codex configuration changed after this relay was applied. Refresh and resolve the change before rolling back.".into());
     }
     ensure_active(operation)?;
-    restore_file(
+    restore_file_with_operation(
         &session,
         &format!("{home}/.codex/config.toml"),
         original.config.as_deref(),
+        operation,
     )?;
     ensure_active(operation)?;
-    restore_file(
+    restore_file_with_operation(
         &session,
         &format!("{home}/.codex/auth.json"),
         original.auth.as_deref(),
+        operation,
     )?;
     ensure_active(operation)?;
-    restore_file(
+    restore_file_with_operation(
         &session,
         &format!("{home}/.codex/relayhub.env"),
         original.relay_env.as_deref(),
+        operation,
     )?;
     ensure_active(operation)?;
-    restore_file(
+    restore_file_with_operation(
         &session,
         &format!("{home}/.bashrc"),
         original.bashrc.as_deref(),
+        operation,
     )?;
     ensure_active(operation)?;
     fetch_codex_relay_config(server, operation)
@@ -1754,8 +1911,9 @@ pub(crate) fn fetch_codex_relay_config(
     let session = session(server, operation)?;
     let host_key_fingerprint = host_key_fingerprint(&session)?;
     let home = home(&session)?;
-    let config = read_file(&session, &format!("{home}/.codex/config.toml"))?;
-    let auth = read_file(&session, &format!("{home}/.codex/auth.json"))?;
+    let config =
+        read_file_with_operation(&session, &format!("{home}/.codex/config.toml"), operation)?;
+    let auth = read_file_with_operation(&session, &format!("{home}/.codex/auth.json"), operation)?;
     ensure_active(operation)?;
     let relay = config.as_deref().and_then(|config| {
         codex_relay_config(
@@ -1766,13 +1924,20 @@ pub(crate) fn fetch_codex_relay_config(
         )
     });
     ensure_active(operation)?;
-    let codex_version = command(&session, "codex --version 2>/dev/null")
+    let codex_version = command_with_operation(&session, "codex --version 2>/dev/null", operation)
         .ok()
         .and_then(|(status, output)| (status == 0).then(|| output.trim().to_string()))
         .filter(|version| !version.is_empty());
     let codex_latest_version = codex_version
         .as_ref()
-        .and_then(|_| command(&session, "command -v npm >/dev/null 2>&1 && npm view @openai/codex version --silent 2>/dev/null").ok())
+        .and_then(|_| {
+            command_with_operation(
+                &session,
+                "command -v npm >/dev/null 2>&1 && npm view @openai/codex version --silent 2>/dev/null",
+                operation,
+            )
+            .ok()
+        })
         .and_then(|(status, output)| (status == 0).then(|| output.trim().to_string()))
         .filter(|version| !version.is_empty());
     Ok(RemoteCodexSnapshot {
@@ -1802,10 +1967,10 @@ pub(crate) fn write_codex_relay_config(
     let auth_path = format!("{home}/.codex/auth.json");
     let env_path = format!("{home}/.codex/relayhub.env");
     let bashrc_path = format!("{home}/.bashrc");
-    let original_config = read_file(&session, &config_path)?;
-    let original_auth = read_file(&session, &auth_path)?;
-    let original_env = read_file(&session, &env_path)?;
-    let original_bashrc = read_file(&session, &bashrc_path)?;
+    let original_config = read_file_with_operation(&session, &config_path, operation)?;
+    let original_auth = read_file_with_operation(&session, &auth_path, operation)?;
+    let original_env = read_file_with_operation(&session, &env_path, operation)?;
+    let original_bashrc = read_file_with_operation(&session, &bashrc_path, operation)?;
     ensure_active(operation)?;
     let original_fingerprint =
         config_fingerprint(original_config.as_deref(), original_auth.as_deref());
@@ -1841,14 +2006,14 @@ pub(crate) fn write_codex_relay_config(
 
     let result = (|| -> Result<RemoteCodexSnapshot, String> {
         ensure_active(operation)?;
-        write_file(&session, &config_path, &next_config)?;
+        write_file_with_operation(&session, &config_path, &next_config, operation)?;
         ensure_active(operation)?;
-        write_file(&session, &auth_path, &next_auth)?;
+        write_file_with_operation(&session, &auth_path, &next_auth, operation)?;
         ensure_active(operation)?;
-        restore_file(&session, &env_path, None)?;
+        restore_file_with_operation(&session, &env_path, None, operation)?;
         if let Some(next_bashrc) = &next_bashrc {
             ensure_active(operation)?;
-            write_file(&session, &bashrc_path, next_bashrc)?;
+            write_file_with_operation(&session, &bashrc_path, next_bashrc, operation)?;
         }
         ensure_active(operation)?;
         let snapshot = fetch_codex_relay_config(server, operation)?;
@@ -1862,10 +2027,26 @@ pub(crate) fn write_codex_relay_config(
         Ok(snapshot)
     })();
     if let Err(error) = result {
-        let rollback = restore_file(&session, &config_path, original_config.as_deref())
-            .and_then(|_| restore_file(&session, &auth_path, original_auth.as_deref()))
-            .and_then(|_| restore_file(&session, &env_path, original_env.as_deref()))
-            .and_then(|_| restore_file(&session, &bashrc_path, original_bashrc.as_deref()));
+        let rollback = restore_file_with_operation(
+            &session,
+            &config_path,
+            original_config.as_deref(),
+            operation,
+        )
+        .and_then(|_| {
+            restore_file_with_operation(&session, &auth_path, original_auth.as_deref(), operation)
+        })
+        .and_then(|_| {
+            restore_file_with_operation(&session, &env_path, original_env.as_deref(), operation)
+        })
+        .and_then(|_| {
+            restore_file_with_operation(
+                &session,
+                &bashrc_path,
+                original_bashrc.as_deref(),
+                operation,
+            )
+        });
         return Err(match rollback {
             Ok(()) => format!("同步失败，已恢复远端配置：{error}"),
             Err(rollback) => format!("同步失败且恢复远端配置失败：{error}；{rollback}"),
@@ -1876,6 +2057,7 @@ pub(crate) fn write_codex_relay_config(
 
 fn install_or_update_codex(
     server: &RemoteServer,
+    action: &str,
     operation: Option<&RemoteOperationGuard>,
     logger: Option<&RemoteCodexInstallLogger>,
 ) -> Result<RemoteCodexSnapshot, String> {
@@ -1891,7 +2073,8 @@ fn install_or_update_codex(
     let bootstrap = "if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then if ! command -v apt-get >/dev/null 2>&1; then echo 'Node.js/npm is missing and this server does not provide apt-get'; exit 126; fi; if [ \"$(id -u)\" -eq 0 ]; then apt-get update && apt-get install -y nodejs npm; elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y nodejs npm; else echo 'Node.js/npm is missing; log in as root or grant passwordless sudo for apt-get'; exit 126; fi; fi; node --version && npm --version";
     let (status, output) = command_with_install_log(
         &session,
-        &format!("timeout 240 sh -c {} 2>&1", shell_quote(bootstrap)),
+        &remote_command_with_timeout(240, &format!("{bootstrap} 2>&1")),
+        operation,
         logger,
         "preparing",
     )?;
@@ -1904,23 +2087,41 @@ fn install_or_update_codex(
             format!("Node.js/npm 准备失败：{detail}")
         });
     }
-    if let Some(logger) = logger {
-        logger.info("installing", "正在安装 Codex CLI");
-    }
-    let (status, output) = command_with_install_log(
+    let (codex_status, codex_output) = command_with_install_log(
         &session,
-        "timeout 240 env NPM_CONFIG_FETCH_TIMEOUT=60000 NPM_CONFIG_FETCH_RETRIES=2 npm install -g @openai/codex@latest --no-audit --no-fund 2>&1",
+        "codex --version 2>/dev/null",
+        operation,
         logger,
-        "installing",
+        "preparing",
     )?;
-    ensure_active(operation)?;
-    if status != 0 {
-        let detail = output.trim();
-        return Err(if detail.is_empty() {
-            format!("Codex 安装失败，退出码 {status}")
-        } else {
-            format!("Codex 安装失败：{detail}")
-        });
+    let codex_already_installed = command_has_value(codex_status, &codex_output);
+    if action == "install" && codex_already_installed {
+        if let Some(logger) = logger {
+            logger.info("preparing", "Codex CLI 已安装，跳过重复安装");
+        }
+    } else {
+        if let Some(logger) = logger {
+            logger.info("installing", "正在安装或更新 Codex CLI");
+        }
+        let (status, output) = command_with_install_log(
+            &session,
+            &remote_command_with_timeout(
+                240,
+                "env NPM_CONFIG_FETCH_TIMEOUT=60000 NPM_CONFIG_FETCH_RETRIES=2 npm install -g @openai/codex@latest --no-audit --no-fund 2>&1",
+            ),
+            operation,
+            logger,
+            "installing",
+        )?;
+        ensure_active(operation)?;
+        if status != 0 {
+            let detail = output.trim();
+            return Err(if detail.is_empty() {
+                format!("Codex 安装失败，退出码 {status}")
+            } else {
+                format!("Codex 安装失败：{detail}")
+            });
+        }
     }
     if let Some(logger) = logger {
         logger.info("verifying", "正在校验 Codex CLI 版本");
@@ -1933,6 +2134,10 @@ fn install_or_update_codex(
         );
     }
     Ok(snapshot)
+}
+
+fn command_has_value(status: i32, output: &str) -> bool {
+    status == 0 && !output.trim().is_empty()
 }
 
 pub(crate) fn test_and_read_server(
@@ -1974,13 +2179,17 @@ pub(crate) fn verify_codex_session(
         let mut session = session(server, operation)?;
         session.set_timeout(120_000);
         let prompt = "Reply with exactly RELAYHUB_SESSION_OK and no other text.";
-        let command_to_run = format!(
-            "exec timeout 90 codex exec --skip-git-repo-check {} 2>&1",
-            shell_quote(prompt)
+        let command_to_run = remote_command_with_timeout(
+            90,
+            &format!(
+                "codex exec --skip-git-repo-check {} 2>&1",
+                shell_quote(prompt)
+            ),
         );
-        let (status, output) = command(
+        let (status, output) = command_with_operation(
             &session,
-            &format!("bash -lc {}", shell_quote(&command_to_run)),
+            &format!("sh -c {}", shell_quote(&command_to_run)),
+            operation,
         )?;
         if status != 0 {
             return Err(if status == 124 {
@@ -2294,7 +2503,9 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        codex_relay_config, codex_update_available, patch_codex_config, remove_bashrc_relay_source,
+        canonical_host_key_fingerprint, codex_relay_config, codex_update_available,
+        command_has_value, host_key_fingerprint_from_bytes, host_key_fingerprints_match,
+        patch_codex_config, remote_command_with_timeout, remove_bashrc_relay_source,
         rollback_state_fingerprint,
     };
     use crate::{
@@ -2307,6 +2518,7 @@ mod tests {
         support::{base, now},
     };
     use serde_json::Value;
+    use sha2::{Digest, Sha256};
     use uuid::Uuid;
 
     #[test]
@@ -2403,6 +2615,44 @@ experimental_bearer_token = "sk-relay-config-token"
             Some("0.99.9")
         ));
         assert!(!codex_update_available(Some("unknown"), Some("0.93.0")));
+    }
+
+    #[test]
+    fn uses_open_ssh_fingerprint_format_and_accepts_legacy_hex_values() {
+        let host_key = [0; 32];
+        let standard = host_key_fingerprint_from_bytes(&host_key);
+        let digest = Sha256::digest(host_key);
+        let legacy = format!(
+            "SHA256:{}",
+            digest
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        assert_eq!(canonical_host_key_fingerprint(&legacy), standard,);
+        assert_eq!(
+            canonical_host_key_fingerprint(&format!("{standard}=")),
+            standard
+        );
+        assert!(host_key_fingerprints_match(&legacy, &standard));
+        assert!(!host_key_fingerprints_match(
+            "SHA256:1111111111111111111111111111111111111111111111111111111111111111",
+            &standard
+        ));
+    }
+
+    #[test]
+    fn only_skips_codex_install_when_preflight_returns_a_version() {
+        assert!(command_has_value(0, "codex-cli 0.93.0\n"));
+        assert!(!command_has_value(0, "\n"));
+        assert!(!command_has_value(127, "codex: not found\n"));
+    }
+
+    #[test]
+    fn wraps_remote_commands_with_a_timeout_fallback() {
+        let command = remote_command_with_timeout(90, "echo ok");
+        assert!(command.contains("timeout 90"));
+        assert!(command.contains("else sh -c"));
     }
 
     #[test]
