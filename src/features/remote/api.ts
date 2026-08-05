@@ -1,5 +1,7 @@
 import { invokeDesktop } from "../../lib/tauri";
 
+export const REMOTE_CODEX_INSTALL_LOG_EVENT = "relayhub:remote-codex-install-log";
+
 export const remoteApi = {
   list: <T>() => invokeDesktop<T>("list_remote_servers"),
   remove: (id: string) => invokeDesktop<void>("delete_remote_server", { id }),
@@ -9,6 +11,7 @@ export const remoteApi = {
   verifyCodexSession: <T>(id: string) => invokeDesktop<T>("verify_remote_codex_session_command", { id }),
   cancelOperation: (id: string) => invokeDesktop<void>("cancel_remote_server_operation", { id }),
   manageCodex: <T>(id: string, action: "install" | "update") => invokeDesktop<T>("install_or_update_remote_codex_command", { id, action }),
+  assignLocalRelay: <T>(serverId: string) => invokeDesktop<T>("assign_local_codex_relay", { serverId }),
   syncLogs: <T>(serverId: string) => invokeDesktop<T>("list_remote_sync_logs", { serverId }),
   auditEvents: <T>() => invokeDesktop<T>("list_audit_events", { limit: 200 }),
   rollbackAudit: <T>(eventId: number) => invokeDesktop<T>("rollback_audit_event", { eventId }),

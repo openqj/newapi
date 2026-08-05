@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { FolderOpen, KeyRound } from "lucide-react";
+import { useRef, useState } from "react";
+import { Eye, EyeOff, FolderOpen } from "lucide-react";
 import type { RemoteServer } from "../types";
 
 type RemoteServerFieldsProps = {
@@ -10,8 +10,6 @@ type RemoteServerFieldsProps = {
   onPasswordChange: (password: string) => void;
   privateKeyPath: string;
   onChoosePrivateKey: () => void;
-  onGenerateKey: (form: HTMLFormElement | null) => void;
-  generatingKey: boolean;
 };
 
 export function parseSshHostInput(value: string): { username: string; host: string } | null {
@@ -34,10 +32,9 @@ export function RemoteServerFields({
   onPasswordChange,
   privateKeyPath,
   onChoosePrivateKey,
-  onGenerateKey,
-  generatingKey,
 }: RemoteServerFieldsProps) {
   const autoFilledUsername = useRef<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const handleHostBlur = (event: React.FocusEvent<HTMLInputElement>) => {
     const parsed = parseSshHostInput(event.currentTarget.value);
     if (!parsed) return;
@@ -111,21 +108,21 @@ export function RemoteServerFields({
               value={password}
               onChange={(event) => onPasswordChange(event.target.value)}
               required={!server || server.authType !== authType}
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               placeholder={server ? "留空保留已保存密码；需更新时重新输入" : "输入密码"}
               onInvalid={(event) => event.currentTarget.setCustomValidity("请添加密码")}
               onInput={(event) => event.currentTarget.setCustomValidity("")}
             />
             <button
-              className="secret-file-button"
+              className="secret-visibility-button"
               type="button"
-              title="使用密码生成 SSH 密钥"
-              aria-label="使用密码生成 SSH 密钥"
-              disabled={generatingKey || !password}
-              onClick={(event) => onGenerateKey(event.currentTarget.form)}
+              title={showPassword ? "隐藏密码" : "显示密码"}
+              aria-label={showPassword ? "隐藏密码" : "显示密码"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((visible) => !visible)}
             >
-              <KeyRound size={17} />
+              {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
             </button>
           </div>
         </label>

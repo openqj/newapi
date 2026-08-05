@@ -468,7 +468,9 @@ pub(crate) struct ProviderDoctorReport {
 pub(crate) struct UsageLog {
     pub(crate) id: String,
     pub(crate) station_id: String,
+    #[serde(default)]
     pub(crate) station_name: String,
+    #[serde(default)]
     pub(crate) station_url: String,
     pub(crate) api_key_name: Option<String>,
     pub(crate) group_name: Option<String>,
@@ -483,6 +485,20 @@ pub(crate) struct UsageLog {
     pub(crate) cache_creation_tokens: i64,
     pub(crate) cache_read_tokens: i64,
     pub(crate) actual_cost: f64,
+    #[serde(default)]
+    pub(crate) input_cost: Option<f64>,
+    #[serde(default)]
+    pub(crate) output_cost: Option<f64>,
+    #[serde(default)]
+    pub(crate) cache_creation_cost: Option<f64>,
+    #[serde(default)]
+    pub(crate) cache_read_cost: Option<f64>,
+    #[serde(default)]
+    pub(crate) total_cost: Option<f64>,
+    #[serde(default)]
+    pub(crate) rate_multiplier: Option<f64>,
+    #[serde(default)]
+    pub(crate) service_tier: Option<String>,
     pub(crate) request_type: String,
     pub(crate) duration_ms: Option<i64>,
     pub(crate) created_at: i64,

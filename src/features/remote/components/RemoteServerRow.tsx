@@ -47,7 +47,8 @@ export function RemoteServerRow({
 }: RemoteServerRowProps) {
   const editingUrl = editingRelay?.serverId === server.id && editingRelay.field === "url";
   const editingKey = editingRelay?.serverId === server.id && editingRelay.field === "key";
-  const operationRunning = testing || verifyingSession || saving || savingRelay || codexAction;
+  const operationRunning = testing || saving || savingRelay || codexAction;
+  const rowBusy = operationRunning || verifyingSession;
 
   return <tr>
     <td className="remote-config-select-cell"><input type="checkbox" aria-label={`选择 ${server.name}`} checked={selected} onChange={onToggleSelected} /></td>
@@ -69,7 +70,7 @@ export function RemoteServerRow({
       <button type="button" className="logs" title="同步记录" disabled={loadingLogs} onClick={onShowLogs}><Clock3 size={15} className={loadingLogs ? "animate-spin" : ""} /><span>记录</span></button>
       <button type="button" className="verify" title="验证 Codex CLI 实际会话" disabled={verifyingSession} onClick={onVerifySession}><Play size={15} className={verifyingSession ? "animate-spin" : ""} /><span>验证</span></button>
       {operationRunning && <button type="button" className="cancel" title="取消服务器操作" onClick={onCancelOperation}><X size={15} /><span>取消</span></button>}
-      <button type="button" className="delete" title="删除服务器" disabled={deleting || operationRunning} onClick={onDelete}><Trash2 size={15} /><span>删除</span></button>
+      <button type="button" className="delete" title="删除服务器" disabled={deleting || rowBusy} onClick={onDelete}><Trash2 size={15} /><span>删除</span></button>
     </div></td>
   </tr>;
 }

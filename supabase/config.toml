@@ -16,6 +16,3 @@ verify_enabled = true
 enable_confirmations = true
 max_frequency = "1m0s"
 otp_length = 8
-
-[storage.vector]
-enabled = false

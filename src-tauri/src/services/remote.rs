@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -12,9 +12,11 @@ use std::{
     time::Duration,
 };
 
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use ssh2::Session;
+use tauri::Emitter;
 use toml_edit::{value as toml_value, DocumentMut, Item, Table};
 use uuid::Uuid;
 
@@ -34,6 +36,79 @@ pub(crate) enum RemoteSession {
     Libssh(Session),
     #[cfg(windows)]
     OpenSsh(Box<RemoteServer>),
+}
+
+pub(crate) const REMOTE_CODEX_INSTALL_LOG_EVENT: &str = "relayhub:remote-codex-install-log";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteCodexInstallLogEvent {
+    server_id: String,
+    phase: String,
+    level: String,
+    message: String,
+    done: bool,
+    success: Option<bool>,
+}
+
+#[derive(Clone)]
+struct RemoteCodexInstallLogger {
+    app_handle: tauri::AppHandle<tauri::Wry>,
+    server_id: String,
+}
+
+impl RemoteCodexInstallLogger {
+    fn new(app_handle: tauri::AppHandle<tauri::Wry>, server_id: &str) -> Self {
+        Self {
+            app_handle,
+            server_id: server_id.into(),
+        }
+    }
+
+    fn emit(
+        &self,
+        phase: &str,
+        level: &str,
+        message: impl Into<String>,
+        done: bool,
+        success: Option<bool>,
+    ) {
+        let _ = self.app_handle.emit(
+            REMOTE_CODEX_INSTALL_LOG_EVENT,
+            RemoteCodexInstallLogEvent {
+                server_id: self.server_id.clone(),
+                phase: phase.into(),
+                level: level.into(),
+                message: message.into(),
+                done,
+                success,
+            },
+        );
+    }
+
+    fn info(&self, phase: &str, message: impl Into<String>) {
+        self.emit(phase, "info", message, false, None);
+    }
+
+    fn output(&self, phase: &str, output: &str) {
+        for line in output
+            .lines()
+            .map(str::trim_end)
+            .filter(|line| !line.trim().is_empty())
+        {
+            self.emit(phase, "output", line, false, None);
+        }
+    }
+
+    fn finish(&self, success: bool, message: impl Into<String>) {
+        self.emit(
+            "completed",
+            if success { "success" } else { "error" },
+            message,
+            true,
+            Some(success),
+        );
+    }
 }
 
 impl RemoteSession {
@@ -430,10 +505,17 @@ pub(crate) fn install_or_update_server_codex(
     id: &str,
     action: &str,
 ) -> Result<RemoteServer, String> {
+    let logger = RemoteCodexInstallLogger::new(state.app_handle.clone(), id);
     if !matches!(action, "install" | "update") {
         return Err("不支持的 Codex 操作".into());
     }
-    let operation = acquire_operation(state, id)?;
+    let operation = match acquire_operation(state, id) {
+        Ok(operation) => operation,
+        Err(error) => {
+            logger.finish(false, format!("Codex CLI 安装失败：{error}"));
+            return Err(error);
+        }
+    };
     let mut server = state
         .store
         .lock()
@@ -445,9 +527,10 @@ pub(crate) fn install_or_update_server_codex(
     if action == "update" && !server.codex_update_available {
         return Err("当前未检测到可用更新，请先测试 SSH 连接刷新版本状态".into());
     }
-    let snapshot = match install_or_update_codex(&server, Some(&operation)) {
+    let snapshot = match install_or_update_codex(&server, Some(&operation), Some(&logger)) {
         Ok(snapshot) => snapshot,
         Err(error) => {
+            logger.finish(false, format!("Codex CLI 安装失败：{error}"));
             record_failure(state, &mut server, action, &error);
             return Err(error);
         }
@@ -470,6 +553,14 @@ pub(crate) fn install_or_update_server_codex(
             "已安装 Codex CLI 并完成版本校验"
         } else {
             "已更新 Codex CLI 并完成版本校验"
+        },
+    );
+    logger.finish(
+        true,
+        if action == "install" {
+            "Codex CLI 安装完成并已校验版本"
+        } else {
+            "Codex CLI 更新完成并已校验版本"
         },
     );
     Ok(server)
@@ -675,25 +766,57 @@ fn system_ssh_target(server: &RemoteServer) -> String {
 }
 
 #[cfg(windows)]
-fn system_ssh(
+fn append_system_ssh_line(
+    output: &mut String,
+    logger: Option<&RemoteCodexInstallLogger>,
+    phase: &str,
+    line: String,
+) {
+    let line = line.trim_end_matches('\r');
+    if !output.is_empty() {
+        output.push('\n');
+    }
+    output.push_str(line);
+    if let Some(logger) = logger {
+        logger.output(phase, line);
+    }
+}
+
+#[cfg(windows)]
+fn system_ssh_with_host_key_policy(
     server: &RemoteServer,
     script: &str,
     timeout: Duration,
+    use_known_hosts: bool,
+    logger: Option<&RemoteCodexInstallLogger>,
+    log_phase: &str,
 ) -> Result<(i32, String), String> {
     let private_key = server
         .private_key_path
         .as_deref()
         .filter(|path| !path.contains("-----BEGIN"))
         .ok_or("Windows OpenSSH 回退仅支持密钥文件路径")?;
-    let mut child = Command::new("ssh")
+    let mut command = Command::new("ssh");
+    command
         .arg("-i")
         .arg(private_key)
         .arg("-o")
         .arg("IdentitiesOnly=yes")
         .arg("-o")
-        .arg("BatchMode=yes")
-        .arg("-o")
-        .arg("StrictHostKeyChecking=accept-new")
+        .arg("BatchMode=yes");
+    if use_known_hosts {
+        command.arg("-o").arg("StrictHostKeyChecking=accept-new");
+    } else {
+        // The caller has already verified the host key through libssh2. Use
+        // an isolated known-hosts file so an obsolete user entry cannot block
+        // this one-shot validation.
+        command
+            .arg("-o")
+            .arg("StrictHostKeyChecking=no")
+            .arg("-o")
+            .arg("UserKnownHostsFile=NUL");
+    }
+    let mut child = command
         .arg("-o")
         .arg("ConnectTimeout=15")
         .arg("-p")
@@ -713,6 +836,9 @@ fn system_ssh(
         .write_all(script.as_bytes())
         .map_err(|error| format!("无法发送远程 SSH 命令：{error}"))?;
     drop(stdin);
+    if let Some(logger) = logger {
+        return stream_system_ssh_output(child, timeout, logger, log_phase);
+    }
     let started = std::time::Instant::now();
     loop {
         if let Some(status) = child
@@ -722,14 +848,89 @@ fn system_ssh(
             let output = child
                 .wait_with_output()
                 .map_err(|error| format!("无法读取 Windows OpenSSH 输出：{error}"))?;
+            // SSH may emit host-key notices on stderr even when the remote command succeeds.
+            // Keep stderr out of file contents such as config.toml and auth.json.
             let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
-            text.push_str(&String::from_utf8_lossy(&output.stderr));
+            if !status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.trim().is_empty() {
+                    if !text.is_empty() {
+                        text.push('\n');
+                    }
+                    text.push_str(&stderr);
+                }
+            }
             return Ok((status.code().unwrap_or(1), text));
         }
         if started.elapsed() >= timeout {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("Windows OpenSSH 命令超时".into());
+            return Err(format!(
+                "Windows OpenSSH 命令超时（{} 秒）",
+                timeout.as_secs()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[cfg(windows)]
+fn stream_system_ssh_output(
+    mut child: std::process::Child,
+    timeout: Duration,
+    logger: &RemoteCodexInstallLogger,
+    log_phase: &str,
+) -> Result<(i32, String), String> {
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or("无法打开 Windows OpenSSH 标准输出")?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or("无法打开 Windows OpenSSH 标准错误")?;
+    let (line_sender, line_receiver) = std::sync::mpsc::channel::<String>();
+    let mut readers = Vec::with_capacity(2);
+    let streams: [Box<dyn Read + Send>; 2] = [Box::new(stdout), Box::new(stderr)];
+    for stream in streams {
+        let sender = line_sender.clone();
+        readers.push(std::thread::spawn(move || {
+            let reader = BufReader::new(stream);
+            for line in reader.lines().map_while(Result::ok) {
+                let _ = sender.send(line);
+            }
+        }));
+    }
+    drop(line_sender);
+
+    let mut output = String::new();
+    let started = std::time::Instant::now();
+    loop {
+        while let Ok(line) = line_receiver.try_recv() {
+            append_system_ssh_line(&mut output, Some(logger), log_phase, line);
+        }
+        if let Some(status) = child
+            .try_wait()
+            .map_err(|error| format!("无法等待 Windows OpenSSH：{error}"))?
+        {
+            for reader in readers {
+                let _ = reader.join();
+            }
+            while let Ok(line) = line_receiver.try_recv() {
+                append_system_ssh_line(&mut output, Some(logger), log_phase, line);
+            }
+            return Ok((status.code().unwrap_or(1), output));
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            for reader in readers {
+                let _ = reader.join();
+            }
+            return Err(format!(
+                "Windows OpenSSH {log_phase} 命令超时（{} 秒）",
+                timeout.as_secs()
+            ));
         }
         std::thread::sleep(Duration::from_millis(25));
     }
@@ -739,6 +940,7 @@ fn system_ssh(
 fn system_ssh_session(
     server: &RemoteServer,
     operation: Option<&RemoteOperationGuard>,
+    use_known_hosts: bool,
 ) -> Result<RemoteSession, String> {
     ensure_active(operation)?;
     let fingerprint = probe_host_key(&server.host, server.port)?;
@@ -749,9 +951,24 @@ fn system_ssh_session(
             ));
         }
     }
-    let (status, output) = system_ssh(server, "true\n", Duration::from_secs(20))?;
+    if !use_known_hosts && server.host_key_fingerprint.is_none() {
+        return Err("使用隔离的 OpenSSH 主机密钥验证前必须先确认主机指纹".into());
+    }
+    let (status, output) = system_ssh_with_host_key_policy(
+        server,
+        "true\n",
+        Duration::from_secs(20),
+        use_known_hosts,
+        None,
+        "command",
+    )?;
     if status != 0 {
-        return Err(format!("Windows OpenSSH 私钥认证失败：{}", output.trim()));
+        let detail = output.trim();
+        return Err(if detail.is_empty() {
+            format!("Windows OpenSSH 私钥认证失败，退出码 {status}")
+        } else {
+            format!("Windows OpenSSH 私钥认证失败：{detail}")
+        });
     }
     Ok(RemoteSession::OpenSsh(Box::new(server.clone())))
 }
@@ -938,7 +1155,10 @@ pub(crate) fn session(
     }
     #[cfg(windows)]
     if server.auth_type == "key" {
-        return system_ssh_session(server, operation).map_err(|fallback_error| {
+        // A persisted fingerprint has already been checked by the libssh2
+        // probe, so stale user known-hosts entries must not block the fallback.
+        let use_known_hosts = server.host_key_fingerprint.is_none();
+        return system_ssh_session(server, operation, use_known_hosts).map_err(|fallback_error| {
             format!("{last_error}; Windows OpenSSH 回退失败：{fallback_error}")
         });
     }
@@ -966,12 +1186,34 @@ fn libssh_command(session: &Session, command: &str) -> Result<(i32, String), Str
     ))
 }
 
-pub(crate) fn command(session: &RemoteSession, command: &str) -> Result<(i32, String), String> {
+fn command_with_install_log(
+    session: &RemoteSession,
+    command: &str,
+    logger: Option<&RemoteCodexInstallLogger>,
+    log_phase: &str,
+) -> Result<(i32, String), String> {
     match session {
-        RemoteSession::Libssh(session) => libssh_command(session, command),
+        RemoteSession::Libssh(session) => {
+            let result = libssh_command(session, command)?;
+            if let Some(logger) = logger {
+                logger.output(log_phase, &result.1);
+            }
+            Ok(result)
+        }
         #[cfg(windows)]
-        RemoteSession::OpenSsh(server) => system_ssh(server, command, Duration::from_secs(180)),
+        RemoteSession::OpenSsh(server) => system_ssh_with_host_key_policy(
+            server,
+            command,
+            Duration::from_secs(300),
+            server.host_key_fingerprint.is_none(),
+            logger,
+            log_phase,
+        ),
     }
+}
+
+pub(crate) fn command(session: &RemoteSession, command: &str) -> Result<(i32, String), String> {
+    command_with_install_log(session, command, None, "command")
 }
 
 fn password_session(
@@ -998,15 +1240,54 @@ fn private_key_session(
     username: &str,
     private_key_path: &Path,
     expected_host_key_fingerprint: Option<&str>,
-) -> Result<Session, String> {
-    let session = session_transport(host, port, expected_host_key_fingerprint, None)?;
-    session
-        .userauth_pubkey_file(username, None, private_key_path, None)
-        .map_err(|error| format!("生成的 SSH 私钥认证失败：{error}"))?;
-    if session.authenticated() {
-        Ok(session)
-    } else {
-        Err("生成的 SSH 私钥未获服务器接受".into())
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        // libssh2 bundled with the Windows build cannot reliably parse every
+        // OpenSSH ED25519 private-key format. Reuse the same OpenSSH client
+        // used by the normal Windows key-auth fallback for this verification.
+        let server = RemoteServer {
+            id: "relayhub-generated-key-validation".into(),
+            name: host.into(),
+            host: host.into(),
+            port,
+            username: username.into(),
+            auth_type: "key".into(),
+            private_key_path: Some(private_key_path.to_string_lossy().into_owned()),
+            codex_version: None,
+            codex_latest_version: None,
+            codex_update_available: false,
+            host_key_fingerprint: expected_host_key_fingerprint.map(str::to_string),
+            relay_url: None,
+            relay_provider: None,
+            relay_key_source: None,
+            relay_key_masked: None,
+            relay_config_fingerprint: None,
+            connection_status: "warning".into(),
+            connection_error: None,
+            last_synced_at: None,
+            last_sync_status: None,
+            last_sync_error: None,
+            updated_at: now(),
+        };
+        return system_ssh_session(&server, None, false)
+            .map(|_| ())
+            .map_err(|error| {
+                format!("生成的 SSH 私钥认证失败：Windows OpenSSH 验证失败：{error}")
+            });
+    }
+
+    #[cfg(not(windows))]
+    {
+        let session = session_transport(host, port, expected_host_key_fingerprint, None)?;
+        session
+            .userauth_pubkey_file(username, None, private_key_path, None)
+            .map_err(|error| format!("生成的 SSH 私钥认证失败：{error}"))?;
+        if session.authenticated() {
+            Ok(())
+        } else {
+            Err("生成的 SSH 私钥未获服务器接受".into())
+        }
     }
 }
 
@@ -1247,11 +1528,20 @@ pub(crate) fn generate_ssh_key(
 }
 
 pub(crate) fn home(session: &RemoteSession) -> Result<String, String> {
-    let (status, home) = command(session, "printf %s \"$HOME\"")?;
-    if status != 0 || home.trim().is_empty() {
-        return Err("无法确定服务器用户目录".into());
+    let (status, output) = command(
+        session,
+        r#"home="${HOME:-}"; if [ -z "$home" ] && command -v getent >/dev/null 2>&1; then home="$(getent passwd "$(id -un)" | cut -d: -f6)"; fi; if [ -z "$home" ]; then home="$PWD"; fi; printf 'RELAYHUB_HOME:%s\n' "$home""#,
+    )?;
+    let home = output
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("RELAYHUB_HOME:"))
+        .map(str::trim)
+        .find(|value| !value.is_empty());
+    if status != 0 {
+        return Err(format!("无法确定服务器用户目录，远程命令退出码 {status}"));
     }
-    Ok(home)
+    home.map(str::to_string)
+        .ok_or_else(|| "无法确定服务器用户目录：远程未返回有效路径".into())
 }
 
 pub(crate) fn read_file(session: &RemoteSession, path: &str) -> Result<Option<String>, String> {
@@ -1284,7 +1574,14 @@ pub(crate) fn write_file(session: &RemoteSession, path: &str, content: &str) -> 
             temporary = shell_quote(&temporary),
             path = shell_quote(path),
         );
-        let (status, output) = system_ssh(server, &script, Duration::from_secs(30))?;
+        let (status, output) = system_ssh_with_host_key_policy(
+            server,
+            &script,
+            Duration::from_secs(30),
+            server.host_key_fingerprint.is_none(),
+            None,
+            "command",
+        )?;
         return if status == 0 {
             Ok(())
         } else {
@@ -1577,17 +1874,26 @@ pub(crate) fn write_codex_relay_config(
     result
 }
 
-pub(crate) fn install_or_update_codex(
+fn install_or_update_codex(
     server: &RemoteServer,
     operation: Option<&RemoteOperationGuard>,
+    logger: Option<&RemoteCodexInstallLogger>,
 ) -> Result<RemoteCodexSnapshot, String> {
     ensure_active(operation)?;
+    if let Some(logger) = logger {
+        logger.info("connecting", "正在连接远程服务器");
+    }
     let mut session = session(server, operation)?;
     session.set_timeout(180_000);
+    if let Some(logger) = logger {
+        logger.info("preparing", "正在检查 Node.js 和 npm 环境");
+    }
     let bootstrap = "if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then if ! command -v apt-get >/dev/null 2>&1; then echo 'Node.js/npm is missing and this server does not provide apt-get'; exit 126; fi; if [ \"$(id -u)\" -eq 0 ]; then apt-get update && apt-get install -y nodejs npm; elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then sudo -n apt-get update && sudo -n apt-get install -y nodejs npm; else echo 'Node.js/npm is missing; log in as root or grant passwordless sudo for apt-get'; exit 126; fi; fi; node --version && npm --version";
-    let (status, output) = command(
+    let (status, output) = command_with_install_log(
         &session,
-        &format!("timeout 150 sh -c {} 2>&1", shell_quote(bootstrap)),
+        &format!("timeout 240 sh -c {} 2>&1", shell_quote(bootstrap)),
+        logger,
+        "preparing",
     )?;
     ensure_active(operation)?;
     if status != 0 {
@@ -1598,9 +1904,14 @@ pub(crate) fn install_or_update_codex(
             format!("Node.js/npm 准备失败：{detail}")
         });
     }
-    let (status, output) = command(
+    if let Some(logger) = logger {
+        logger.info("installing", "正在安装 Codex CLI");
+    }
+    let (status, output) = command_with_install_log(
         &session,
-        "timeout 150 npm install -g @openai/codex@latest 2>&1",
+        "timeout 240 env NPM_CONFIG_FETCH_TIMEOUT=60000 NPM_CONFIG_FETCH_RETRIES=2 npm install -g @openai/codex@latest --no-audit --no-fund 2>&1",
+        logger,
+        "installing",
     )?;
     ensure_active(operation)?;
     if status != 0 {
@@ -1610,6 +1921,9 @@ pub(crate) fn install_or_update_codex(
         } else {
             format!("Codex 安装失败：{detail}")
         });
+    }
+    if let Some(logger) = logger {
+        logger.info("verifying", "正在校验 Codex CLI 版本");
     }
     let snapshot = fetch_codex_relay_config(server, operation)?;
     if snapshot.codex_version.is_none() {

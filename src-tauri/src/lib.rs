@@ -70,18 +70,19 @@ use commands::queries::{
     list_station_groups,
 };
 use commands::remote::{
-    add_remote_server, assign_remote_relay_key, cancel_remote_server_operation,
-    choose_private_key_file, delete_remote_server, generate_ssh_key,
-    install_or_update_remote_codex_command, list_remote_servers, list_remote_sync_logs,
-    test_remote_server, update_remote_relay, update_remote_server,
+    add_remote_server, assign_local_codex_relay, assign_remote_relay_key,
+    cancel_remote_server_operation, choose_private_key_file, delete_remote_server,
+    generate_ssh_key, install_or_update_remote_codex_command, list_remote_servers,
+    list_remote_sync_logs, test_remote_server, update_remote_relay, update_remote_server,
     verify_remote_codex_session_command,
 };
 use commands::settings::{
     backup_database, cloud_complete_password_reset, cloud_request_password_reset, cloud_sign_in,
     cloud_sign_out, cloud_sign_up, create_cloud_backup, delete_cloud_backup,
-    get_active_codex_relay_status, get_background_refresh_minutes, get_cloud_auth_status, get_codex_integration,
-    get_local_cloud_backup_preview, list_cloud_backups, preview_cloud_backup, restore_cloud_backup,
-    save_background_refresh_minutes, set_codex_preserve_official_login,
+    get_active_codex_relay_status, get_background_refresh_minutes, get_cloud_auth_status,
+    get_codex_integration, get_local_cloud_backup_preview, list_cloud_backups,
+    preview_cloud_backup, restore_cloud_backup, save_background_refresh_minutes,
+    set_codex_preserve_official_login,
 };
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_station_credentials,
@@ -173,6 +174,7 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         test_remote_server,
         verify_remote_codex_session_command,
         assign_remote_relay_key,
+        assign_local_codex_relay,
         update_remote_relay,
         refresh_station,
         reauthenticate_station,

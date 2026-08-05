@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use tauri::State;
 use url::Url;
 
@@ -21,8 +23,8 @@ use crate::{
     },
     remote_store::RemoteServerStore,
     remote_sync_logs::RemoteSyncLogStore,
-    services::api_keys::read_api_key,
     services::remote::capture_codex_config_state,
+    services::{api_keys::read_api_key, codex_config},
     support::base,
     AppState,
 };
@@ -194,6 +196,54 @@ pub(crate) async fn assign_remote_relay_key(
 }
 
 #[tauri::command]
+pub(crate) async fn assign_local_codex_relay(
+    state: State<'_, AppState>,
+    server_id: String,
+) -> Result<RemoteServer, String> {
+    let (relay_url, relay_key) = codex_config::local_relay_credentials()?;
+    let operation = acquire_remote_operation(&state, &server_id)?;
+    let mut server = state
+        .store
+        .lock()
+        .map_err(|_| "本地数据库不可用".to_string())?
+        .get_remote_server(&server_id)?;
+    let before = server.clone();
+    let (rollback_reference, rollback_unavailable_reason) =
+        capture_relay_rollback(&server, &operation);
+    let relay_provider = server.relay_provider.clone();
+    write_server_relay(
+        &state,
+        &mut server,
+        &operation,
+        &relay_url,
+        &relay_key,
+        Some("Local Codex configuration".into()),
+        relay_provider,
+        rollback_reference
+            .as_ref()
+            .map(|reference| reference.original_config_fingerprint.as_str()),
+        "switch",
+        "Applied the local Codex relay configuration to the remote Codex CLI.",
+    )?;
+    let (rollback_reference, rollback_unavailable_reason) = finalize_relay_rollback(
+        &server,
+        &operation,
+        rollback_reference,
+        rollback_unavailable_reason,
+    );
+    record_remote_relay_change(
+        &state,
+        "remote.relay.assign_local",
+        "Applied the local Codex relay configuration to the remote Codex CLI. The API key is redacted.",
+        &before,
+        &server,
+        rollback_reference,
+        rollback_unavailable_reason.as_deref(),
+    );
+    Ok(server)
+}
+
+#[tauri::command]
 pub(crate) async fn update_remote_relay(
     state: State<'_, AppState>,
     request: UpdateRemoteRelayRequest,
@@ -290,9 +340,17 @@ pub(crate) async fn generate_ssh_key(
 
 #[tauri::command]
 pub(crate) async fn choose_private_key_file() -> Result<Option<String>, String> {
-    Ok(rfd::FileDialog::new()
+    let mut dialog = rfd::FileDialog::new()
+        .add_filter("All Files", &["*"])
         .set_title("选择 SSH密匙文件")
-        .add_filter("SSH密匙文件", &["pem", "ppk", "key"])
+        .add_filter("SSH密匙文件", &["pem", "ppk", "key"]);
+    if let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) {
+        let ssh_directory = PathBuf::from(home).join(".ssh");
+        if ssh_directory.is_dir() {
+            dialog = dialog.set_directory(ssh_directory);
+        }
+    }
+    Ok(dialog
         .pick_file()
         .map(|path| path.to_string_lossy().into_owned()))
 }

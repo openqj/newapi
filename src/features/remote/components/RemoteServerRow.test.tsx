@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps, FormEvent } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteServerRow } from "./RemoteServerRow";
 import type { RemoteServer } from "../types";
 
@@ -58,6 +58,10 @@ function renderRow(overrides: Partial<ComponentProps<typeof RemoteServerRow>> = 
 }
 
 describe("RemoteServerRow relay editing", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   it("saves the relay URL without submitting an enclosing form", () => {
     const { onSaveRelay, onSubmit } = renderRow({ editingRelay: { serverId: server.id, field: "url" } });
 
@@ -74,5 +78,13 @@ describe("RemoteServerRow relay editing", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存 API 密钥" }));
 
     expect(onSaveRelay).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show a cancel action while verifying the Codex session", () => {
+    renderRow({ verifyingSession: true });
+
+    expect(document.querySelector("button.cancel")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "验证" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
   });
 });

@@ -104,6 +104,33 @@ pub(crate) async fn active_relay_status(
     }))
 }
 
+/// Returns the active local Codex relay credentials for an in-process transfer.
+/// The secret never crosses the frontend boundary.
+pub(crate) fn local_relay_credentials() -> Result<(String, String), String> {
+    let directory = codex_directory()?;
+    let config = read_optional(&directory.join("config.toml"))?;
+    let auth = read_optional(&directory.join("auth.json"))?;
+    local_relay_credentials_from_contents(&config, &auth)
+}
+
+fn local_relay_credentials_from_contents(
+    config: &str,
+    auth: &str,
+) -> Result<(String, String), String> {
+    let (relay_url, config_key) =
+        active_relay_credentials(config).ok_or("本地 Codex 尚未配置可用的中转站")?;
+    let auth_key = active_relay_env_key(config)
+        .as_deref()
+        .and_then(|env_key| auth_json_api_key(auth, env_key))
+        .or_else(|| auth_json_api_key(auth, "OPENAI_API_KEY"));
+    let relay_key = config_key
+        .filter(|value| !value.trim_start().starts_with('$'))
+        .or(auth_key)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or("本地 Codex 中转配置没有可用的 API 密钥")?;
+    Ok((relay_url, relay_key))
+}
+
 async fn fetch_config_balance(
     state: &AppState,
     base_url: &str,
@@ -314,9 +341,46 @@ fn active_relay_credentials(config: &str) -> Option<(String, Option<String>)> {
         .or_else(|| root.get("api_key"))
         .and_then(|value| value.as_str())
         .map(str::trim)
+        .filter(|value| !value.starts_with('$'))
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     Some((url, key))
+}
+
+fn active_relay_env_key(config: &str) -> Option<String> {
+    let document = config.parse::<toml::Value>().ok()?;
+    let root = document.as_table()?;
+    let provider_name = root.get("model_provider")?.as_str()?;
+    root.get("model_providers")?
+        .as_table()?
+        .get(provider_name)?
+        .get("env_key")?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn auth_json_api_key(auth: &str, env_key: &str) -> Option<String> {
+    let value = serde_json::from_str::<Value>(auth).ok()?;
+    let key = value
+        .get(env_key)
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("env")
+                .and_then(|env| env.get(env_key))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| {
+            (env_key == "OPENAI_API_KEY")
+                .then(|| value.get("api_key"))
+                .flatten()
+                .and_then(Value::as_str)
+        })
+        .map(str::trim)
+        .filter(|key| !key.is_empty() && !key.starts_with('$'))?;
+    Some(key.to_string())
 }
 
 #[cfg(test)]
@@ -482,7 +546,10 @@ fn restore(path: &Path, source: Option<&str>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{active_relay_credentials, active_relay_url, apply_to_directory};
+    use super::{
+        active_relay_credentials, active_relay_url, apply_to_directory,
+        local_relay_credentials_from_contents,
+    };
 
     #[test]
     fn reads_the_active_provider_url_from_codex_config() {
@@ -528,6 +595,40 @@ experimental_bearer_token = "sk-provider"
                 "https://relay.example/v1".into(),
                 Some("sk-provider".into())
             ))
+        );
+    }
+
+    #[test]
+    fn reads_the_local_api_key_from_the_active_provider_environment_name() {
+        let config = r#"
+model_provider = "custom"
+
+[model_providers.custom]
+base_url = "https://relay.example/v1"
+env_key = "CUSTOM_API_KEY"
+"#;
+        let auth = r#"{"env":{"CUSTOM_API_KEY":"sk-from-auth"}}"#;
+
+        assert_eq!(
+            local_relay_credentials_from_contents(config, auth).unwrap(),
+            ("https://relay.example/v1".into(), "sk-from-auth".into())
+        );
+    }
+
+    #[test]
+    fn falls_back_from_an_environment_placeholder_to_auth_json() {
+        let config = r#"
+model_provider = "custom"
+experimental_bearer_token = "$OPENAI_API_KEY"
+
+[model_providers.custom]
+base_url = "https://relay.example/v1"
+"#;
+        let auth = r#"{"OPENAI_API_KEY":"sk-from-auth"}"#;
+
+        assert_eq!(
+            local_relay_credentials_from_contents(config, auth).unwrap(),
+            ("https://relay.example/v1".into(), "sk-from-auth".into())
         );
     }
 

@@ -19,4 +19,10 @@ describe("remoteApi command contract", () => {
     expect(invokeDesktop).toHaveBeenNthCalledWith(3, "add_remote_server", { request: { name: "new server" } });
     expect(invokeDesktop).toHaveBeenNthCalledWith(4, "update_remote_server", { request: { id: "server-1", name: "edited server" } });
   });
+
+  it("uses the local Codex relay transfer command", async () => {
+    await remoteApi.assignLocalRelay("server-1");
+
+    expect(invokeDesktop).toHaveBeenCalledWith("assign_local_codex_relay", { serverId: "server-1" });
+  });
 });

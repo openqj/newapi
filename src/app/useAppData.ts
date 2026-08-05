@@ -78,8 +78,9 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
       loadAccountRows(),
       loadRateRows(),
       loadUsageSummary(),
+      refreshUsageLogs(),
     ]);
-  }, [loadAccountRows, loadKeyRows, loadRateRows, loadUsageSummary]);
+  }, [loadAccountRows, loadKeyRows, loadRateRows, loadUsageSummary, refreshUsageLogs]);
 
   const stationDemo = useMemo(
     () => ({ stations: demo.stations, snapshots: demo.snapshots }),
@@ -126,7 +127,10 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
   }, [loadKeyRows, view]);
   useEffect(() => { if (view === "accounts" || view === "overview") void loadAccountRows(); }, [loadAccountRows, view]);
   useEffect(() => { if (view === "rates") void loadRateRows(); }, [loadRateRows, view]);
-  useEffect(() => { if (view === "usage" || view === "overview") void loadUsageLogs(); }, [loadUsageLogs, view]);
+  useEffect(() => {
+    if (view === "usage") void refreshUsageLogs();
+    else if (view === "overview") void loadUsageLogs();
+  }, [loadUsageLogs, refreshUsageLogs, view]);
   useEffect(() => {
     if (view === "remote") {
       void loadRemoteServers();

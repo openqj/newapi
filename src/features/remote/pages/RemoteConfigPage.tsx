@@ -4,6 +4,7 @@ import { AuditHistoryDialog } from "../components/AuditHistoryDialog";
 import { RelayKeyMenu } from "../components/RelayKeyMenu";
 import { RemoteBulkActions } from "../components/RemoteBulkActions";
 import { RemoteConfigToolbar } from "../components/RemoteConfigToolbar";
+import { RemoteCodexInstallLogDialog } from "../components/RemoteCodexInstallLogDialog";
 import { RemoteServerDialog } from "../components/RemoteServerDialog";
 import { RemoteServerTable } from "../components/RemoteServerTable";
 import { RemoteSyncLogDialog } from "../components/RemoteSyncLogDialog";
@@ -39,6 +40,7 @@ export function RemoteConfigPage({
     setEditingRelay,
     cancelRelayEditing,
     switchKey,
+    switchLocalRelay,
     selectedKeyLabel,
     saveRelay,
     deletingServer,
@@ -52,6 +54,8 @@ export function RemoteConfigPage({
     cancelServerOperation,
     codexAction,
     manageCodex,
+    codexInstallState,
+    setCodexInstallState,
     loadingLogs,
     showSyncLogs,
     testResult,
@@ -66,6 +70,7 @@ export function RemoteConfigPage({
     toggleServer: toggleServerSelection,
     toggleAllServers,
     switchSelectedServers,
+    switchSelectedLocal,
     testSelectedServers,
     verifySelectedCodexSessions,
     deleteSelectedServers,
@@ -101,6 +106,7 @@ export function RemoteConfigPage({
         keyRows={keyRows}
         action={bulkAction}
         onSwitch={(value) => void switchSelectedServers(value)}
+        onSwitchLocal={() => void switchSelectedLocal()}
         onTest={() => void testSelectedServers()}
         onVerifySession={() => void verifySelectedCodexSessions()}
         onDelete={() => void deleteSelectedServers()}
@@ -149,12 +155,20 @@ export function RemoteConfigPage({
       />
       {testResult && <RemoteTestNotice result={testResult} onClose={() => setTestResult(null)} />}
       {syncLogs && <RemoteSyncLogDialog server={syncLogs.server} entries={syncLogs.entries} onClose={() => setSyncLogs(null)} />}
+      {codexInstallState && <RemoteCodexInstallLogDialog state={codexInstallState} onClose={() => setCodexInstallState(null)} />}
       {openSelection && selectionMenuPosition && (
         <RelayKeyMenu
           position={selectionMenuPosition}
           rows={keyRows}
           saving={saving === openSelection}
           menuRef={selectionMenuRef}
+          onSelectLocal={() => {
+            const server = servers.find((item) => item.id === openSelection);
+            if (!server) return;
+            setOpenSelection(null);
+            setSelectionMenuPosition(null);
+            void switchLocalRelay(server);
+          }}
           onSelect={(value) => {
             const server = servers.find((item) => item.id === openSelection);
             if (!server) return;

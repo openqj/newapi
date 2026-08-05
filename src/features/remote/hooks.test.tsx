@@ -4,10 +4,10 @@ import { ConfirmationProvider, ToastProvider } from "../../components/ui";
 import { useRemoteBulkActions, useRemoteServerActions } from "./hooks";
 import type { RemoteServer } from "./types";
 
-const { cancelOperation, updateRelay, verifyCodexSession } = vi.hoisted(() => ({ cancelOperation: vi.fn(), updateRelay: vi.fn(), verifyCodexSession: vi.fn() }));
+const { assignLocalRelay, cancelOperation, updateRelay, verifyCodexSession } = vi.hoisted(() => ({ assignLocalRelay: vi.fn(), cancelOperation: vi.fn(), updateRelay: vi.fn(), verifyCodexSession: vi.fn() }));
 
 vi.mock("../../lib/platform", () => ({ isTauri: () => true }));
-vi.mock("./api", () => ({ remoteApi: { cancelOperation, updateRelay, verifyCodexSession } }));
+vi.mock("./api", () => ({ remoteApi: { assignLocalRelay, cancelOperation, updateRelay, verifyCodexSession } }));
 
 const server: RemoteServer = {
   id: "server-1",
@@ -42,6 +42,20 @@ function RemoteBulkActionProbe({ onResult }: { onResult: (result: { success: boo
     onKeyAssigned: vi.fn(),
   });
   return <><button type="button" onClick={() => toggleServer(server.id)}>选择</button><button type="button" onClick={() => void verifySelectedCodexSessions()}>测试 CLI 会话</button></>;
+}
+
+function RemoteLocalSwitchProbe({ onResult }: { onResult: (result: { success: boolean; message: string }) => void }) {
+  const { toggleServer, switchSelectedLocal } = useRemoteBulkActions({
+    servers: [server],
+    keyRows: [],
+    onChanged: vi.fn().mockResolvedValue(undefined),
+    onSavingChange: vi.fn(),
+    onTestingChange: vi.fn(),
+    onVerifyingSessionChange: vi.fn(),
+    onResult,
+    onKeyAssigned: vi.fn(),
+  });
+  return <><button type="button" onClick={() => toggleServer(server.id)}>选择本地测试服务器</button><button type="button" onClick={() => void switchSelectedLocal()}>切换本地配置</button></>;
 }
 
 function RemoteRelaySaveProbe({ field }: { field: "url" | "key" }) {
@@ -79,6 +93,18 @@ describe("useRemoteServerActions", () => {
 
     await waitFor(() => expect(verifyCodexSession).toHaveBeenCalledWith("server-1"));
     expect(onResult).toHaveBeenCalledWith({ success: true, message: "1 台服务器 Codex CLI 会话验证成功" });
+  });
+
+  it("applies the local Codex relay to selected servers", async () => {
+    const onResult = vi.fn();
+    assignLocalRelay.mockResolvedValueOnce(server);
+
+    render(<ToastProvider><ConfirmationProvider><RemoteLocalSwitchProbe onResult={onResult} /></ConfirmationProvider></ToastProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "选择本地测试服务器" }));
+    fireEvent.click(screen.getByRole("button", { name: "切换本地配置" }));
+
+    await waitFor(() => expect(assignLocalRelay).toHaveBeenCalledWith("server-1"));
+    expect(onResult).toHaveBeenCalledWith({ success: true, message: "已将本地中转站 / API 密钥切换到 1 台服务器" });
   });
 
   it("shows a success toast after saving the relay API key", async () => {

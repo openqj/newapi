@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { useToast } from "../../components/ui";
 import { useConfirm } from "../../components/ui";
 import { errorMessage } from "../../lib/errors";
 import { isTauri } from "../../lib/platform";
 import type { KeyRow } from "../api-keys";
-import { remoteApi } from "./api";
-import type { RemoteConnectionResult, RemoteServer, RemoteSyncLog } from "./types";
+import { REMOTE_CODEX_INSTALL_LOG_EVENT, remoteApi } from "./api";
+import type { RemoteCodexInstallLog, RemoteCodexInstallState, RemoteConnectionResult, RemoteServer, RemoteSyncLog } from "./types";
 
 type UseRemoteServersOptions = {
   demoServers?: RemoteServer[];
@@ -42,6 +43,7 @@ export function useRemoteServers({ demoServers = [], loadOnMount = true }: UseRe
 }
 
 type RemoteBulkAction = "switch" | "test" | "session" | "delete" | null;
+const LOCAL_RELAY_SELECTION = "__local_codex_relay__";
 
 type UseRemoteBulkActionsOptions = {
   servers: RemoteServer[];
@@ -70,29 +72,45 @@ export function useRemoteBulkActions({
   const toggleAllServers = () => {
     setSelectedServerIds((current) => current.length === servers.length ? [] : servers.map((server) => server.id));
   };
-  const switchSelectedServers = async (keyValue = selection) => {
-    const key = keyRows.find((row) => `${row.stationId}:${row.key.id}` === keyValue);
-    if (!key || selectedServers.length === 0) return;
+  const switchSelectedServers = async (keyValue = selection, source: "key" | "local" = "key") => {
+    const key = source === "key"
+      ? keyRows.find((row) => `${row.stationId}:${row.key.id}` === keyValue)
+      : null;
+    if ((source === "key" && !key) || selectedServers.length === 0) return;
     setAction("switch");
     const failures: string[] = [];
     try {
       for (const server of selectedServers) {
         try {
           onSavingChange(server.id);
-          if (isTauri()) await remoteApi.assignRelayKey(server.id, key.stationId, key.key.id);
-          onKeyAssigned(server.id, keyValue);
-        } catch {
-          failures.push(server.name);
+          if (isTauri()) {
+            if (source === "local") {
+              await remoteApi.assignLocalRelay(server.id);
+            } else if (key) {
+              await remoteApi.assignRelayKey(server.id, key.stationId, key.key.id);
+            }
+          }
+          if (source === "key") onKeyAssigned(server.id, keyValue);
+        } catch (reason) {
+          failures.push(source === "local" ? `${server.name}（${errorMessage(reason)}）` : server.name);
         } finally {
           onSavingChange(null);
         }
       }
       await onChanged();
-      onResult({ success: failures.length === 0, message: failures.length === 0 ? `已切换 ${selectedServers.length} 台服务器的中转站密钥` : `${failures.length} 台服务器切换失败：${failures.join("、")}` });
+      onResult({
+        success: failures.length === 0,
+        message: failures.length === 0
+          ? source === "local"
+            ? `已将本地中转站 / API 密钥切换到 ${selectedServers.length} 台服务器`
+            : `已切换 ${selectedServers.length} 台服务器的中转站密钥`
+          : `${failures.length} 台服务器切换失败：${failures.join("、")}`,
+      });
     } finally {
       setAction(null);
     }
   };
+  const switchSelectedLocal = () => switchSelectedServers("", "local");
   const testSelectedServers = async () => {
     if (selectedServers.length === 0) return;
     setAction("test");
@@ -157,7 +175,7 @@ export function useRemoteBulkActions({
     }
   };
 
-  return { selectedServerIds, selection, setSelection, action, selectedServers, toggleServer, toggleAllServers, switchSelectedServers, testSelectedServers, verifySelectedCodexSessions, deleteSelectedServers };
+  return { selectedServerIds, selection, setSelection, action, selectedServers, toggleServer, toggleAllServers, switchSelectedServers, switchSelectedLocal, testSelectedServers, verifySelectedCodexSessions, deleteSelectedServers };
 }
 
 type RelayDraft = { url: string; key: string };
@@ -189,6 +207,7 @@ export function useRemoteServerActions({
   const [loadingLogs, setLoadingLogs] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [syncLogs, setSyncLogs] = useState<{ server: RemoteServer; entries: RemoteSyncLog[] } | null>(null);
+  const [codexInstallState, setCodexInstallState] = useState<RemoteCodexInstallState | null>(null);
 
   const showError = (reason: unknown) => notify(errorMessage(reason), "error");
   const relayDraft = (server: RemoteServer) => relayDrafts[server.id] ?? { url: server.relayUrl ?? "", key: "" };
@@ -216,8 +235,22 @@ export function useRemoteServerActions({
       setSaving(null);
     }
   };
+  const switchLocalRelay = async (server: RemoteServer) => {
+    setSaving(server.id);
+    try {
+      if (isTauri()) await remoteApi.assignLocalRelay(server.id);
+      setSelection((current) => ({ ...current, [server.id]: LOCAL_RELAY_SELECTION }));
+      await onChanged();
+      notify(`已将本地中转站 / API 密钥切换到服务器“${server.name}”`, "success");
+    } catch (reason) {
+      showError(reason);
+    } finally {
+      setSaving(null);
+    }
+  };
   const selectedKeyLabel = (serverId: string) => {
     const value = selection[serverId];
+    if (value === LOCAL_RELAY_SELECTION) return "本地中转站 / API 密钥";
     const row = keyRows.find((item) => `${item.stationId}:${item.key.id}` === value);
     return row ? `${row.stationName} / ${row.key.name || row.key.id}` : "选择中转站密钥";
   };
@@ -321,15 +354,62 @@ export function useRemoteServerActions({
   const manageCodex = async (server: RemoteServer, action: "install" | "update") => {
     setCodexAction(server.id);
     setTestResult(null);
+    setCodexInstallState({ server, action, phase: "connecting", entries: [], done: false });
+    let unlisten: (() => void) | undefined;
+    let eventCompleted = false;
+    const appendInstallLog = (entry: RemoteCodexInstallLog) => {
+      if (entry.serverId !== server.id) return;
+      if (entry.done) eventCompleted = true;
+      setCodexInstallState((current) => {
+        const state = current?.server.id === server.id && current.action === action
+          ? current
+          : { server, action, phase: entry.phase, entries: [], done: false };
+        return {
+          ...state,
+          phase: entry.phase,
+          entries: [...state.entries, entry],
+          done: entry.done,
+          success: entry.success ?? state.success,
+        };
+      });
+    };
     try {
-      if (isTauri()) await remoteApi.manageCodex(server.id, action);
+      if (isTauri()) {
+        try {
+          unlisten = await listen<RemoteCodexInstallLog>(REMOTE_CODEX_INSTALL_LOG_EVENT, (event) => appendInstallLog(event.payload));
+        } catch {
+          // The command result still reports failure or success when event setup is unavailable.
+        }
+        await remoteApi.manageCodex(server.id, action);
+      }
       await onChanged();
+      if (!eventCompleted) {
+        appendInstallLog({
+          serverId: server.id,
+          phase: "completed",
+          level: "success",
+          message: `${action === "install" ? "Codex CLI 安装" : "Codex CLI 更新"}完成并已校验版本`,
+          done: true,
+          success: true,
+        });
+      }
       setTestResult({ success: true, message: `${server.name} 的 Codex CLI 已${action === "install" ? "安装" : "更新"}并完成版本校验。` });
     } catch (reason) {
       const detail = errorMessage(reason, "Codex CLI 操作失败，请稍后重试。");
       setTestResult({ success: false, message: `${server.name} 的 Codex CLI ${action === "install" ? "安装" : "更新"}失败：${detail}` });
       showError(detail);
+      if (!eventCompleted) {
+        appendInstallLog({
+          serverId: server.id,
+          phase: "completed",
+          level: "error",
+          message: errorMessage(reason),
+          done: true,
+          success: false,
+        });
+      }
     } finally {
+      unlisten?.();
       setCodexAction(null);
     }
   };
@@ -357,6 +437,7 @@ export function useRemoteServerActions({
     setEditingRelay,
     cancelRelayEditing,
     switchKey,
+    switchLocalRelay,
     selectedKeyLabel,
     saveRelay,
     deletingServer,
@@ -370,6 +451,8 @@ export function useRemoteServerActions({
     cancelServerOperation,
     codexAction,
     manageCodex,
+    codexInstallState,
+    setCodexInstallState,
     loadingLogs,
     showSyncLogs,
     testResult,

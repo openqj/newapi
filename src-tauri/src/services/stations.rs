@@ -6,7 +6,7 @@ use std::{
 
 const TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 90;
 
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeZone};
 use cookie::Cookie;
 use reqwest::{
     header::{self, HeaderMap},
@@ -271,16 +271,24 @@ pub(crate) fn integer(value: &Value, names: &[&str]) -> Option<i64> {
 }
 
 pub(crate) fn records(value: &Value) -> Vec<&Value> {
+    collection_items(value)
+        .map(|items| items.iter().collect())
+        .unwrap_or_default()
+}
+
+fn collection_items(value: &Value) -> Option<&Vec<Value>> {
     let root = data(value);
-    root.get("items")
-        .or_else(|| root.get("records"))
-        .or_else(|| root.get("logs"))
-        .or_else(|| root.get("data"))
-        .and_then(Value::as_array)
-        .map(|items| items.iter())
-        .into_iter()
-        .flatten()
-        .collect()
+    root.as_array().or_else(|| {
+        root.as_object().and_then(|object| {
+            ["items", "records", "logs", "data"]
+                .iter()
+                .find_map(|key| object.get(*key).and_then(Value::as_array))
+        })
+    })
+}
+
+fn page_items(value: &Value) -> Vec<Value> {
+    collection_items(value).cloned().unwrap_or_default()
 }
 
 pub(crate) fn start_of_today() -> i64 {
@@ -293,12 +301,39 @@ pub(crate) fn start_of_today() -> i64 {
 }
 
 pub(crate) fn timestamp(value: &Value) -> Option<i64> {
-    integer(value, &["created_at", "createdAt", "timestamp", "time"]).map(|time| {
-        if time > 10_000_000_000 {
-            time / 1_000
-        } else {
-            time
-        }
+    ["created_at", "createdAt", "timestamp", "time"]
+        .iter()
+        .find_map(|name| value.get(*name).and_then(timestamp_value))
+}
+
+fn timestamp_value(value: &Value) -> Option<i64> {
+    let timestamp = value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+        .or_else(|| value.as_f64().map(|value| value as i64))
+        .or_else(|| {
+            let text = value.as_str()?.trim();
+            text.parse::<i64>()
+                .ok()
+                .or_else(|| {
+                    DateTime::parse_from_rfc3339(text)
+                        .ok()
+                        .map(|value| value.timestamp())
+                })
+                .or_else(|| {
+                    ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%d %H:%M:%S"]
+                        .iter()
+                        .find_map(|format| {
+                            NaiveDateTime::parse_from_str(text, format)
+                                .ok()
+                                .map(|value| value.and_utc().timestamp())
+                        })
+                })
+        })?;
+    Some(if timestamp > 10_000_000_000 {
+        timestamp / 1_000
+    } else {
+        timestamp
     })
 }
 
@@ -468,44 +503,69 @@ pub(crate) fn normalized_group(item: &Value) -> Option<String> {
 pub(crate) fn parse_usage_logs(value: &Value, station: &Station) -> Vec<UsageLog> {
     records(value)
         .into_iter()
-        .map(|item| UsageLog {
-            id: format!(
-                "{}-{}",
-                station.id,
-                scalar_string(item, &["id", "log_id", "request_id"])
-            ),
-            station_id: station.id.clone(),
-            station_name: station.name.clone(),
-            station_url: station.base_url.clone(),
-            api_key_name: optional_string(item, &["api_key_name", "key_name", "token_name"]),
-            group_name: normalized_group(item),
-            endpoint: optional_string(
-                item,
-                &["inbound_endpoint", "endpoint", "path", "request_path"],
-            ),
-            ip_address: optional_string(item, &["ip_address", "ip", "client_ip"]),
-            reasoning_effort: optional_string(item, &["reasoning_effort"]),
-            billing_type: optional_string(item, &["billing_type"]),
-            billing_mode: optional_string(item, &["billing_mode"]),
-            model: string(item, &["model", "model_name", "requested_model"]),
-            input_tokens: integer(item, &["prompt_tokens", "input_tokens", "promptTokens"])
-                .unwrap_or(0),
-            output_tokens: integer(
-                item,
-                &["completion_tokens", "output_tokens", "completionTokens"],
-            )
-            .unwrap_or(0),
-            cache_creation_tokens: integer(item, &["cache_creation_tokens", "cache_write_tokens"])
-                .unwrap_or(0),
-            cache_read_tokens: integer(item, &["cache_read_tokens", "cache_tokens"]).unwrap_or(0),
-            actual_cost: number(
+        .map(|item| {
+            let actual_cost = number(
                 item,
                 &["actual_cost", "quota", "cost", "used_quota", "usage"],
-            )
-            .unwrap_or(0.0),
-            request_type: string(item, &["request_type", "type"]),
-            duration_ms: integer(item, &["duration_ms", "duration"]),
-            created_at: timestamp(item).unwrap_or_default(),
+            );
+            UsageLog {
+                id: format!(
+                    "{}-{}",
+                    station.id,
+                    scalar_string(item, &["id", "log_id", "request_id"])
+                ),
+                station_id: station.id.clone(),
+                station_name: station.name.clone(),
+                station_url: station.base_url.clone(),
+                api_key_name: optional_string(item, &["api_key_name", "key_name", "token_name"])
+                    .or_else(|| {
+                        item.get("api_key")
+                            .and_then(|api_key| optional_string(api_key, &["name", "label"]))
+                    }),
+                group_name: normalized_group(item),
+                endpoint: optional_string(
+                    item,
+                    &["inbound_endpoint", "endpoint", "path", "request_path"],
+                ),
+                ip_address: optional_string(item, &["ip_address", "ip", "client_ip"]),
+                reasoning_effort: optional_string(item, &["reasoning_effort"]),
+                billing_type: optional_scalar_string(item, &["billing_type"]),
+                billing_mode: optional_string(item, &["billing_mode"]),
+                model: string(item, &["model", "model_name", "requested_model"]),
+                input_tokens: integer(item, &["prompt_tokens", "input_tokens", "promptTokens"])
+                    .unwrap_or(0),
+                output_tokens: integer(
+                    item,
+                    &["completion_tokens", "output_tokens", "completionTokens"],
+                )
+                .unwrap_or(0),
+                cache_creation_tokens: integer(
+                    item,
+                    &["cache_creation_tokens", "cache_write_tokens"],
+                )
+                .unwrap_or(0),
+                cache_read_tokens: integer(item, &["cache_read_tokens", "cache_tokens"])
+                    .unwrap_or(0),
+                actual_cost: actual_cost.unwrap_or(0.0),
+                input_cost: number(item, &["input_cost", "prompt_cost"]),
+                output_cost: number(item, &["output_cost", "completion_cost"]),
+                cache_creation_cost: number(item, &["cache_creation_cost", "cache_write_cost"]),
+                cache_read_cost: number(item, &["cache_read_cost"]),
+                total_cost: number(item, &["total_cost", "cost"]).or(actual_cost),
+                rate_multiplier: number(item, &["rate_multiplier", "rateMultiplier", "multiplier"]),
+                service_tier: optional_string(item, &["service_tier", "serviceTier"]),
+                request_type: optional_string(item, &["request_type"])
+                    .or_else(|| {
+                        item.get("is_stream")
+                            .and_then(Value::as_bool)
+                            .map(|stream| if stream { "stream" } else { "sync" }.into())
+                    })
+                    .unwrap_or_default(),
+                duration_ms: integer(item, &["duration_ms", "duration"]).or_else(|| {
+                    integer(item, &["use_time"]).map(|seconds| seconds.saturating_mul(1_000))
+                }),
+                created_at: timestamp(item).unwrap_or_default(),
+            }
         })
         .collect()
 }
@@ -1583,14 +1643,13 @@ pub(crate) async fn refresh_session(
     if secret.requires_reauth && !bypass_backoff {
         return Err("refresh token invalid: 请重新登录该站点".into());
     }
-    if !bypass_backoff {
-        if secret.access_token.is_some()
-            && secret
-                .access_token_expires_at
-                .is_some_and(|expires_at| expires_at > now() + TOKEN_REFRESH_LEEWAY_SECONDS)
-        {
-            return Ok(());
-        }
+    if !bypass_backoff
+        && secret.access_token.is_some()
+        && secret
+            .access_token_expires_at
+            .is_some_and(|expires_at| expires_at > now() + TOKEN_REFRESH_LEEWAY_SECONDS)
+    {
+        return Ok(());
     }
     if !bypass_backoff {
         if let Some(backoff) = state
@@ -1829,15 +1888,10 @@ pub(crate) async fn fetch_all_pages(
         let path = adapter.paged_path(resource, page, page_size);
         let value = station_request(state, station, secret, Method::GET, &path, None).await?;
         let root = data(&value);
-        let page_items = root
-            .get("items")
-            .or_else(|| root.get("records"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let count = page_items.len();
-        items.extend(page_items);
-        let total = integer(root, &["total"]);
+        let items_for_page = page_items(&value);
+        let count = items_for_page.len();
+        items.extend(items_for_page);
+        let total = integer(root, &["total"]).or_else(|| integer(&value, &["total"]));
         if count == 0
             || count < page_size as usize
             || total.is_some_and(|total| items.len() as i64 >= total)
@@ -2002,6 +2056,7 @@ mod tests {
         routing::{get, post},
         Json, Router,
     };
+    use chrono::DateTime;
     use reqwest::Client;
     use serde_json::{json, Value};
     use tokio::sync::oneshot;
@@ -2011,7 +2066,7 @@ mod tests {
         describe_changes, finalize_sync_statuses, has_newapi_login_session, is_cloudflare_block,
         is_refresh_token_invalid, is_unauthorized, map_rates, map_sub2_group_rates, mask_api_key,
         merge_persisted_auth_cookies, model_response_text, newapi_display_balance, parse_balance,
-        parse_keys, pricing_group_ratio, rate_limit_hint, record_refresh_failure,
+        parse_keys, parse_usage_logs, pricing_group_ratio, rate_limit_hint, record_refresh_failure,
         refresh_lock_for_station, request_with_cookie_updates, retain_group_descriptions,
         session_cookie, usage_from_logs, RequestAuth,
     };
@@ -2543,6 +2598,88 @@ mod tests {
         assert_eq!(usage.today_input_tokens, Some(1300));
         assert_eq!(usage.today_output_tokens, Some(540));
         assert_eq!(usage.today_spent, Some(1.1064));
+    }
+
+    #[test]
+    fn parses_usage_records_with_source_metadata_and_iso_timestamps() {
+        let station = test_station("https://relay.example.com".into(), "sub2api");
+        let value = json!({
+            "data": {
+                "items": [{
+                    "id": 7,
+                    "created_at": "2026-08-05T08:00:00Z",
+                    "model": "gpt-4o",
+                    "api_key": {"name": "team-key"},
+                    "input_tokens": 120,
+                    "output_tokens": 40,
+                    "input_cost": 0.030675,
+                    "output_cost": 0.006975,
+                    "cache_creation_cost": 0.016075,
+                    "cache_read_cost": 0.003891,
+                    "total_cost": 0.057616,
+                    "actual_cost": 0.003716,
+                    "rate_multiplier": 0.04,
+                    "service_tier": "standard",
+                    "billing_type": 1,
+                    "request_type": "stream",
+                    "duration_ms": 2000
+                }]
+            }
+        });
+
+        let logs = parse_usage_logs(&value, &station);
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].station_id, station.id);
+        assert_eq!(logs[0].station_name, station.name);
+        assert_eq!(logs[0].station_url, station.base_url);
+        assert_eq!(logs[0].api_key_name.as_deref(), Some("team-key"));
+        assert_eq!(
+            logs[0].created_at,
+            DateTime::parse_from_rfc3339("2026-08-05T08:00:00Z")
+                .unwrap()
+                .timestamp()
+        );
+        assert_eq!(logs[0].billing_type.as_deref(), Some("1"));
+        assert_eq!(logs[0].input_cost, Some(0.030675));
+        assert_eq!(logs[0].output_cost, Some(0.006975));
+        assert_eq!(logs[0].cache_creation_cost, Some(0.016075));
+        assert_eq!(logs[0].cache_read_cost, Some(0.003891));
+        assert_eq!(logs[0].total_cost, Some(0.057616));
+        assert_eq!(logs[0].actual_cost, 0.003716);
+        assert_eq!(logs[0].rate_multiplier, Some(0.04));
+        assert_eq!(logs[0].service_tier.as_deref(), Some("standard"));
+        assert_eq!(logs[0].request_type, "stream");
+        assert_eq!(logs[0].duration_ms, Some(2_000));
+    }
+
+    #[test]
+    fn adapts_newapi_usage_fields_without_changing_source_metadata() {
+        let station = test_station("https://newapi.example.com".into(), "newapi");
+        let value = json!({
+            "data": {
+                "items": [{
+                    "id": 8,
+                    "created_at": 1_720_000_000_000_i64,
+                    "model_name": "gpt-4o-mini",
+                    "token_name": "legacy-key",
+                    "prompt_tokens": 12,
+                    "completion_tokens": 5,
+                    "is_stream": false,
+                    "use_time": 3
+                }]
+            }
+        });
+
+        let logs = parse_usage_logs(&value, &station);
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].model, "gpt-4o-mini");
+        assert_eq!(logs[0].api_key_name.as_deref(), Some("legacy-key"));
+        assert_eq!(logs[0].request_type, "sync");
+        assert_eq!(logs[0].duration_ms, Some(3_000));
+        assert_eq!(logs[0].station_name, station.name);
+        assert_eq!(logs[0].station_url, station.base_url);
     }
 
     #[test]

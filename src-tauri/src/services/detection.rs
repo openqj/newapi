@@ -496,37 +496,41 @@ pub(crate) async fn request_json_body(
     serde_json::from_str::<Value>(&body).map_err(|_| "接口返回的不是 JSON 响应".to_string())
 }
 
+pub(crate) struct RoleRequest<'a> {
+    pub(crate) endpoint: &'a str,
+    pub(crate) api_key: &'a str,
+    pub(crate) model: &'a str,
+    pub(crate) protocol: &'a str,
+    pub(crate) developer_or_system: Option<&'a str>,
+    pub(crate) prompt: &'a str,
+    pub(crate) max_tokens: u16,
+}
+
 pub(crate) async fn request_with_roles(
     client: &Client,
-    endpoint: &str,
-    api_key: &str,
-    model: &str,
-    protocol: &str,
-    developer_or_system: Option<&str>,
-    prompt: &str,
-    max_tokens: u16,
+    request: RoleRequest<'_>,
 ) -> Result<(Value, String), String> {
-    let base_url = api_base_url(endpoint);
-    let request = if protocol == "anthropic" {
-        let mut body = json!({"model": model, "max_tokens": max_tokens, "temperature": 0, "messages": [{"role": "user", "content": prompt}]});
-        if let Some(system) = developer_or_system {
+    let base_url = api_base_url(request.endpoint);
+    let request = if request.protocol == "anthropic" {
+        let mut body = json!({"model": request.model, "max_tokens": request.max_tokens, "temperature": 0, "messages": [{"role": "user", "content": request.prompt}]});
+        if let Some(system) = request.developer_or_system {
             body["system"] = Value::String(system.into());
         }
         client
             .post(format!("{base_url}/messages"))
-            .header("x-api-key", api_key)
+            .header("x-api-key", request.api_key)
             .header("anthropic-version", "2023-06-01")
             .json(&body)
     } else {
         let mut messages = Vec::new();
-        if let Some(developer) = developer_or_system {
+        if let Some(developer) = request.developer_or_system {
             messages.push(json!({"role": "developer", "content": developer}));
         }
-        messages.push(json!({"role": "user", "content": prompt}));
+        messages.push(json!({"role": "user", "content": request.prompt}));
         client
             .post(format!("{base_url}/chat/completions"))
-            .bearer_auth(api_key)
-            .json(&json!({"model": model, "max_tokens": max_tokens, "temperature": 0, "messages": messages}))
+            .bearer_auth(request.api_key)
+            .json(&json!({"model": request.model, "max_tokens": request.max_tokens, "temperature": 0, "messages": messages}))
     };
     let response = request
         .timeout(Duration::from_secs(30))

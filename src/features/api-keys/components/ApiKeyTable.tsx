@@ -1,4 +1,4 @@
-import { Clipboard, Copy, Pencil, Sparkles, Trash2, Upload } from "lucide-react";
+import { Clipboard, Copy, Pencil, Sparkles, TestTube, Trash2, Upload } from "lucide-react";
 import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
 import { GroupRateSelect } from "./GroupRateSelect";
 import { identifyModelType, modelTypeTitle } from "../modelType";
@@ -17,6 +17,7 @@ type ApiKeyTableProps = {
   onImport: (row: KeyRow) => void;
   onApplyToClaude: (row: KeyRow) => void;
   onApplyToCodex: (row: KeyRow) => void;
+  onTest: (row: KeyRow) => void;
   onEdit: (row: KeyRow) => void;
   onDelete: (row: KeyRow) => void;
 };
@@ -47,6 +48,7 @@ export function ApiKeyTable({
   onImport,
   onApplyToClaude,
   onApplyToCodex,
+  onTest,
   onEdit,
   onDelete,
 }: ApiKeyTableProps) {
@@ -96,6 +98,7 @@ export function ApiKeyTable({
                   <td data-key-column="actions">
                     <div className="sub2-key-row-actions">
                       <button type="button" className="enable" title="启用到 Codex" onClick={() => onApplyToCodex(row)} disabled={busy}>启用</button>
+                      <button type="button" className="test" title="测试 API 密钥" onClick={() => onTest(row)} disabled={busy}><TestTube size={15} aria-hidden="true" /><span>测试</span></button>
                       <button type="button" className="claude" title="配置 Claude Code 中转站" onClick={() => onApplyToClaude(row)} disabled={busy}><Sparkles size={15} aria-hidden="true" /><span>Claude</span></button>
                       <button type="button" className="import" title="导入 CC Switch" onClick={() => onImport(row)}><Upload size={15} /><span>导入</span></button>
                       <button type="button" className="edit" title="编辑密钥" onClick={() => onEdit(row)} disabled={busy}><Pencil size={15} /><span>编辑</span></button>
@@ -124,6 +127,7 @@ export function ApiKeyTable({
             </dl>
             <div className="sub2-card-actions">
               <button type="button" className="button-secondary" onClick={() => onReveal(row)}><Clipboard size={16} />复制</button>
+              <button type="button" className="button-secondary" onClick={() => onTest(row)} disabled={testState?.status === "testing"}><TestTube size={16} />测试</button>
               <button type="button" className="button-secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</button>
               <button type="button" className="sub2-icon-action sub2-danger-action" aria-label="删除密钥" onClick={() => onDelete(row)}><Trash2 size={16} /></button>
             </div>

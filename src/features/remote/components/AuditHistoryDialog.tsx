@@ -83,7 +83,7 @@ export function AuditHistoryDialog({ onClose, onChanged }: { onClose: () => void
   };
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="变更历史">
-    <section className="w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
+    <section className="audit-history-dialog w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
       <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
         <div><h2 className="text-base font-semibold">配置与密钥变更历史</h2><p className="mt-1 text-sm text-slate-500">仅显示已脱敏字段。远端 relay 回滚所需密钥只保存在本机系统凭据库中。</p></div>
         <button className="icon-button" type="button" onClick={onClose} title="关闭"><X size={18} /></button>
@@ -91,7 +91,7 @@ export function AuditHistoryDialog({ onClose, onChanged }: { onClose: () => void
       <div className="flex gap-2 border-b border-slate-100 px-5 py-3">
         {([ ["all", "全部"], ["remote", "远程配置"], ["keys", "API 密钥"] ] as const).map(([value, label]) => <button key={value} type="button" className={filter === value ? "button-primary" : "button-secondary"} onClick={() => setFilter(value)}>{label}</button>)}
       </div>
-      <div className="max-h-[60vh] overflow-auto p-5">
+      <div className="audit-history-list max-h-[60vh] overflow-auto p-5">
         {loading ? <p className="text-sm text-slate-500">加载中...</p> : filtered.length === 0 ? <p className="text-sm text-slate-500">此筛选条件下暂无变更。</p> : <ol className="space-y-4">{filtered.map((event) => {
           const diff = changes(event);
           return <li key={event.id} className="border-b border-slate-100 pb-4 last:border-b-0">

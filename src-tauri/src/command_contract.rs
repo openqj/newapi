@@ -29,6 +29,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "test_remote_server",
     "verify_remote_codex_session_command",
     "assign_remote_relay_key",
+    "assign_local_codex_relay",
     "update_remote_relay",
     "refresh_station",
     "reauthenticate_station",
@@ -127,7 +128,7 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 115);
+        assert_eq!(COMMAND_NAMES.len(), 116);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"detect_model_intelligence"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
@@ -141,6 +142,7 @@ mod tests {
         assert!(COMMAND_NAMES.contains(&"get_active_codex_relay_status"));
         assert!(COMMAND_NAMES.contains(&"apply_api_key_to_claude"));
         assert!(COMMAND_NAMES.contains(&"reset_gateway_route_health"));
+        assert!(COMMAND_NAMES.contains(&"assign_local_codex_relay"));
         assert!(COMMAND_NAMES.contains(&"list_audit_events"));
         assert!(COMMAND_NAMES.contains(&"rollback_audit_event"));
         assert!(COMMAND_NAMES.contains(&"list_personal_center_memberships"));

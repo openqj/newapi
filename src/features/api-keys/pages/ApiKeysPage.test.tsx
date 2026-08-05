@@ -4,12 +4,13 @@ import { ConfirmationProvider, ToastProvider } from "../../../components/ui";
 import { ApiKeysPage } from "./ApiKeysPage";
 import type { KeyRow } from "../types";
 
-const { applyToClaude, groups, isTauri, reauthenticate, refresh } = vi.hoisted(() => ({
+const { applyToClaude, groups, isTauri, reauthenticate, refresh, testModels } = vi.hoisted(() => ({
   applyToClaude: vi.fn(),
   groups: vi.fn(),
   isTauri: vi.fn(() => false),
   reauthenticate: vi.fn(),
   refresh: vi.fn(),
+  testModels: vi.fn(),
 }));
 
 vi.mock("../../../lib/platform", () => ({ isTauri }));
@@ -19,7 +20,7 @@ vi.mock("../../stations", async (importOriginal) => {
 });
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
-  return { apiKeyApi: { ...actual.apiKeyApi, applyToClaude, groups } };
+  return { apiKeyApi: { ...actual.apiKeyApi, applyToClaude, groups, testModels } };
 });
 
 const row: KeyRow = {
@@ -138,6 +139,28 @@ describe("ApiKeysPage selection and testing", () => {
     fireEvent.click(screen.getByRole("button", { name: "一键测试" }));
 
     await waitFor(() => expect(screen.getAllByText("测试正常").length).toBeGreaterThan(0));
+  });
+
+  it("tests a single key from its row action", async () => {
+    isTauri.mockReturnValue(true);
+    testModels.mockResolvedValue([{ model: "gpt-test", available: true, response: "hi", elapsedMs: 12 }]);
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[row]}
+            stations={[]}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "测试" })[0]);
+
+    await waitFor(() => expect(testModels).toHaveBeenCalledWith("station-1", "key-1", ["gpt-test"], "chat"));
+    expect(screen.getAllByText("测试正常").length).toBeGreaterThan(0);
   });
 
   it("filters keys by model type", () => {

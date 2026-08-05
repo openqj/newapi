@@ -166,6 +166,36 @@ export function ApiKeysPage({
       showError(reason);
     }
   };
+  const runTest = async (row: KeyRow) => {
+    const id = rowId(row);
+    const model = row.models.find((value) => value.trim())?.trim();
+    setTestStates((current) => ({ ...current, [id]: { status: "testing" } }));
+    try {
+      if (!model) throw new Error("没有可测试的模型");
+      const results = isTauri()
+        ? await apiKeyApi.testModels<ModelTestResult[]>(row.stationId, row.key.id, [model], "chat")
+        : [{ model, available: true, response: "hi", elapsedMs: 0 }];
+      const result = results[0];
+      if (!result || result.available === false || result.error) {
+        throw new Error(result?.error || "测试未返回有效响应");
+      }
+      setTestStates((current) => ({ ...current, [id]: { status: "success", message: result.response } }));
+      return true;
+    } catch (reason) {
+      setTestStates((current) => ({ ...current, [id]: { status: "error", message: errorMessage(reason, "请求失败") } }));
+      return false;
+    }
+  };
+  const testSingle = async (row: KeyRow) => {
+    if (testRunning) return;
+    setTestRunning(true);
+    try {
+      const success = await runTest(row);
+      notify(success ? "测试完成：正常" : "测试完成：异常", success ? "success" : "error");
+    } finally {
+      setTestRunning(false);
+    }
+  };
   const testSelected = async () => {
     if (!selectedRows.length || testRunning) return;
     setTestRunning(true);
@@ -173,24 +203,8 @@ export function ApiKeysPage({
     let failureCount = 0;
     try {
       for (const row of selectedRows) {
-        const id = rowId(row);
-        const model = row.models.find((value) => value.trim())?.trim();
-        setTestStates((current) => ({ ...current, [id]: { status: "testing" } }));
-        try {
-          if (!model) throw new Error("没有可测试的模型");
-          const results = isTauri()
-            ? await apiKeyApi.testModels<ModelTestResult[]>(row.stationId, row.key.id, [model], "chat")
-            : [{ model, available: true, response: "hi", elapsedMs: 0 }];
-          const result = results[0];
-          if (!result || result.available === false || result.error) {
-            throw new Error(result?.error || "测试未返回有效响应");
-          }
-          setTestStates((current) => ({ ...current, [id]: { status: "success", message: result.response } }));
-          successCount += 1;
-        } catch (reason) {
-          setTestStates((current) => ({ ...current, [id]: { status: "error", message: errorMessage(reason, "请求失败") } }));
-          failureCount += 1;
-        }
+        if (await runTest(row)) successCount += 1;
+        else failureCount += 1;
       }
       notify(`一键测试完成：${successCount} 个正常，${failureCount} 个异常`, failureCount ? "error" : "success");
     } finally {
@@ -244,6 +258,7 @@ export function ApiKeysPage({
       onImport={(row) => void importToCcSwitch(row)}
       onApplyToClaude={(row) => void applyToClaude(row)}
       onApplyToCodex={(row) => void applyToCodex(row)}
+      onTest={(row) => void testSingle(row)}
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}
     />

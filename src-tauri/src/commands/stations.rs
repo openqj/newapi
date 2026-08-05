@@ -374,7 +374,7 @@ pub(crate) async fn register_station_account_for_request(
         .lock()
         .map_err(|_| "本地数据库不可用".to_string())?
         .save_station(&station)?;
-    let station = sync_one_authorized(&state, &station.id).await?.station;
+    let station = sync_one_authorized(state, &station.id).await?.station;
     Ok(StationSaveResult {
         station,
         connection: StationConnectionResult {

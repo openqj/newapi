@@ -12,8 +12,6 @@ function renderFields(username = "") {
         onPasswordChange={vi.fn()}
         privateKeyPath=""
         onChoosePrivateKey={vi.fn()}
-        onGenerateKey={vi.fn()}
-        generatingKey={false}
         server={username ? { id: "server-1", name: "", host: "", port: 22, username, authType: "password", updatedAt: 0 } : undefined}
       />
     </form>,
@@ -21,6 +19,8 @@ function renderFields(username = "") {
   return {
     hostInput: view.container.querySelector<HTMLInputElement>('input[name="host"]')!,
     usernameInput: view.container.querySelector<HTMLInputElement>('input[name="username"]')!,
+    passwordInput: view.container.querySelector<HTMLInputElement>(".password-input")!,
+    view,
   };
 }
 
@@ -55,5 +55,18 @@ describe("RemoteServerFields host parsing", () => {
 
     expect(hostInput.value).toBe("example.com");
     expect(usernameInput.value).toBe("deploy");
+  });
+
+  it("toggles the custom password visibility control", () => {
+    const { passwordInput, view } = renderFields();
+    const visibilityButton = view.container.querySelector<HTMLButtonElement>(".secret-visibility-button")!;
+
+    expect(passwordInput.type).toBe("password");
+    fireEvent.click(visibilityButton);
+    expect(passwordInput.type).toBe("text");
+    expect(visibilityButton).toHaveAttribute("aria-label", "隐藏密码");
+
+    fireEvent.click(visibilityButton);
+    expect(passwordInput.type).toBe("password");
   });
 });

@@ -27,6 +27,13 @@ export type UsageLog = {
   cacheCreationTokens: number;
   cacheReadTokens: number;
   actualCost: number;
+  inputCost?: number;
+  outputCost?: number;
+  cacheCreationCost?: number;
+  cacheReadCost?: number;
+  totalCost?: number;
+  rateMultiplier?: number;
+  serviceTier?: string;
   requestType: string;
   durationMs?: number;
   createdAt: number;
