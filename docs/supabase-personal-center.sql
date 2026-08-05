@@ -54,6 +54,9 @@ create table if not exists public.personal_center_audit_events (
   action text not null,
   subject text not null,
   detail text not null,
+  actor_email text,
+  before_value jsonb,
+  after_value jsonb,
   created_at bigint not null default extract(epoch from now())::bigint
 );
 
@@ -95,6 +98,8 @@ create index if not exists personal_center_memberships_user_id_idx
   on public.personal_center_memberships (user_id);
 create index if not exists personal_center_audit_events_created_at_idx
   on public.personal_center_audit_events (created_at desc);
+create index if not exists personal_center_audit_events_actor_action_idx
+  on public.personal_center_audit_events (actor_id, action, created_at desc);
 create index if not exists personal_center_notifications_target_idx
   on public.personal_center_notifications (target_user_id, published_at desc);
 create index if not exists notification_receipts_user_idx
@@ -144,34 +149,124 @@ language plpgsql
 security definer
 set search_path = ''
 as $$
+declare
+  current_actor_email text;
+  event_action text;
+  event_subject text;
+  event_detail text;
+  event_target_user_id uuid;
+  event_before jsonb;
+  event_after jsonb;
 begin
+  select email into current_actor_email
+  from auth.users
+  where id = auth.uid();
+
   if tg_table_name = 'personal_center_memberships' then
     if tg_op = 'DELETE' then
-      insert into public.personal_center_audit_events
-        (actor_id, target_user_id, action, subject, detail)
-      values
-        (auth.uid(), old.user_id, 'membership_delete',
-         old.station_id || ':' || old.account_id,
-         old.plan || ' / ' || old.access_level);
+      event_action := 'membership.deleted';
+      event_subject := old.station_id || ':' || old.account_id;
+      event_detail := old.plan || ' / ' || old.access_level;
+      event_target_user_id := old.user_id;
+      event_before := jsonb_build_object(
+        'stationId', old.station_id,
+        'accountId', old.account_id,
+        'userEmail', old.user_email,
+        'plan', old.plan,
+        'accessLevel', old.access_level,
+        'enabled', old.enabled,
+        'expiresAt', old.expires_at,
+        'privileges', old.privileges
+      );
     else
-      insert into public.personal_center_audit_events
-        (actor_id, target_user_id, action, subject, detail)
-      values
-        (auth.uid(), new.user_id, 'membership_' || lower(tg_op),
-         new.station_id || ':' || new.account_id,
-         new.plan || ' / ' || new.access_level);
+      event_action := case when tg_op = 'INSERT' then 'membership.created' else 'membership.updated' end;
+      event_subject := new.station_id || ':' || new.account_id;
+      event_detail := new.plan || ' / ' || new.access_level;
+      event_target_user_id := new.user_id;
+      event_after := jsonb_build_object(
+        'stationId', new.station_id,
+        'accountId', new.account_id,
+        'userEmail', new.user_email,
+        'plan', new.plan,
+        'accessLevel', new.access_level,
+        'enabled', new.enabled,
+        'expiresAt', new.expires_at,
+        'privileges', new.privileges
+      );
+      if tg_op = 'UPDATE' then
+        event_before := jsonb_build_object(
+          'stationId', old.station_id,
+          'accountId', old.account_id,
+          'userEmail', old.user_email,
+          'plan', old.plan,
+          'accessLevel', old.access_level,
+          'enabled', old.enabled,
+          'expiresAt', old.expires_at,
+          'privileges', old.privileges
+        );
+      end if;
+    end if;
+  elsif tg_table_name = 'personal_center_notification_preferences' then
+    event_action := 'notification_preferences.updated';
+    event_subject := 'notifications';
+    event_detail := 'Updated global notification preferences';
+    event_before := jsonb_build_object(
+      'desktopEnabled', old.desktop_enabled,
+      'syncEnabled', old.sync_enabled,
+      'alertEnabled', old.alert_enabled,
+      'offerEnabled', old.offer_enabled
+    );
+    event_after := jsonb_build_object(
+      'desktopEnabled', new.desktop_enabled,
+      'syncEnabled', new.sync_enabled,
+      'alertEnabled', new.alert_enabled,
+      'offerEnabled', new.offer_enabled
+    );
+  elsif tg_table_name = 'personal_center_notifications' then
+    event_action := case
+      when tg_op = 'INSERT' then 'notification.created'
+      when tg_op = 'DELETE' then 'notification.deleted'
+      when new.revoked_at is distinct from old.revoked_at and new.revoked_at is not null then 'notification.revoked'
+      else 'notification.updated'
+    end;
+    event_subject := coalesce(new.id, old.id)::text;
+    event_detail := coalesce(new.title, old.title, '云端通知');
+    event_target_user_id := coalesce(new.target_user_id, old.target_user_id);
+    if tg_op <> 'INSERT' then
+      event_before := jsonb_build_object(
+        'audience', old.audience,
+        'targetEmail', old.target_email,
+        'kind', old.kind,
+        'title', old.title,
+        'body', old.body,
+        'destination', old.destination,
+        'expiresAt', old.expires_at,
+        'revokedAt', old.revoked_at
+      );
+    end if;
+    if tg_op <> 'DELETE' then
+      event_after := jsonb_build_object(
+        'audience', new.audience,
+        'targetEmail', new.target_email,
+        'kind', new.kind,
+        'title', new.title,
+        'body', new.body,
+        'destination', new.destination,
+        'expiresAt', new.expires_at,
+        'revokedAt', new.revoked_at
+      );
     end if;
   else
-    insert into public.personal_center_audit_events
-      (actor_id, action, subject, detail)
-    values
-      (auth.uid(), 'notification_preferences_' || lower(tg_op),
-       'notifications', 'Updated global notification preferences');
+    return case when tg_op = 'DELETE' then old else new end;
   end if;
-  if tg_op = 'DELETE' then
-    return old;
-  end if;
-  return new;
+
+  insert into public.personal_center_audit_events
+    (actor_id, actor_email, target_user_id, action, subject, detail, before_value, after_value)
+  values
+    (auth.uid(), current_actor_email, event_target_user_id, event_action, event_subject,
+     event_detail, event_before, event_after);
+
+  return case when tg_op = 'DELETE' then old else new end;
 end;
 $$;
 
@@ -239,6 +334,11 @@ for each row execute function public.relayhub_record_personal_center_audit();
 drop trigger if exists relayhub_audit_notification_preferences on public.personal_center_notification_preferences;
 create trigger relayhub_audit_notification_preferences
 after update on public.personal_center_notification_preferences
+for each row execute function public.relayhub_record_personal_center_audit();
+
+drop trigger if exists relayhub_audit_notifications on public.personal_center_notifications;
+create trigger relayhub_audit_notifications
+after insert or update or delete on public.personal_center_notifications
 for each row execute function public.relayhub_record_personal_center_audit();
 
 drop trigger if exists relayhub_prepare_notification on public.personal_center_notifications;

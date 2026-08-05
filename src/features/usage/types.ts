@@ -35,6 +35,7 @@ export type UsageLog = {
   rateMultiplier?: number;
   serviceTier?: string;
   requestType: string;
+  firstTokenMs?: number | null;
   durationMs?: number;
   createdAt: number;
 };

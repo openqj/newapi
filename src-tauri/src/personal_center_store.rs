@@ -2,6 +2,7 @@ use rusqlite::params;
 #[cfg(test)]
 use rusqlite::Row;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::Store;
 
@@ -46,6 +47,10 @@ pub(crate) struct PersonalCenterAuditEntry {
     pub(crate) action: String,
     pub(crate) subject: String,
     pub(crate) detail: String,
+    pub(crate) actor_id: Option<String>,
+    pub(crate) actor_email: Option<String>,
+    pub(crate) before: Option<Value>,
+    pub(crate) after: Option<Value>,
     pub(crate) created_at: i64,
 }
 
@@ -244,7 +249,8 @@ pub(crate) struct AdminMerchantFreeCode {
     pub(crate) merchant_name: String,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) redeem_code: String,
+    pub(crate) redeem_code: Option<String>,
+    pub(crate) redeem_code_masked: String,
     pub(crate) quota: f64,
     pub(crate) pinned: bool,
     pub(crate) claimed: bool,
@@ -258,7 +264,7 @@ pub(crate) struct AdminMerchantFreeCodeInput {
     pub(crate) merchant_id: String,
     pub(crate) station_name: String,
     pub(crate) station_url: String,
-    pub(crate) redeem_code: String,
+    pub(crate) redeem_code: Option<String>,
     pub(crate) quota: f64,
     pub(crate) pinned: bool,
 }

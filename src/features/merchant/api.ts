@@ -20,6 +20,7 @@ export const merchantApi = {
   saveAdminRate: (share: AdminMerchantRateShareInput) => invokeDesktop<void>("save_admin_merchant_rate_share", { share }),
   deleteAdminRate: (id: string) => invokeDesktop<void>("delete_admin_merchant_rate_share", { id }),
   adminFreeCodes: () => invokeDesktop<AdminMerchantFreeCode[]>("list_admin_merchant_free_codes"),
+  revealAdminFreeCode: (id: string, accessMode: "view" | "copy") => invokeDesktop<string>("reveal_admin_merchant_free_code", { id, accessMode }),
   saveAdminFreeCode: (code: AdminMerchantFreeCodeInput) => invokeDesktop<void>("save_admin_merchant_free_code", { code }),
   deleteAdminFreeCode: (id: string) => invokeDesktop<void>("delete_admin_merchant_free_code", { id }),
 };

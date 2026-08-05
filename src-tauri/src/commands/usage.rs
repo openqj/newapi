@@ -121,6 +121,7 @@ mod tests {
             rate_multiplier: None,
             service_tier: None,
             request_type: "sync".into(),
+            first_token_ms: None,
             duration_ms: None,
             created_at: 1,
         }];

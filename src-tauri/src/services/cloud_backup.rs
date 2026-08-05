@@ -671,16 +671,51 @@ pub(crate) async fn admin_merchant_free_codes(
 ) -> Result<Vec<AdminMerchantFreeCode>, String> {
     let config = config()?;
     let current = require_verified_admin(state).await?;
-    let response = state.client
-        .get(format!("{}/rest/v1/merchant_free_accounts", config.url))
+    let response = state
+        .client
+        .post(format!(
+            "{}/rest/v1/rpc/list_admin_merchant_free_codes",
+            config.url
+        ))
         .headers(postgrest_headers(&config, &current)?)
-        .query(&[("select", "id,merchant_id,station_name,station_url,redemption_code,quota,pinned,created_at,claimed_by,merchant_profiles!inner(merchant_name)"), ("redemption_code", "not.is.null"), ("order", "pinned.desc,created_at.desc")])
-        .send().await.map_err(|error| error.to_string())?;
+        .json(&serde_json::json!({}))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
     Ok(response_json::<Vec<CloudAdminMerchantFreeCode>>(response)
         .await?
         .into_iter()
         .map(Into::into)
         .collect())
+}
+
+pub(crate) async fn reveal_admin_merchant_free_code(
+    state: &AppState,
+    id: &str,
+    access_mode: &str,
+) -> Result<String, String> {
+    let config = config()?;
+    let current = require_verified_admin(state).await?;
+    let response = state
+        .client
+        .post(format!(
+            "{}/rest/v1/rpc/reveal_admin_merchant_code",
+            config.url
+        ))
+        .headers(postgrest_headers(&config, &current)?)
+        .json(&serde_json::json!({
+            "code_id": id,
+            "access_mode": access_mode,
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+    response_json::<Vec<CloudRevealedMerchantCode>>(response)
+        .await?
+        .into_iter()
+        .next()
+        .map(|value| value.redemption_code)
+        .ok_or_else(|| "兑换码不存在或已被删除。".into())
 }
 
 pub(crate) async fn save_admin_merchant_free_code(
@@ -689,14 +724,16 @@ pub(crate) async fn save_admin_merchant_free_code(
 ) -> Result<(), String> {
     let config = config()?;
     let current = require_verified_admin(state).await?;
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "merchant_id": code.merchant_id,
         "station_name": code.station_name,
         "station_url": code.station_url,
-        "redemption_code": code.redeem_code,
         "quota": code.quota,
         "pinned": code.pinned,
     });
+    if let Some(redeem_code) = &code.redeem_code {
+        payload["redemption_code"] = serde_json::json!(redeem_code);
+    }
     let response = if let Some(id) = &code.id {
         state
             .client
@@ -909,30 +946,36 @@ impl From<CloudAdminMerchantRateShare> for AdminMerchantRateShare {
 struct CloudAdminMerchantFreeCode {
     id: String,
     merchant_id: String,
+    merchant_name: String,
     station_name: String,
     station_url: String,
-    redemption_code: String,
+    redemption_code_masked: String,
     quota: f64,
     pinned: bool,
     created_at: i64,
-    claimed_by: Option<String>,
-    merchant_profiles: CloudMerchantName,
+    claimed: bool,
 }
 impl From<CloudAdminMerchantFreeCode> for AdminMerchantFreeCode {
     fn from(value: CloudAdminMerchantFreeCode) -> Self {
         Self {
             id: value.id,
             merchant_id: value.merchant_id,
-            merchant_name: value.merchant_profiles.merchant_name,
+            merchant_name: value.merchant_name,
             station_name: value.station_name,
             station_url: value.station_url,
-            redeem_code: value.redemption_code,
+            redeem_code: None,
+            redeem_code_masked: value.redemption_code_masked,
             quota: value.quota,
             pinned: value.pinned,
-            claimed: value.claimed_by.is_some(),
+            claimed: value.claimed,
             created_at: value.created_at,
         }
     }
+}
+
+#[derive(Deserialize)]
+struct CloudRevealedMerchantCode {
+    redemption_code: String,
 }
 
 #[derive(Deserialize)]
@@ -1123,7 +1166,7 @@ pub(crate) async fn cloud_personal_center_audit(
         ))
         .headers(postgrest_headers(&config, &current)?)
         .query(&[
-            ("select", "id,action,subject,detail,created_at".to_string()),
+            ("select", "id,action,subject,detail,actor_id,actor_email,before_value,after_value,created_at".to_string()),
             ("order", "created_at.desc".to_string()),
             ("limit", limit.min(500).to_string()),
         ])
@@ -1145,6 +1188,10 @@ struct CloudPersonalCenterAuditEntry {
     action: String,
     subject: String,
     detail: String,
+    actor_id: Option<String>,
+    actor_email: Option<String>,
+    before_value: Option<serde_json::Value>,
+    after_value: Option<serde_json::Value>,
     created_at: i64,
 }
 
@@ -1155,6 +1202,10 @@ impl From<CloudPersonalCenterAuditEntry> for PersonalCenterAuditEntry {
             action: value.action,
             subject: value.subject,
             detail: value.detail,
+            actor_id: value.actor_id,
+            actor_email: value.actor_email,
+            before: value.before_value,
+            after: value.after_value,
             created_at: value.created_at,
         }
     }

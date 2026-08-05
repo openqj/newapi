@@ -88,7 +88,7 @@ export const personalCenterApi = {
     if (membership) appendLocalAudit("membership.deleted", membership);
   },
 
-  async auditHistory(limit?: number): Promise<PersonalCenterAuditEntry[]> {
+  async auditHistory(limit = 500): Promise<PersonalCenterAuditEntry[]> {
     if (isTauri()) return invokeDesktop<PersonalCenterAuditEntry[]>("list_personal_center_audit_history", limit === undefined ? undefined : { limit });
     const entries = readLocal<PersonalCenterAuditEntry[]>(AUDIT_HISTORY_KEY, []);
     return limit === undefined ? entries : entries.slice(0, limit);

@@ -97,14 +97,15 @@ export type AdminMerchantFreeCode = {
   merchantName: string;
   stationName: string;
   stationUrl: string;
-  redeemCode: string;
+  redeemCode?: string;
+  redeemCodeMasked?: string;
   quota: number;
   pinned: boolean;
   claimed: boolean;
   createdAt: number;
 };
 
-export type AdminMerchantFreeCodeInput = Omit<AdminMerchantFreeCode, "id" | "merchantName" | "claimed" | "createdAt"> & { id?: string };
+export type AdminMerchantFreeCodeInput = Omit<AdminMerchantFreeCode, "id" | "merchantName" | "claimed" | "createdAt" | "redeemCodeMasked"> & { id?: string; redeemCode?: string };
 
 export type MerchantFreeRegistrationOffer = {
   offerId: string;

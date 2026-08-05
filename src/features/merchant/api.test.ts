@@ -30,4 +30,12 @@ describe("merchantApi", () => {
 
     expect(invokeDesktop).toHaveBeenCalledWith("claim_and_redeem_merchant_free_offer", { offerId: "offer-1", stationId: "station-1" });
   });
+
+  it("uses a protected command for admin code access", async () => {
+    invokeDesktop.mockResolvedValueOnce("FREE-CODE-1");
+
+    await merchantApi.revealAdminFreeCode("code-1", "copy");
+
+    expect(invokeDesktop).toHaveBeenCalledWith("reveal_admin_merchant_free_code", { id: "code-1", accessMode: "copy" });
+  });
 });

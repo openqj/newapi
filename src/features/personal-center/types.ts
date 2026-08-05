@@ -25,6 +25,10 @@ export type PersonalCenterAuditEntry = {
   action: string;
   subject: string;
   detail: string;
+  actorId?: string | null;
+  actorEmail?: string | null;
+  before?: unknown;
+  after?: unknown;
   createdAt: number;
 };
 

@@ -42,6 +42,7 @@
 .personal-center-role-badge { flex: 0 0 auto; border-radius: 999px; background: #f1f5f9; padding: .25rem .55rem; color: #475569; font-size: .6875rem; white-space: nowrap; }
 .personal-center-signout { padding: .35rem .55rem; font-size: .75rem; }
 .personal-center-admin-nav-item { gap: .35rem; }
+.personal-center-admin-mobile-select { display: none; }
 .personal-admin-content { margin-top: .8rem; }
 .personal-admin-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(13rem, .45fr); gap: 1rem; }
 .personal-admin-section { min-width: 0; border: 1px solid #e8ebef; border-radius: 9px; background: #fff; }
@@ -92,6 +93,10 @@
 .personal-admin-user-list small { margin-top: .12rem; color: var(--ui-muted); font-size: .6875rem; }
 .personal-admin-state { display: inline-flex; width: fit-content; align-items: center; border-radius: 999px; background: #f1f5f9; padding: .2rem .45rem; color: #64748b; font-size: .6875rem; white-space: nowrap; }
 .personal-admin-state.enabled { background: #dcfce7; color: #15803d; }
+.personal-admin-state.expired { background: #fef3c7; color: #92400e; }
+.personal-admin-loading { display: flex; align-items: center; justify-content: center; gap: .45rem; margin: 0; padding: 1rem; color: var(--ui-muted); font-size: .8125rem; }
+.personal-admin-loading-spinner { width: .8rem; height: .8rem; border: 2px solid #cbd5e1; border-top-color: #111827; border-radius: 50%; animation: personal-admin-spin .7s linear infinite; }
+@keyframes personal-admin-spin { to { transform: rotate(360deg); } }
 .personal-admin-memberships { display: grid; gap: .65rem; padding: .9rem; }
 .personal-admin-membership { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border: 1px solid #edf0f3; border-radius: 8px; padding: .8rem; }
 .personal-admin-plan { display: inline-flex; border-radius: 999px; background: #f1f5f9; padding: .15rem .45rem; color: #475569; font-size: .6875rem; font-weight: 650; }
@@ -110,6 +115,43 @@
 .personal-admin-audit-list p { margin: .2rem 0 0; color: var(--ui-muted); font-size: .75rem; }
 .personal-admin-audit-list time { color: var(--ui-muted); font-size: .6875rem; white-space: nowrap; }
 .personal-admin-empty { padding: 1rem; color: var(--ui-muted); font-size: .8125rem; text-align: center; }
+.personal-audit-drawer-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; justify-content: flex-end; background: rgba(15, 23, 42, .28); }
+.personal-audit-drawer { display: flex; width: min(100%, 45rem); height: 100%; flex-direction: column; border-left: 1px solid var(--ui-border); background: var(--ui-panel); box-shadow: -12px 0 34px rgba(15, 23, 42, .16); }
+.personal-audit-drawer-header { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; border-bottom: 1px solid var(--ui-border); padding: 1rem 1.1rem; }
+.personal-audit-drawer-header h2 { margin: 0; color: var(--ui-text); font-size: 1rem; }
+.personal-audit-drawer-header p { margin: .25rem 0 0; color: var(--ui-muted); font-size: .75rem; }
+.personal-audit-close { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; }
+.personal-audit-back { padding: .35rem .5rem; }
+.personal-audit-drawer-body { min-height: 0; overflow-y: auto; padding: 1rem 1.1rem; }
+.personal-audit-filter-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: .75rem; }
+.personal-audit-filter-heading strong { display: inline-flex; align-items: center; gap: .35rem; color: var(--ui-text); font-size: .8125rem; }
+.personal-audit-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(2, minmax(8.5rem, 1fr)) minmax(8.5rem, 1fr) minmax(8.5rem, 1fr); gap: .55rem; }
+.personal-audit-filters label { display: grid; gap: .25rem; min-width: 0; color: var(--ui-muted); font-size: .6875rem; }
+.personal-audit-filters input, .personal-audit-filters select { box-sizing: border-box; width: 100%; min-height: 2.2rem; border: 1px solid var(--ui-border); border-radius: 6px; background: #fff; padding: .35rem .5rem; color: var(--ui-text); font: inherit; font-size: .75rem; }
+.personal-audit-search { position: relative; display: flex !important; align-items: center; align-self: end; }
+.personal-audit-search svg { position: absolute; left: .55rem; color: var(--ui-muted); pointer-events: none; }
+.personal-audit-search input { padding-left: 1.8rem; }
+.personal-audit-date-input { position: relative; display: block; }
+.personal-audit-date-input svg { position: absolute; top: 50%; left: .5rem; color: var(--ui-muted); pointer-events: none; transform: translateY(-50%); }
+.personal-audit-date-input input { padding-left: 1.7rem; }
+.personal-audit-result-meta { margin: .9rem 0 .35rem; color: var(--ui-muted); font-size: .75rem; }
+.personal-audit-record-list { border-top: 1px solid #eef0f3; }
+.personal-audit-record { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; border-bottom: 1px solid #eef0f3; padding: .8rem 0; }
+.personal-audit-record-main { display: flex; min-width: 0; gap: .6rem; }
+.personal-audit-record-main > div { min-width: 0; }
+.personal-audit-record strong { color: var(--ui-text); font-size: .8125rem; }
+.personal-audit-record p { margin: .2rem 0; color: var(--ui-muted); font-size: .75rem; overflow-wrap: anywhere; }
+.personal-audit-record small { color: var(--ui-muted); font-size: .6875rem; }
+.personal-audit-record > button { flex: 0 0 auto; padding: .35rem .5rem; font-size: .75rem; }
+.personal-audit-pagination { display: flex; align-items: center; justify-content: center; gap: .75rem; padding-top: .9rem; color: var(--ui-muted); font-size: .75rem; }
+.personal-audit-pagination button { display: grid; width: 2rem; height: 2rem; place-items: center; padding: 0; }
+.personal-audit-detail-meta { display: grid; gap: .7rem; margin: 0; }
+.personal-audit-detail-meta > div { display: grid; grid-template-columns: 5rem minmax(0, 1fr); gap: .75rem; }
+.personal-audit-detail-meta dt { color: var(--ui-muted); font-size: .75rem; }
+.personal-audit-detail-meta dd { min-width: 0; margin: 0; color: var(--ui-text); font-size: .78rem; overflow-wrap: anywhere; }
+.personal-audit-entry-detail section { margin-top: 1.2rem; border-top: 1px solid #eef0f3; padding-top: 1rem; }
+.personal-audit-entry-detail h3 { margin: 0 0 .55rem; color: var(--ui-text); font-size: .8rem; }
+.personal-audit-entry-detail pre { max-height: 18rem; overflow: auto; margin: 0; border-radius: 6px; background: #f8fafc; padding: .7rem; color: #334155; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
 .mobile-app-connection-panel { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .9rem; padding: 1rem 1.1rem; }
 .mobile-app-connection-icon { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: .625rem; background: #eff6ff; color: #2563eb; }
 .mobile-app-connection-content { min-width: 0; }
@@ -159,6 +201,10 @@
 
 @media (max-width: 640px) {
   .personal-center-header-nav { align-items: stretch; flex-direction: column; }
+  .personal-center-header-nav-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .personal-center-admin-nav-item { display: none; }
+  .personal-center-admin-mobile-select.is-active { display: grid; grid-column: 1 / -1; gap: .25rem; color: var(--ui-muted); font-size: .6875rem; }
+  .personal-center-admin-mobile-select .input { width: 100%; min-height: 2.4rem; }
   .personal-center-account-meta { justify-content: flex-end; }
   .personal-login-intro { padding: 1.1rem; }
   .personal-login-benefits { grid-template-columns: 1fr; }
@@ -171,4 +217,8 @@
   .personal-membership-grid, .personal-membership-privileges { grid-template-columns: 1fr; }
   .personal-admin-notification-list article { flex-direction: column; }
   .personal-admin-notification-list aside { width: 100%; }
+  .personal-audit-drawer { width: 100%; }
+  .personal-audit-filters { grid-template-columns: 1fr 1fr; }
+  .personal-audit-search { grid-column: 1 / -1; }
+  .personal-audit-date-input input { min-width: 0; }
 }

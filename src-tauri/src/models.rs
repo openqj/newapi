@@ -500,6 +500,8 @@ pub(crate) struct UsageLog {
     #[serde(default)]
     pub(crate) service_tier: Option<String>,
     pub(crate) request_type: String,
+    #[serde(default)]
+    pub(crate) first_token_ms: Option<i64>,
     pub(crate) duration_ms: Option<i64>,
     pub(crate) created_at: i64,
 }

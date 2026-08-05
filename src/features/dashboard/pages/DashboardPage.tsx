@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Database,
   DollarSign,
+  FileText,
   Gauge,
   LayoutDashboard,
   Package,
@@ -11,16 +12,21 @@ import {
   ServerCog,
   Zap,
 } from "lucide-react";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { ArcElement, CategoryScale, Chart as ChartJS, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip } from "chart.js";
 import { Doughnut, Line } from "react-chartjs-2";
 import packageInfo from "../../../../package.json";
 import { isTauri } from "../../../lib/platform";
+import { apiKeyApi } from "../../api-keys/api";
+import { GroupRateSelect } from "../../api-keys/components/GroupRateSelect";
+import type { KeyRow } from "../../api-keys";
 import { gatewayApi } from "../../gateway/api";
 import type { GatewayStatus } from "../../gateway/types";
 import { settingsApi } from "../../settings/api";
 import type { PendingDesktopUpdate } from "../../settings/types";
 import type { DashboardPageProps } from "../types";
 import "../../../components/Sub2ApiPages.css";
+import "../../api-keys/pages/ApiKeysPage.css";
 import "./DashboardPage.css";
 
 ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip);
@@ -29,23 +35,14 @@ type ConnectionMode = "direct" | "localRouting";
 
 const formatMoney = (value?: number) =>
   value == null ? "-" : `${value.toFixed(4)} 额度`;
+const formatRemaining = (value?: number) =>
+  value == null ? "-" : `$${value.toFixed(2)}`;
+const keyRowId = (row: KeyRow) => `${row.stationId}:${row.key.id}`;
 const formatNumber = (value?: number) =>
   new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value ?? 0);
-const formatTime = (value?: number) =>
-  value
-    ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(value * 1000)
-    : "尚未同步";
 const todayInput = (date: Date) => date.toISOString().slice(0, 10);
 const beginOfDay = (date: string) => new Date(`${date}T00:00:00`).getTime() / 1000;
 const endOfDay = (date: string) => new Date(`${date}T23:59:59`).getTime() / 1000;
-
-function statusKind(status: string) {
-  return status === "online" ? "good" : status === "partial" ? "warn" : "bad";
-}
-
-function statusLabel(status: string) {
-  return status === "online" ? "正常" : status === "partial" ? "部分可用" : "异常";
-}
 
 function UsageMetric({
   icon,
@@ -143,8 +140,13 @@ export function DashboardPage({
   const [granularity, setGranularity] = useState<"day" | "hour">("day");
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null);
   const [previewMode, setPreviewMode] = useState<ConnectionMode>("direct");
+  const [previewKeyId, setPreviewKeyId] = useState<string | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
+  const [enablingKeyId, setEnablingKeyId] = useState<string | null>(null);
+  const [groupSavingKeyId, setGroupSavingKeyId] = useState<string | null>(null);
+  const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
+  const [keyActionError, setKeyActionError] = useState<string | null>(null);
   const [relayhubVersion, setRelayhubVersion] = useState(packageInfo.version);
   const [relayhubUpdate, setRelayhubUpdate] = useState<PendingDesktopUpdate | null>(null);
   const online = stations.filter((station) => station.status === "online").length;
@@ -168,6 +170,9 @@ export function DashboardPage({
     const route = gatewayStatus?.routeQueue[0];
     return route && route.stationId === row.stationId && route.keyId === row.key.id;
   }) ?? keys[0];
+  const activeKeyRowId = gatewayStatus?.activeStationId && gatewayStatus.activeKeyId
+    ? `${gatewayStatus.activeStationId}:${gatewayStatus.activeKeyId}`
+    : previewKeyId;
   const tokenTotals = useMemo(() => usageRows.reduce((totals, row) => {
     const inputTokens = row.inputTokens + row.cacheCreationTokens + row.cacheReadTokens;
     totals.input += inputTokens;
@@ -253,6 +258,53 @@ export function DashboardPage({
       setSwitchingMode(false);
     }
   };
+  const openCodexFile = async (fileName: "auth.json" | "config.toml") => {
+    setGatewayError(null);
+    try {
+      if (!isTauri()) throw new Error("配置文件只能在桌面应用中打开");
+      const { configDirectory } = await settingsApi.codexIntegration();
+      const separator = configDirectory.includes("\\") ? "\\" : "/";
+      const directory = configDirectory.replace(/[\\/]+$/, "");
+      await openPath(`${directory}${separator}${fileName}`);
+    } catch (reason) {
+      setGatewayError(reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  const enableKey = async (row: KeyRow) => {
+    const id = keyRowId(row);
+    if (enablingKeyId || activeKeyRowId === id) return;
+    setEnablingKeyId(id);
+    setKeyActionError(null);
+    try {
+      if (isTauri()) setGatewayStatus(await gatewayApi.setRoute(row.stationId, row.key.id));
+      else setPreviewKeyId(id);
+    } catch (reason) {
+      setKeyActionError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setEnablingKeyId(null);
+    }
+  };
+  const changeKeyGroup = async (row: KeyRow, group: string) => {
+    const id = keyRowId(row);
+    const previous = groupDrafts[id] ?? row.key.group ?? "default";
+    if (group === previous || groupSavingKeyId) return;
+    setGroupDrafts((current) => ({ ...current, [id]: group }));
+    setGroupSavingKeyId(id);
+    setKeyActionError(null);
+    let updated = false;
+    try {
+      if (isTauri()) {
+        await apiKeyApi.updateGroup(row.stationId, row.key.id, group);
+        updated = true;
+        await onRefresh();
+      }
+    } catch (reason) {
+      if (!updated) setGroupDrafts((current) => ({ ...current, [id]: previous }));
+      setKeyActionError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setGroupSavingKeyId(null);
+    }
+  };
   const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
 
   return <div className="sub2-page sub2-dashboard-page">
@@ -277,21 +329,32 @@ export function DashboardPage({
       <OverviewCard
         className="sub2-dashboard-station-card"
         icon={<Gauge size={18} />}
-        title="站点与账户"
-        description={`${online}/${stations.length} 个站点正常运行`}
+        title="站点与密匙"
+        description={`${keys.length} 个 API 密匙 · ${online}/${stations.length} 个站点正常运行`}
         action={<button type="button" className="button-secondary sub2-dashboard-icon-action" title="同步站点" aria-label="同步站点" onClick={() => void onRefresh()}><RefreshCw size={15} /></button>}
       >
-        <div className="sub2-dashboard-station-list">
-          {stations.slice(0, 4).map((station) => {
-            const account = accountByStation.get(station.id);
-            return <div className="sub2-dashboard-station-row" key={station.id}>
-              <span className={`sub2-status sub2-status-${statusKind(station.status)}`}><i />{statusLabel(station.status)}</span>
-              <div className="sub2-dashboard-station-main"><strong>{station.name}</strong><small>{account?.account.username || station.baseUrl}</small></div>
-              <div className="sub2-dashboard-station-balance"><strong>{account?.account.balance == null ? "-" : formatMoney(account.account.balance)}</strong><small>{formatTime(station.lastSyncedAt)}</small></div>
+        <div className="sub2-dashboard-key-list">
+          {keys.map((row) => {
+            const id = keyRowId(row);
+            const groupValue = groupDrafts[id] ?? row.key.group ?? "default";
+            const groups = row.groups.length ? row.groups : [{ name: groupValue }];
+            const busy = enablingKeyId === id || groupSavingKeyId === id;
+            const enabled = activeKeyRowId === id;
+            const balance = row.stationBalance ?? accountByStation.get(row.stationId)?.account.balance;
+            return <div className="sub2-dashboard-key-row" key={id}>
+              <div className="sub2-dashboard-key-content">
+                <div className="sub2-dashboard-key-station"><strong>{row.stationName}</strong><span>剩余：{formatRemaining(balance)}</span></div>
+                <div className="sub2-dashboard-key-meta">
+                  <strong className="sub2-dashboard-key-name" title={row.key.name || row.key.id}>{row.key.name || "未命名密钥"}</strong>
+                  <GroupRateSelect className="sub2-dashboard-key-group" value={groupValue} groups={groups} disabled={busy} onChange={(group) => void changeKeyGroup(row, group)} />
+                </div>
+              </div>
+              <button type="button" className="button-primary sub2-dashboard-key-enable" aria-pressed={enabled} title={enabled ? "当前已启用" : "启用此 API 密钥"} disabled={busy || enabled} onClick={() => void enableKey(row)}>{enabled ? "已启用" : enablingKeyId === id ? "启用中" : "启用"}</button>
             </div>;
           })}
-          {!stations.length && <div className="sub2-dashboard-empty">尚未添加站点账户</div>}
+          {!keys.length && <div className="sub2-dashboard-empty">尚未添加 API 密钥</div>}
         </div>
+        {keyActionError && <p className="sub2-dashboard-key-error" role="alert">{keyActionError}</p>}
       </OverviewCard>
 
       <OverviewCard
@@ -308,8 +371,8 @@ export function DashboardPage({
           <span className={`sub2-status ${connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running ? "sub2-status-warn" : "sub2-status-good"}`}><i />{switchingMode ? "正在切换" : connectionMode === "direct" ? "直转已启用" : gatewayStatus && !gatewayStatus.running ? "本地路由已停止" : "本地路由已启用"}</span>
         </div>
         <div className="sub2-dashboard-config-grid">
-          <div><span>认证文件</span><code>auth.json</code></div>
-          <div><span>路由文件</span><code>config.toml</code></div>
+          <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></button>
+          <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></button>
         </div>
         <div className="sub2-dashboard-detail-grid">
           <div><span>{connectionMode === "direct" ? "API 密钥" : "路由来源"}</span><strong>{connectionMode === "direct" ? (routeKey ? routeKey.key.name || routeKey.key.id : "尚未选择") : "本地路由池"}</strong></div>

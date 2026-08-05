@@ -125,6 +125,7 @@ pub const COMMAND_NAMES: &[&str] = &[
     "mark_personal_center_notification",
     "get_personal_center_realtime_session",
     "list_personal_center_login_events",
+    "reveal_admin_merchant_free_code",
     "claim_and_redeem_merchant_free_offer",
     "register_and_redeem_merchant_free_offer",
 ];
@@ -135,7 +136,7 @@ mod tests {
 
     #[test]
     fn keeps_the_public_tauri_command_contract_complete() {
-        assert_eq!(COMMAND_NAMES.len(), 123);
+        assert_eq!(COMMAND_NAMES.len(), 124);
         assert!(COMMAND_NAMES.contains(&"detect_model_authenticity"));
         assert!(COMMAND_NAMES.contains(&"detect_model_intelligence"));
         assert!(COMMAND_NAMES.contains(&"discover_api_models"));
@@ -156,6 +157,7 @@ mod tests {
         assert!(!COMMAND_NAMES.contains(&"claim_merchant_rate_account"));
         assert!(COMMAND_NAMES.contains(&"claim_and_redeem_merchant_free_offer"));
         assert!(COMMAND_NAMES.contains(&"register_and_redeem_merchant_free_offer"));
+        assert!(COMMAND_NAMES.contains(&"reveal_admin_merchant_free_code"));
         assert!(COMMAND_NAMES.contains(&"get_local_usage_dashboard"));
     }
 }

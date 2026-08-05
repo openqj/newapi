@@ -608,6 +608,20 @@ pub(crate) async fn list_admin_merchant_free_codes(
 }
 
 #[tauri::command]
+pub(crate) async fn reveal_admin_merchant_free_code(
+    state: State<'_, AppState>,
+    id: String,
+    access_mode: String,
+) -> Result<String, String> {
+    require_cloud_admin(&state).await?;
+    let id = validate_uuid(&id, "Free code ID")?;
+    if !matches!(access_mode.as_str(), "view" | "copy") {
+        return Err("Invalid free code access mode".into());
+    }
+    cloud_backup::reveal_admin_merchant_free_code(&state, &id, &access_mode).await
+}
+
+#[tauri::command]
 pub(crate) async fn save_admin_merchant_free_code(
     state: State<'_, AppState>,
     mut code: AdminMerchantFreeCodeInput,
@@ -620,9 +634,8 @@ pub(crate) async fn save_admin_merchant_free_code(
     code.merchant_id = validate_uuid(&code.merchant_id, "Merchant ID")?;
     code.station_name = validate_visible_text(&code.station_name, "Station name", 100)?;
     code.station_url = validate_https(&code.station_url, "Station URL")?;
-    code.redeem_code =
-        validate_optional(Some(code.redeem_code), "Redeem code", 128)?.unwrap_or_default();
-    if code.redeem_code.is_empty() {
+    code.redeem_code = validate_optional(code.redeem_code, "Redeem code", 128)?;
+    if code.id.is_none() && code.redeem_code.is_none() {
         return Err("兑换码不能为空".into());
     }
     if !code.quota.is_finite() || code.quota <= 0.0 {

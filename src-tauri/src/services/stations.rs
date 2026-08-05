@@ -561,6 +561,10 @@ pub(crate) fn parse_usage_logs(value: &Value, station: &Station) -> Vec<UsageLog
                             .map(|stream| if stream { "stream" } else { "sync" }.into())
                     })
                     .unwrap_or_default(),
+                first_token_ms: integer(
+                    item,
+                    &["first_token_ms", "firstTokenMs", "time_to_first_token_ms"],
+                ),
                 duration_ms: integer(item, &["duration_ms", "duration"]).or_else(|| {
                     integer(item, &["use_time"]).map(|seconds| seconds.saturating_mul(1_000))
                 }),
@@ -2622,6 +2626,7 @@ mod tests {
                     "service_tier": "standard",
                     "billing_type": 1,
                     "request_type": "stream",
+                    "first_token_ms": 450,
                     "duration_ms": 2000
                 }]
             }
@@ -2650,6 +2655,7 @@ mod tests {
         assert_eq!(logs[0].rate_multiplier, Some(0.04));
         assert_eq!(logs[0].service_tier.as_deref(), Some("standard"));
         assert_eq!(logs[0].request_type, "stream");
+        assert_eq!(logs[0].first_token_ms, Some(450));
         assert_eq!(logs[0].duration_ms, Some(2_000));
     }
 
@@ -2666,6 +2672,7 @@ mod tests {
                     "prompt_tokens": 12,
                     "completion_tokens": 5,
                     "is_stream": false,
+                    "time_to_first_token_ms": 320,
                     "use_time": 3
                 }]
             }
@@ -2677,6 +2684,7 @@ mod tests {
         assert_eq!(logs[0].model, "gpt-4o-mini");
         assert_eq!(logs[0].api_key_name.as_deref(), Some("legacy-key"));
         assert_eq!(logs[0].request_type, "sync");
+        assert_eq!(logs[0].first_token_ms, Some(320));
         assert_eq!(logs[0].duration_ms, Some(3_000));
         assert_eq!(logs[0].station_name, station.name);
         assert_eq!(logs[0].station_url, station.base_url);
