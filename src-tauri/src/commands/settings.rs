@@ -174,6 +174,30 @@ pub(crate) async fn set_codex_preserve_official_login(
 }
 
 #[tauri::command]
+pub(crate) async fn set_codex_preferences(
+    state: State<'_, AppState>,
+    goal_mode: bool,
+    remote_compaction: bool,
+    common_config_enabled: bool,
+) -> Result<CodexIntegrationStatus, String> {
+    codex_config::set_codex_preferences(
+        &state,
+        goal_mode,
+        remote_compaction,
+        common_config_enabled,
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn set_codex_common_config(
+    state: State<'_, AppState>,
+    snippet: String,
+) -> Result<CodexIntegrationStatus, String> {
+    codex_config::set_common_config_snippet(&state, snippet).await
+}
+
+#[tauri::command]
 pub(crate) async fn backup_database(
     state: State<'_, AppState>,
     destination: String,

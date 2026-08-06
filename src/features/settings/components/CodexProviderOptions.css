@@ -1,0 +1,14 @@
+.codex-options-panel > .panel-header { border-bottom: 1px solid #eef0f3; }
+.codex-option-grid { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem 1.25rem; padding: 1rem 1.1rem; }
+.codex-option-grid label { display: inline-flex; align-items: center; gap: .45rem; color: var(--ui-text); font-size: .8125rem; cursor: pointer; }
+.codex-option-grid input { width: 1rem; height: 1rem; accent-color: #111827; }
+.codex-option-grid label:has(input:disabled) { cursor: not-allowed; opacity: .6; }
+.codex-common-config-button { margin-left: auto; }
+.codex-inline-provider-options { margin-top: .75rem; }
+.codex-option-grid-compact { padding: .75rem 0 .1rem; border-top: 1px solid #eef0f3; }
+.codex-option-grid-compact .codex-common-config-button { margin-left: 0; }
+
+@media (prefers-color-scheme: dark) {
+  .codex-options-panel > .panel-header, .codex-option-grid-compact { border-color: #414141; }
+  .codex-option-grid input { accent-color: #f5f5f5; }
+}

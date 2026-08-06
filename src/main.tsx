@@ -1,8 +1,5 @@
-import React, { Component, type ErrorInfo, type ReactNode } from "react";
+import React, { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
-import { MerchantMarketplacePage } from "./features/merchant/pages/MerchantMarketplacePage";
-import { RegisterAccountPage } from "./features/registration";
 import { ConfirmationProvider, PromptProvider, ToastProvider } from "./components/ui";
 import "./index.css";
 
@@ -48,6 +45,17 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
 document.documentElement.dataset.appMounted = "true";
 const isMerchantWindow = new URLSearchParams(window.location.search).get("window") === "merchant-market";
 const isRegisterWindow = new URLSearchParams(window.location.search).get("window") === "register-account";
+const WindowContent = lazy(() => {
+  if (isMerchantWindow) {
+    return import("./features/merchant/pages/MerchantMarketplacePage")
+      .then(({ MerchantMarketplacePage }) => ({ default: MerchantMarketplacePage }));
+  }
+  if (isRegisterWindow) {
+    return import("./features/registration/pages/RegisterAccountPage")
+      .then(({ RegisterAccountPage }) => ({ default: RegisterAccountPage }));
+  }
+  return import("./App");
+});
 if (isMerchantWindow) document.body.classList.add("merchant-market-body");
 if (isRegisterWindow) {
   document.body.classList.add("register-account-body");
@@ -60,7 +68,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ToastProvider>
         <ConfirmationProvider>
           <PromptProvider>
-            {isMerchantWindow ? <MerchantMarketplacePage /> : isRegisterWindow ? <RegisterAccountPage /> : <App />}
+            <Suspense fallback={<div className="min-h-screen bg-slate-50" role="status" />}>
+              <WindowContent />
+            </Suspense>
           </PromptProvider>
         </ConfirmationProvider>
       </ToastProvider>

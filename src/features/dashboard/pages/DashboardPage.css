@@ -4,6 +4,8 @@
 .sub2-dashboard-overview-card { display: flex; min-width: 0; min-height: 276px; flex-direction: column; overflow: hidden; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .03); }
 .sub2-dashboard-card-heading { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; min-height: 64px; gap: .7rem; padding: .85rem 1rem; border-bottom: 1px solid #eef0f3; }
 .sub2-dashboard-card-heading h2 { margin: 0; color: #111827; font-size: 1rem; font-weight: 600; }
+.sub2-dashboard-card-title-row { display: flex; min-width: 0; align-items: center; gap: .5rem; }
+.sub2-dashboard-card-title-row h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-card-heading p { margin: .25rem 0 0; overflow: hidden; color: #6b7280; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-card-icon { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border-radius: 7px; }
 .sub2-dashboard-routing-card .sub2-dashboard-card-icon { background: #dbeafe; color: #2563eb; }
@@ -18,7 +20,7 @@
 
 .sub2-dashboard-routing-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: .25rem; }
 .sub2-dashboard-routing-switch .test-mode-button { min-height: 2.35rem; }
-.sub2-dashboard-routing-status { margin-top: .85rem; }
+.sub2-dashboard-routing-status { flex: 0 0 auto; }
 .sub2-dashboard-route-pool { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; margin-top: .75rem; }
 .sub2-dashboard-route-pool-heading { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .55rem; }
 .sub2-dashboard-route-pool-heading > div { display: flex; min-width: 0; align-items: baseline; gap: .45rem; }
@@ -51,16 +53,18 @@
 .sub2-dashboard-config-grid code { display: block; margin-top: .3rem; overflow: hidden; color: #374151; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .6875rem; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-config-file code { display: flex; align-items: center; gap: .3rem; }
 .sub2-dashboard-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin-top: .85rem; }
-.sub2-dashboard-detail-grid > div { min-width: 0; border: 1px solid #eef0f3; border-radius: 7px; background: #fafafa; padding: .65rem .7rem; }
+.sub2-dashboard-detail-grid > div { min-width: 0; border: 1px solid #eef0f3; border-radius: 7px; background: #fafafa; padding: .45rem .6rem; }
 .sub2-dashboard-detail-grid span,
 .sub2-dashboard-info-grid span { display: block; color: #9ca3af; font-size: .6875rem; }
+.sub2-dashboard-detail-grid span { line-height: .9rem; }
 .sub2-dashboard-detail-grid code,
-.sub2-dashboard-detail-grid strong { display: block; margin-top: .3rem; overflow: hidden; color: #374151; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.sub2-dashboard-detail-grid code,
+.sub2-dashboard-detail-grid strong { display: block; margin-top: .2rem; overflow: hidden; color: #374151; font-size: .75rem; font-weight: 600; line-height: .95rem; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-detail-grid code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .6875rem; font-weight: 500; }
-.sub2-dashboard-detail-grid small { display: block; margin-top: .3rem; overflow: hidden; color: #6b7280; font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
+.sub2-dashboard-detail-grid small { display: block; margin-top: .2rem; overflow: hidden; color: #6b7280; font-size: .6875rem; line-height: .9rem; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-routing-error { margin: .75rem 0 0; color: #b91c1c; font-size: .75rem; line-height: 1.15rem; }
 
-.sub2-dashboard-key-list { max-height: 18.5rem; min-height: 0; min-width: 0; flex: 1 1 auto; overflow-y: auto; padding-right: .25rem; scrollbar-gutter: stable; }
+.sub2-dashboard-key-list { max-height: 18.5rem; min-height: 0; min-width: 0; flex: 1 1 auto; overflow-y: auto; border: 1px solid #eef0f3; border-radius: 7px; background: #fafafa; padding: 0 .7rem; scrollbar-gutter: stable; }
 .sub2-dashboard-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .8rem; min-height: 3.35rem; padding: .45rem 0; border-bottom: 1px solid #f0f1f3; }
 .sub2-dashboard-key-row:last-child { border-bottom: 0; }
 .sub2-dashboard-key-content { min-width: 0; }
@@ -100,6 +104,8 @@
   .sub2-dashboard-overview-card { min-height: clamp(0px, calc(100dvh - 76px), 390px); }
   .sub2-dashboard-overview-card .sub2-dashboard-card-body { min-height: 0; }
 }
+
+.sub2-dashboard-overview-card.sub2-dashboard-usage-card { align-self: start; min-height: 0; }
 
 .sub2-dashboard-controls { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 1rem; }
 .sub2-dashboard-date-fields, .sub2-dashboard-control-actions { display: flex; align-items: end; gap: .65rem; flex-wrap: wrap; }
@@ -159,12 +165,25 @@
   .sub2-dashboard-key-meta { grid-template-columns: 1fr; gap: .4rem; }
 }
 
+.sub2-dashboard-overview-card:not(.sub2-dashboard-usage-card) {
+  height: var(--sub2-dashboard-overview-card-height, auto);
+  min-height: var(--sub2-dashboard-overview-card-height, 0);
+}
+
+.sub2-dashboard-usage-metric,
+.sub2-dashboard-config-grid > *,
+.sub2-dashboard-detail-grid > div,
+.sub2-dashboard-info-grid > div {
+  height: var(--sub2-dashboard-inner-card-height, auto);
+  min-height: var(--sub2-dashboard-inner-card-height, 4.35rem);
+}
+
 @media (prefers-color-scheme: dark) {
   .sub2-dashboard-overview-card { border-color: #454545; background: #292929; }
   .sub2-dashboard-card-heading { border-color: #414141; }
   .sub2-dashboard-card-heading h2, .sub2-dashboard-key-station strong, .sub2-dashboard-usage-metric strong, .sub2-dashboard-info-grid strong { color: #f5f5f5; }
   .sub2-dashboard-card-heading p, .sub2-dashboard-detail-grid span, .sub2-dashboard-info-grid span, .sub2-dashboard-usage-metric-label, .sub2-dashboard-usage-metric small, .sub2-dashboard-key-name, .sub2-dashboard-route-pool-heading span { color: #a3a3a3; }
-  .sub2-dashboard-routing-switch, .sub2-dashboard-config-grid > div, .sub2-dashboard-config-file, .sub2-dashboard-detail-grid > div, .sub2-dashboard-usage-metric, .sub2-dashboard-info-grid > div, .sub2-dashboard-route-list { border-color: #454545; background: #333; }
+  .sub2-dashboard-routing-switch, .sub2-dashboard-config-grid > div, .sub2-dashboard-config-file, .sub2-dashboard-detail-grid > div, .sub2-dashboard-usage-metric, .sub2-dashboard-info-grid > div, .sub2-dashboard-route-list, .sub2-dashboard-key-list { border-color: #454545; background: #333; }
   .sub2-dashboard-config-file:hover { border-color: #5b5b5b; background: #3d3d3d; }
 .sub2-dashboard-config-grid span { color: #a3a3a3; }
 .sub2-dashboard-config-grid code { color: #e5e5e5; }

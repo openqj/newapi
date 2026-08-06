@@ -1,17 +1,33 @@
-import { Clipboard, Copy, Pencil, Play, Route, Trash2 } from "lucide-react";
+import { ChevronsUpDown, ChevronDown, ChevronUp, Clipboard, Copy, Pencil, Play, Route, SquareTerminal, Trash2 } from "lucide-react";
 import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
 import { GroupRateSelect } from "./GroupRateSelect";
 import { identifyModelType, modelTypeTitle } from "../modelType";
 import type { ApiKeyTestState, KeyRow } from "../types";
 
+export type ApiKeySortKey = "name" | "concurrency" | "expires" | "status" | "created";
+export type ApiKeySortDirection = "asc" | "desc";
+
+function SortableHeader({ label, column, sortKey, sortDirection, onSort }: { label: string; column: ApiKeySortKey; sortKey: ApiKeySortKey; sortDirection: ApiKeySortDirection; onSort: (column: ApiKeySortKey) => void }) {
+  const active = sortKey === column;
+  return <th data-key-column={column} aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
+    <button type="button" className={`sub2-key-sort-header${active ? " is-active" : ""}`} title={`按${label}排序`} onClick={() => onSort(column)}>
+      <span>{label}</span>
+      {active ? (sortDirection === "asc" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />) : <ChevronsUpDown size={13} aria-hidden="true" />}
+    </button>
+  </th>;
+}
+
 type ApiKeyTableProps = {
   rows: KeyRow[];
   hiddenColumns: string;
+  sortKey: ApiKeySortKey;
+  sortDirection: ApiKeySortDirection;
   saving: string | null;
   selectedIds: string[];
   testStates: Record<string, ApiKeyTestState>;
   onToggleSelected: (row: KeyRow) => void;
   onToggleAll: () => void;
+  onSort: (column: ApiKeySortKey) => void;
   onReveal: (row: KeyRow) => void;
   onGroupChange: (row: KeyRow, group: string) => void;
   onApplyToCodex: (row: KeyRow) => void;
@@ -40,11 +56,14 @@ function TestStatus({ state }: { state?: ApiKeyTestState }) {
 export function ApiKeyTable({
   rows,
   hiddenColumns,
+  sortKey,
+  sortDirection,
   saving,
   selectedIds,
   testStates,
   onToggleSelected,
   onToggleAll,
+  onSort,
   onReveal,
   onGroupChange,
   onApplyToCodex,
@@ -65,8 +84,8 @@ export function ApiKeyTable({
           <thead>
             <tr>
               <th className="table-page-select-cell"><input type="checkbox" aria-label="全选 API 密钥" checked={allSelected} onChange={onToggleAll} /></th>
-              <th data-key-column="station">中转站</th><th data-key-column="modelType">模型类型</th><th data-key-column="name">名称</th><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="multiplier">倍率</th><th data-key-column="balance">余额</th><th data-key-column="concurrency">当前并发</th>
-              <th data-key-column="usage">用量</th><th data-key-column="expires">过期时间</th><th data-key-column="status">状态</th><th data-key-column="created">创建时间</th><th data-key-column="actions">操作</th>
+              <th data-key-column="station">中转站</th><th data-key-column="modelType">模型类型</th><SortableHeader column="name" label="名称" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="multiplier">倍率</th><th data-key-column="balance">余额</th><SortableHeader column="concurrency" label="当前并发" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} />
+              <th data-key-column="usage">用量</th><SortableHeader column="expires" label="过期时间" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><SortableHeader column="status" label="状态" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><SortableHeader column="created" label="创建时间" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><th data-key-column="actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -84,7 +103,7 @@ export function ApiKeyTable({
                   <td data-key-column="modelType"><span className="sub2-model-type" title={modelTypeTitle(row.models)}>{modelType}</span></td>
                   <td data-key-column="name"><strong>{row.key.name || "未命名密钥"}</strong></td>
                   <td data-key-column="apiKey"><div className="sub2-key-code"><code>{row.key.maskedKey || "已隐藏"}</code><button type="button" title="复制 API 密钥" className="sub2-copy-key" onClick={() => onReveal(row)}><Copy size={15} /></button></div></td>
-                  <td data-key-column="group"><GroupRateSelect className="sub2-key-group-rate-select" value={row.key.group ?? "default"} groups={row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]} disabled={busy} onChange={(group) => onGroupChange(row, group)} /></td>
+                  <td data-key-column="group"><GroupRateSelect className="sub2-key-group-rate-select" value={row.key.group ?? "default"} groups={row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]} disabled={busy} searchable showSelectionLabel onChange={(group) => onGroupChange(row, group)} /></td>
                   <td data-key-column="multiplier" className="sub2-key-value">{formatMultiplier(rowMultiplier(row))}</td>
                   <td data-key-column="balance" className="sub2-key-value">{formatBalance(row.stationBalance)}</td>
                   <td data-key-column="concurrency"><span className={`sub2-concurrency ${row.key.currentConcurrency ? "active" : ""}`}>{row.key.currentConcurrency ?? 0}</span></td>
@@ -100,7 +119,7 @@ export function ApiKeyTable({
                   <td data-key-column="created">{formatTime(row.key.createdAt)}</td>
                   <td data-key-column="actions">
                     <div className="sub2-key-row-actions">
-                      <button type="button" className="enable" title="直接写入本地 Codex 配置" onClick={() => onApplyToCodex(row)} disabled={busy}>启用</button>
+                      <button type="button" className="enable" title="直接写入本地 Codex 配置" onClick={() => onApplyToCodex(row)} disabled={busy}><SquareTerminal size={15} aria-hidden="true" /><span>启用</span></button>
                       <button type="button" className="test" title="测试 API 密钥" onClick={() => onTest(row)} disabled={busy}><Play size={15} aria-hidden="true" /><span>测试</span></button>
                       <button type="button" className="route" title="加入本地路由" onClick={() => onAddToRoute(row)} disabled={busy}><Route size={15} aria-hidden="true" /><span>加入路由</span></button>
                       <button type="button" className="edit" title="编辑密钥" onClick={() => onEdit(row)} disabled={busy}><Pencil size={15} /><span>编辑</span></button>

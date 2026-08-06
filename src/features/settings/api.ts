@@ -14,6 +14,9 @@ export const settingsApi = {
   codexIntegration: () => invokeDesktop<CodexIntegrationStatus>("get_codex_integration"),
   activeCodexRelayStatus: () => invokeDesktop<ActiveCodexRelayStatus | null>("get_active_codex_relay_status"),
   setCodexOfficialLoginPreservation: (preserveOfficialLogin: boolean) => invokeDesktop<CodexIntegrationStatus>("set_codex_preserve_official_login", { preserveOfficialLogin }),
+  setCodexPreferences: (goalMode: boolean, remoteCompaction: boolean, commonConfigEnabled: boolean) =>
+    invokeDesktop<CodexIntegrationStatus>("set_codex_preferences", { goalMode, remoteCompaction, commonConfigEnabled }),
+  setCodexCommonConfig: (snippet: string) => invokeDesktop<CodexIntegrationStatus>("set_codex_common_config", { snippet }),
   cloudAuthStatus: () => invokeDesktop<CloudAuthStatus>("get_cloud_auth_status"),
   cloudSignUp: (email: string, password: string) => invokeDesktop<CloudAuthStatus>("cloud_sign_up", { email, password }),
   cloudSignIn: (email: string, password: string) => invokeDesktop<CloudAuthStatus>("cloud_sign_in", { email, password }),

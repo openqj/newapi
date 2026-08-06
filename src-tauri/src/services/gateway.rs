@@ -21,6 +21,7 @@ use futures_util::{stream, Stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::{oneshot, RwLock};
@@ -33,8 +34,10 @@ use crate::{
     services::api_keys::read_api_key,
     services::{chat_protocol, codex_config},
     settings_store::SettingsStore,
+    station_snapshot_store::StationSnapshotStore,
+    station_store::StationStore,
     store::Store,
-    support::api_base_url,
+    support::{api_base_url, station_base},
     AppState,
 };
 
@@ -42,6 +45,7 @@ pub(crate) const DEFAULT_GATEWAY_PORT: u16 = 18765;
 pub(crate) const GATEWAY_TOKEN_ID: &str = "local-gateway-token";
 const ACTIVE_GATEWAY_ROUTES_SETTING: &str = "activeGatewayRoutes";
 const DIRECT_GATEWAY_ROUTE_SETTING: &str = "directGatewayRoute";
+const DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING: &str = "directGatewayConfigFingerprint";
 const DEFAULT_CIRCUIT_FAILURE_THRESHOLD: u32 = 4;
 const DEFAULT_CIRCUIT_SUCCESS_THRESHOLD: u32 = 2;
 const DEFAULT_CIRCUIT_RECOVERY: Duration = Duration::from_secs(60);
@@ -253,6 +257,15 @@ impl GatewayCircuitBreaker {
         }
     }
 
+    fn record_rate_limited(&mut self, used_half_open_probe: bool) {
+        if used_half_open_probe {
+            // A 429 proves that the route is reachable. Do not leave a
+            // half-open probe stuck or treat temporary capacity pressure as
+            // a dead route.
+            self.close();
+        }
+    }
+
     fn open(&mut self) {
         self.state = GatewayCircuitState::Open;
         self.opened_at = Some(Instant::now());
@@ -455,6 +468,131 @@ fn persist_direct_route(store: &Store, selection: &GatewayRouteSelection) -> Res
     store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, &serialized)
 }
 
+fn direct_config_fingerprint(credentials: Option<(&str, Option<&str>)>) -> String {
+    let input = match credentials {
+        Some((url, Some(key))) => format!("{}\u{0}{key}", station_base(url)),
+        Some((url, None)) => format!("{}\u{0}<missing>", station_base(url)),
+        None => "<none>".into(),
+    };
+    format!("sha256:{:x}", Sha256::digest(input.as_bytes()))
+}
+
+fn live_direct_route_candidates(
+    state: &AppState,
+    relay_url: &str,
+) -> Result<(Vec<GatewayRouteSelection>, bool, bool), String> {
+    let relay_root = station_base(relay_url);
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| "Local database is unavailable".to_string())?;
+    let mut candidates = Vec::new();
+    let mut station_found = false;
+    let mut snapshot_loaded = false;
+    for station in store.list_stations()? {
+        if station_base(&station.base_url) != relay_root {
+            continue;
+        }
+        station_found = true;
+        if let Some((_, snapshot)) = store.load_snapshot(&station.id)? {
+            snapshot_loaded = true;
+            candidates.extend(
+                snapshot
+                    .api_keys
+                    .into_iter()
+                    .map(|key| GatewayRouteSelection {
+                        station_id: station.id.clone(),
+                        key_id: key.id,
+                    }),
+            );
+        }
+    }
+    Ok((candidates, station_found, snapshot_loaded))
+}
+
+async fn sync_direct_route_with_codex_config(
+    state: &AppState,
+) -> Result<Option<GatewayRouteSelection>, String> {
+    let current = codex_config::current_relay_credentials()?;
+    let fingerprint = direct_config_fingerprint(
+        current
+            .as_ref()
+            .map(|(url, key)| (url.as_str(), key.as_deref())),
+    );
+    let (stored_fingerprint, stored_route) = {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "Local database is unavailable".to_string())?;
+        (
+            store.setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING)?,
+            load_direct_route(&store)?,
+        )
+    };
+    if stored_fingerprint.as_deref() == Some(fingerprint.as_str()) {
+        return Ok(stored_route);
+    }
+
+    let Some((relay_url, Some(relay_key))) = current.as_ref() else {
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "Local database is unavailable".to_string())?;
+        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
+        store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
+        return Ok(None);
+    };
+    let (candidates, station_found, snapshot_loaded) =
+        live_direct_route_candidates(state, relay_url)?;
+    if candidates.is_empty() {
+        if station_found && !snapshot_loaded {
+            return Ok(stored_route);
+        }
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "Local database is unavailable".to_string())?;
+        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
+        store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
+        return Ok(None);
+    }
+
+    let mut inspected = false;
+    let mut matched = None;
+    for candidate in candidates {
+        if let Ok((station, api_key)) =
+            read_api_key(state, &candidate.station_id, &candidate.key_id).await
+        {
+            inspected = true;
+            if station_base(&station.base_url) == station_base(relay_url)
+                && api_key.trim() == relay_key.trim()
+            {
+                matched = Some(candidate);
+                break;
+            }
+        }
+    }
+
+    // Keep the last known route when the station cannot currently reveal any
+    // candidate key. A temporary login/network failure must not look like an
+    // external configuration change.
+    if matched.is_none() && !inspected {
+        return Ok(stored_route);
+    }
+
+    let store = state
+        .store
+        .lock()
+        .map_err(|_| "Local database is unavailable".to_string())?;
+    if let Some(route) = matched.as_ref() {
+        persist_direct_route(&store, route)?;
+    } else {
+        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
+    }
+    store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
+    Ok(matched)
+}
+
 async fn resolve_route_selections(
     state: &AppState,
     selections: &[GatewayRouteSelection],
@@ -513,9 +651,11 @@ pub(crate) async fn set_gateway_route(
     }
     state.gateway.clear_route().await;
     codex_config::activate_direct_route(
+        state,
         &route.provider_name,
         &route.upstream_base_url,
         &route.api_key,
+        RoutingMode::CcSwitch,
     )?;
     Ok(())
 }
@@ -571,18 +711,19 @@ pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String
             None,
         )
     };
-    let active_route = runtime
-        .route
-        .as_ref()
-        .map(|route| GatewayRouteSelection {
+    let direct_route = if mode == RoutingMode::CcSwitch {
+        sync_direct_route_with_codex_config(state).await?
+    } else {
+        direct_route
+    };
+    let active_route = if mode == RoutingMode::CcSwitch {
+        direct_route
+    } else {
+        runtime.route.as_ref().map(|route| GatewayRouteSelection {
             station_id: route.station_id.clone(),
             key_id: route.key_id.clone(),
         })
-        .or_else(|| {
-            (mode == RoutingMode::CcSwitch)
-                .then_some(direct_route)
-                .flatten()
-        });
+    };
     Ok(GatewayStatus {
         mode,
         running: state.gateway.is_running(),
@@ -738,9 +879,11 @@ pub(crate) async fn set_routing_mode(
             state.gateway.stop();
             state.gateway.clear_route().await;
             if let Err(error) = codex_config::activate_direct_route(
+                state,
                 &route.provider_name,
                 &route.upstream_base_url,
                 &route.api_key,
+                RoutingMode::CcSwitch,
             ) {
                 let rollback =
                     rollback_to_local_gateway(state, &previous_runtime, was_running).await;
@@ -1140,6 +1283,107 @@ struct BufferedGatewayResponse {
     route: GatewayRoute,
 }
 
+fn gateway_route_label(route: &GatewayRoute) -> String {
+    format!(
+        "station_id={} key_id={} provider={} upstream={}",
+        route.station_id, route.key_id, route.provider_name, route.upstream_base_url
+    )
+}
+
+fn gateway_log(request_id: Option<&str>, message: impl std::fmt::Display) {
+    if let Some(request_id) = request_id {
+        eprintln!("[local-gateway][request={request_id}] {message}");
+    } else {
+        eprintln!("[local-gateway] {message}");
+    }
+}
+
+fn gateway_reqwest_error_kind(error: &reqwest::Error) -> &'static str {
+    if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_request() {
+        "request"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_decode() {
+        "decode"
+    } else {
+        "other"
+    }
+}
+
+fn log_gateway_upstream_response(
+    request_id: &str,
+    route: &GatewayRoute,
+    status: StatusCode,
+    latency_ms: i64,
+    action: &str,
+) {
+    gateway_log(
+        Some(request_id),
+        format_args!(
+            "upstream response route={} status={} latency_ms={} action={action}",
+            gateway_route_label(route),
+            status.as_u16(),
+            latency_ms,
+        ),
+    );
+}
+
+fn log_gateway_upstream_error(
+    request_id: &str,
+    route: &GatewayRoute,
+    stage: &str,
+    error: &reqwest::Error,
+) {
+    gateway_log(
+        Some(request_id),
+        format_args!(
+            "upstream error route={} stage={stage} kind={}",
+            gateway_route_label(route),
+            gateway_reqwest_error_kind(error),
+        ),
+    );
+}
+
+fn log_gateway_request_finished(
+    request_id: &str,
+    started_at: Instant,
+    status: StatusCode,
+    outcome: &str,
+) {
+    gateway_log(
+        Some(request_id),
+        format_args!(
+            "request finished status={} duration_ms={} outcome={outcome}",
+            status.as_u16(),
+            elapsed_ms(started_at),
+        ),
+    );
+}
+
+fn log_gateway_circuit_transition(
+    route: &GatewayRoute,
+    before: GatewayCircuitState,
+    after: GatewayCircuitState,
+    breaker: &GatewayCircuitBreaker,
+) {
+    if before != after {
+        gateway_log(
+            None,
+            format_args!(
+                "circuit transition route={} from={before:?} to={after:?} consecutive_failures={} total_requests={} failed_requests={}",
+                gateway_route_label(route),
+                breaker.consecutive_failures,
+                breaker.total_requests,
+                breaker.failed_requests,
+            ),
+        );
+    }
+}
+
 fn gateway_route_key(route: &GatewayRoute) -> String {
     format!("{}\u{0}{}", route.station_id, route.key_id)
 }
@@ -1164,11 +1408,42 @@ fn record_gateway_route_result(
         let breaker = breakers
             .entry(key)
             .or_insert_with(GatewayCircuitBreaker::new);
+        let before = breaker.state;
         if success {
             breaker.record_success(used_half_open_probe, state.circuit_config);
         } else {
             breaker.record_failure(used_half_open_probe, state.circuit_config);
         }
+        log_gateway_circuit_transition(route, before, breaker.state, breaker);
+    }
+}
+
+fn record_gateway_route_rate_limit(
+    state: &GatewayServiceState,
+    route: &GatewayRoute,
+    used_half_open_probe: bool,
+) {
+    let key = gateway_route_key(route);
+    if let Ok(mut breakers) = state.circuit_breakers.lock() {
+        let breaker = breakers
+            .entry(key)
+            .or_insert_with(GatewayCircuitBreaker::new);
+        let before = breaker.state;
+        breaker.record_rate_limited(used_half_open_probe);
+        log_gateway_circuit_transition(route, before, breaker.state, breaker);
+    }
+}
+
+fn record_gateway_route_response(
+    state: &GatewayServiceState,
+    route: &GatewayRoute,
+    used_half_open_probe: bool,
+    status: StatusCode,
+) {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        record_gateway_route_rate_limit(state, route, used_half_open_probe);
+    } else {
+        record_gateway_route_result(state, route, used_half_open_probe, false);
     }
 }
 
@@ -1555,6 +1830,7 @@ fn record_local_usage_parsed(
 }
 
 struct LoggingResponseMeta {
+    request_id: String,
     local_store: Option<Arc<Mutex<Store>>>,
     route: GatewayRoute,
     uri: axum::http::Uri,
@@ -1592,6 +1868,20 @@ impl<E> LoggingResponseStream<E> {
         self.completed = true;
         let parsed = self.usage.finish();
         let duration_ms = elapsed_ms(self.meta.started_at);
+        let outcome = if error_message.is_some() {
+            "error"
+        } else {
+            "success"
+        };
+        gateway_log(
+            Some(&self.meta.request_id),
+            format_args!(
+                "stream finished route={} status={} duration_ms={} outcome={outcome}",
+                gateway_route_label(&self.meta.route),
+                self.meta.status.as_u16(),
+                duration_ms,
+            ),
+        );
         record_local_usage_parsed(
             self.meta.local_store.as_ref(),
             &self.meta.route,
@@ -1720,30 +2010,64 @@ fn convert_chat_stream(
 
 async fn gateway_proxy_streaming_request(
     state: GatewayServiceState,
+    request_id: String,
     uri: axum::http::Uri,
     parts: axum::http::request::Parts,
     body: Body,
     route: GatewayRoute,
 ) -> Response {
+    let request_started_at = Instant::now();
     let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
+        gateway_log(
+            Some(&request_id),
+            format_args!(
+                "route skipped route={} reason=circuit_open_or_state_unavailable",
+                gateway_route_label(&route),
+            ),
+        );
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "all_routes_circuit_open",
+        );
         return gateway_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "all_routes_circuit_open",
             "所有本地网关路由均处于熔断状态",
         );
     };
+    gateway_log(
+        Some(&request_id),
+        format_args!(
+            "route attempt route={} half_open_probe={used_half_open_probe}",
+            gateway_route_label(&route),
+        ),
+    );
 
     let target = match gateway_upstream_url(&route.upstream_base_url, &uri, None) {
         Ok(target) => target,
         Err(error) => {
             record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            gateway_log(
+                Some(&request_id),
+                format_args!(
+                    "route failed route={} stage=build_upstream_url reason={error}",
+                    gateway_route_label(&route),
+                ),
+            );
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                StatusCode::BAD_GATEWAY,
+                "invalid_upstream",
+            );
             return gateway_error(StatusCode::BAD_GATEWAY, "invalid_upstream", error);
         }
     };
 
     let app_type = gateway_app_type(&uri, &parts.headers);
     let forwarded_headers = forwarded_request_headers(&parts.headers);
-    let request_started_at = Instant::now();
     let mut outbound = state
         .client
         .request(parts.method, target)
@@ -1758,6 +2082,13 @@ async fn gateway_proxy_streaming_request(
         Ok(response) => response,
         Err(error) => {
             record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            log_gateway_upstream_error(&request_id, &route, "send", &error);
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                StatusCode::BAD_GATEWAY,
+                "upstream_request_failed",
+            );
             return gateway_error(
                 StatusCode::BAD_GATEWAY,
                 "upstream_request_failed",
@@ -1769,10 +2100,22 @@ async fn gateway_proxy_streaming_request(
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
     let response_latency_ms = elapsed_ms(request_started_at);
+    let response_action = if is_retryable_upstream_status(status) {
+        "return_retryable_status_no_fallback_streaming"
+    } else {
+        "return"
+    };
+    log_gateway_upstream_response(
+        &request_id,
+        &route,
+        status,
+        response_latency_ms,
+        response_action,
+    );
     if is_retryable_upstream_status(status) {
         match upstream.bytes().await {
             Ok(body) => {
-                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                record_gateway_route_response(&state, &route, used_half_open_probe, status);
                 record_local_usage(
                     state.local_store.as_ref(),
                     &route,
@@ -1787,10 +2130,23 @@ async fn gateway_proxy_streaming_request(
                     false,
                     None,
                 );
+                log_gateway_request_finished(
+                    &request_id,
+                    request_started_at,
+                    status,
+                    "upstream_retryable_response",
+                );
                 return build_gateway_response(status, &upstream_headers, Body::from(body));
             }
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                log_gateway_upstream_error(&request_id, &route, "read_retryable_response", &error);
+                log_gateway_request_finished(
+                    &request_id,
+                    request_started_at,
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_response_read_failed",
+                );
                 record_local_usage(
                     state.local_store.as_ref(),
                     &route,
@@ -1815,6 +2171,14 @@ async fn gateway_proxy_streaming_request(
     }
 
     record_gateway_route_result(&state, &route, used_half_open_probe, true);
+    gateway_log(
+        Some(&request_id),
+        format_args!(
+            "route succeeded route={} status={} latency_ms={response_latency_ms}",
+            gateway_route_label(&route),
+            status.as_u16(),
+        ),
+    );
     state.runtime.write().await.route = Some(route.clone());
     let is_streaming = upstream_headers
         .get(header::CONTENT_TYPE)
@@ -1824,6 +2188,7 @@ async fn gateway_proxy_streaming_request(
         let response_body = Body::from_stream(LoggingResponseStream::new(
             upstream.bytes_stream(),
             LoggingResponseMeta {
+                request_id: request_id.clone(),
                 local_store: state.local_store.clone(),
                 route,
                 uri,
@@ -1834,6 +2199,12 @@ async fn gateway_proxy_streaming_request(
                 started_at: request_started_at,
             },
         ));
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            status,
+            "stream_headers_sent",
+        );
         return build_gateway_response(status, &upstream_headers, response_body);
     }
 
@@ -1853,9 +2224,17 @@ async fn gateway_proxy_streaming_request(
                 false,
                 None,
             );
+            log_gateway_request_finished(&request_id, request_started_at, status, "response_sent");
             build_gateway_response(status, &upstream_headers, Body::from(body))
         }
         Err(error) => {
+            log_gateway_upstream_error(&request_id, &route, "read_response", &error);
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                StatusCode::BAD_GATEWAY,
+                "upstream_response_read_failed",
+            );
             record_local_usage(
                 state.local_store.as_ref(),
                 &route,
@@ -1885,8 +2264,25 @@ async fn gateway_proxy(
     request: Request<Body>,
 ) -> Response {
     let (parts, body) = request.into_parts();
+    let request_id = Uuid::new_v4().simple().to_string();
+    let request_started_at = Instant::now();
+    gateway_log(
+        Some(&request_id),
+        format_args!(
+            "request started method={} path={}",
+            parts.method,
+            uri.path(),
+        ),
+    );
     let snapshot = state.runtime.read().await.clone();
     if !gateway_request_authorized(&parts.headers, &snapshot.token) {
+        gateway_log(Some(&request_id), "request rejected reason=invalid_api_key");
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            StatusCode::UNAUTHORIZED,
+            "invalid_api_key",
+        );
         return gateway_error(
             StatusCode::UNAUTHORIZED,
             "invalid_api_key",
@@ -1900,6 +2296,13 @@ async fn gateway_proxy(
         snapshot.routes
     };
     if routes.is_empty() {
+        gateway_log(Some(&request_id), "request rejected reason=no_active_route");
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "no_active_route",
+        );
         return gateway_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "no_active_route",
@@ -1910,57 +2313,110 @@ async fn gateway_proxy(
     let is_responses_request = chat_protocol::is_responses_path(uri.path());
     if can_stream_request(&parts.headers, routes.len(), is_responses_request) {
         let Some(route) = routes.first().cloned() else {
+            gateway_log(Some(&request_id), "request rejected reason=no_active_route");
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "no_active_route",
+            );
             return gateway_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "no_active_route",
                 "没有可用的本地网关路由",
             );
         };
-        return gateway_proxy_streaming_request(state, uri, parts, body, route).await;
+        return gateway_proxy_streaming_request(state, request_id, uri, parts, body, route).await;
     }
 
     let payload = match to_bytes(body, MAX_GATEWAY_REQUEST_BYTES).await {
         Ok(payload) => payload,
         Err(_) => {
+            gateway_log(
+                Some(&request_id),
+                "request rejected reason=request_too_large",
+            );
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request_too_large",
+            );
             return gateway_error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request_too_large",
                 "请求体超过本地网关 64 MB 限制",
-            )
+            );
         }
     };
 
     let (outbound_payload, protocol_context, replacement_path, request_model) =
-        if chat_protocol::is_responses_path(uri.path()) {
+        if chat_protocol::is_responses_path(uri.path())
+            && !chat_protocol::is_responses_compact_path(uri.path())
+        {
             let body = match serde_json::from_slice::<Value>(&payload) {
                 Ok(body) => body,
                 Err(error) => {
+                    gateway_log(
+                        Some(&request_id),
+                        format_args!("request rejected reason=invalid_json detail={error}"),
+                    );
+                    log_gateway_request_finished(
+                        &request_id,
+                        request_started_at,
+                        StatusCode::BAD_REQUEST,
+                        "invalid_json",
+                    );
                     return gateway_error(
                         StatusCode::BAD_REQUEST,
                         "invalid_json",
                         format!("Responses 请求体不是有效 JSON：{error}"),
-                    )
+                    );
                 }
             };
             let request_model = request_model_from_value(&body);
             let (chat_body, context) = match chat_protocol::responses_request_to_chat(body) {
                 Ok(result) => result,
                 Err(error) => {
+                    gateway_log(
+                        Some(&request_id),
+                        format_args!(
+                            "request rejected reason=responses_transform_failed detail={error}"
+                        ),
+                    );
+                    log_gateway_request_finished(
+                        &request_id,
+                        request_started_at,
+                        StatusCode::BAD_REQUEST,
+                        "responses_transform_failed",
+                    );
                     return gateway_error(
                         StatusCode::BAD_REQUEST,
                         "responses_transform_failed",
                         error,
-                    )
+                    );
                 }
             };
             let payload = match serde_json::to_vec(&chat_body) {
                 Ok(payload) => Bytes::from(payload),
                 Err(error) => {
+                    gateway_log(
+                        Some(&request_id),
+                        format_args!(
+                            "request rejected reason=responses_transform_failed detail={error}"
+                        ),
+                    );
+                    log_gateway_request_finished(
+                        &request_id,
+                        request_started_at,
+                        StatusCode::BAD_REQUEST,
+                        "responses_transform_failed",
+                    );
                     return gateway_error(
                         StatusCode::BAD_REQUEST,
                         "responses_transform_failed",
                         format!("无法创建 Chat Completions 请求：{error}"),
-                    )
+                    );
                 }
             };
             (
@@ -1975,7 +2431,6 @@ async fn gateway_proxy(
         };
     let app_type = gateway_app_type(&uri, &parts.headers);
     let forwarded_headers = forwarded_request_headers(&parts.headers);
-    let request_started_at = Instant::now();
 
     let mut attempted = false;
     let mut last_error = None;
@@ -1984,15 +2439,36 @@ async fn gateway_proxy(
 
     for route in routes {
         let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
+            gateway_log(
+                Some(&request_id),
+                format_args!(
+                    "route skipped route={} reason=circuit_open_or_state_unavailable",
+                    gateway_route_label(&route),
+                ),
+            );
             continue;
         };
         attempted = true;
         last_route = Some(route.clone());
+        gateway_log(
+            Some(&request_id),
+            format_args!(
+                "route attempt route={} half_open_probe={used_half_open_probe}",
+                gateway_route_label(&route),
+            ),
+        );
 
         let target = match gateway_upstream_url(&route.upstream_base_url, &uri, replacement_path) {
             Ok(target) => target,
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "route failed route={} stage=build_upstream_url reason={error}",
+                        gateway_route_label(&route),
+                    ),
+                );
                 last_error = Some(error);
                 continue;
             }
@@ -2012,14 +2488,29 @@ async fn gateway_proxy(
             Ok(response) => response,
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                log_gateway_upstream_error(&request_id, &route, "send", &error);
                 last_error = Some(format!("上游请求失败：{error}"));
                 continue;
             }
         };
 
         let status = upstream.status();
+        let response_latency_ms = elapsed_ms(request_started_at);
+        let response_action = if is_retryable_upstream_status(status) {
+            "try_next_route"
+        } else {
+            "return"
+        };
+        log_gateway_upstream_response(
+            &request_id,
+            &route,
+            status,
+            response_latency_ms,
+            response_action,
+        );
         if is_retryable_upstream_status(status) {
             let mut headers = upstream.headers().clone();
+            let mut response_read = false;
             match upstream.bytes().await {
                 Ok(mut body) => {
                     if protocol_context.is_some() {
@@ -2032,19 +2523,53 @@ async fn gateway_proxy(
                         body,
                         route: route.clone(),
                     });
+                    response_read = true;
                 }
                 Err(error) => {
+                    log_gateway_upstream_error(
+                        &request_id,
+                        &route,
+                        "read_retryable_response",
+                        &error,
+                    );
                     last_error = Some(format!("上游错误响应读取失败：{error}"));
                 }
             }
-            record_gateway_route_result(&state, &route, used_half_open_probe, false);
+            if response_read {
+                record_gateway_route_response(&state, &route, used_half_open_probe, status);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "route fallback route={} status={} reason=retryable_upstream_response",
+                        gateway_route_label(&route),
+                        status.as_u16(),
+                    ),
+                );
+            } else {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "route failed route={} status={} reason=retryable_response_read_failed",
+                        gateway_route_label(&route),
+                        status.as_u16(),
+                    ),
+                );
+            }
             continue;
         }
 
         record_gateway_route_result(&state, &route, used_half_open_probe, true);
+        gateway_log(
+            Some(&request_id),
+            format_args!(
+                "route succeeded route={} status={} latency_ms={response_latency_ms}",
+                gateway_route_label(&route),
+                status.as_u16(),
+            ),
+        );
         state.runtime.write().await.route = Some(route.clone());
         let upstream_headers = upstream.headers().clone();
-        let response_latency_ms = elapsed_ms(request_started_at);
         let upstream_is_streaming = upstream_headers
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
@@ -2060,6 +2585,7 @@ async fn gateway_proxy(
                 Body::from_stream(LoggingResponseStream::new(
                     convert_chat_stream(upstream.bytes_stream(), context),
                     LoggingResponseMeta {
+                        request_id: request_id.clone(),
                         local_store: state.local_store.clone(),
                         route,
                         uri: uri.clone(),
@@ -2074,6 +2600,7 @@ async fn gateway_proxy(
                 Body::from_stream(LoggingResponseStream::new(
                     upstream.bytes_stream(),
                     LoggingResponseMeta {
+                        request_id: request_id.clone(),
                         local_store: state.local_store.clone(),
                         route,
                         uri: uri.clone(),
@@ -2085,6 +2612,12 @@ async fn gateway_proxy(
                     },
                 ))
             };
+            log_gateway_request_finished(
+                &request_id,
+                request_started_at,
+                status,
+                "stream_headers_sent",
+            );
             return build_gateway_response(status, &response_headers, response_body);
         }
         match upstream.bytes().await {
@@ -2153,9 +2686,22 @@ async fn gateway_proxy(
                     false,
                     None,
                 );
+                log_gateway_request_finished(
+                    &request_id,
+                    request_started_at,
+                    status,
+                    "response_sent",
+                );
                 return build_gateway_response(status, &response_headers, Body::from(body));
             }
             Err(error) => {
+                log_gateway_upstream_error(&request_id, &route, "read_response", &error);
+                log_gateway_request_finished(
+                    &request_id,
+                    request_started_at,
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_response_read_failed",
+                );
                 record_local_usage(
                     state.local_store.as_ref(),
                     &route,
@@ -2180,6 +2726,20 @@ async fn gateway_proxy(
     }
 
     if let Some(response) = last_response {
+        gateway_log(
+            Some(&request_id),
+            format_args!(
+                "returning buffered retryable response route={} status={} reason=no_later_route_succeeded",
+                gateway_route_label(&response.route),
+                response.status.as_u16(),
+            ),
+        );
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            response.status,
+            "last_retryable_response",
+        );
         record_local_usage(
             state.local_store.as_ref(),
             &response.route,
@@ -2201,6 +2761,12 @@ async fn gateway_proxy(
         );
     }
     if !attempted {
+        log_gateway_request_finished(
+            &request_id,
+            request_started_at,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "all_routes_circuit_open",
+        );
         return gateway_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "all_routes_circuit_open",
@@ -2208,6 +2774,13 @@ async fn gateway_proxy(
         );
     }
     if let Some(route) = last_route {
+        gateway_log(
+            Some(&request_id),
+            format_args!(
+                "all upstream attempts failed last_route={}",
+                gateway_route_label(&route),
+            ),
+        );
         record_local_usage(
             state.local_store.as_ref(),
             &route,
@@ -2223,6 +2796,12 @@ async fn gateway_proxy(
             last_error.clone(),
         );
     }
+    log_gateway_request_finished(
+        &request_id,
+        request_started_at,
+        StatusCode::BAD_GATEWAY,
+        "all_upstreams_failed",
+    );
     gateway_error(
         StatusCode::BAD_GATEWAY,
         "all_upstreams_failed",
@@ -2426,6 +3005,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn direct_config_fingerprint_normalizes_url_without_storing_the_key() {
+        let first =
+            direct_config_fingerprint(Some(("https://relay.example/v1", Some("sk-secret"))));
+        let same_route =
+            direct_config_fingerprint(Some(("https://relay.example", Some("sk-secret"))));
+        let changed_key =
+            direct_config_fingerprint(Some(("https://relay.example/v1", Some("sk-new"))));
+
+        assert_eq!(first, same_route);
+        assert_ne!(first, changed_key);
+        assert!(!first.contains("sk-secret"));
+    }
+
+    #[test]
+    fn rate_limit_releases_a_half_open_probe() {
+        let mut breaker = GatewayCircuitBreaker::new();
+        breaker.open();
+        breaker.opened_at = Some(Instant::now() - GatewayCircuitConfig::default().recovery_after);
+
+        assert_eq!(
+            breaker.allow_request(GatewayCircuitConfig::default()),
+            Some(true)
+        );
+        breaker.record_rate_limited(true);
+        assert_eq!(breaker.state, GatewayCircuitState::Closed);
+        assert_eq!(
+            breaker.allow_request(GatewayCircuitConfig::default()),
+            Some(false)
+        );
+    }
+
     fn test_gateway_state(
         routes: Vec<GatewayRoute>,
         circuit_config: GatewayCircuitConfig,
@@ -2563,6 +3174,34 @@ mod tests {
         let _ = gateway_shutdown.send(());
         let _ = a_shutdown.send(());
         let _ = b_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_does_not_open_route_for_rate_limits() {
+        let (upstream_url, upstream_count, upstream_shutdown) =
+            spawn_test_upstream(StatusCode::TOO_MANY_REQUESTS).await;
+        let state = test_gateway_state(
+            vec![test_route("station-a", "key-a", upstream_url)],
+            GatewayCircuitConfig {
+                failure_threshold: 1,
+                ..GatewayCircuitConfig::default()
+            },
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+        let client = Client::new();
+
+        assert_eq!(
+            send_test_request(&client, &gateway_url).await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(
+            send_test_request(&client, &gateway_url).await,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(upstream_count.load(Ordering::SeqCst), 2);
+
+        let _ = gateway_shutdown.send(());
+        let _ = upstream_shutdown.send(());
     }
 
     #[tokio::test]
@@ -2705,6 +3344,62 @@ mod tests {
         assert_eq!(authorization, "Bearer key-key-a");
         assert_eq!(request_body["messages"][0]["role"], "system");
         assert_eq!(request_body["messages"][1]["content"][0]["text"], "Hello");
+
+        let _ = gateway_shutdown.send(());
+        let _ = upstream_shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn gateway_forwards_responses_compact_without_protocol_conversion() {
+        let upstream_body = serde_json::to_vec(&json!({
+            "id": "resp_compact_123",
+            "object": "response",
+            "status": "completed",
+            "output": []
+        }))
+        .expect("serialize compact response");
+        let (upstream_url, upstream_state, upstream_shutdown) =
+            spawn_protocol_upstream(ProtocolUpstreamResponse {
+                status: StatusCode::OK,
+                content_type: "application/json",
+                chunks: vec![upstream_body.clone()],
+            })
+            .await;
+        let state = test_gateway_state(
+            vec![test_route("station-a", "key-a", upstream_url)],
+            GatewayCircuitConfig::default(),
+        );
+        let (gateway_url, gateway_shutdown) = spawn_test_gateway(state).await;
+        let request_body = json!({
+            "model": "gpt-5.5",
+            "input": "compact this conversation"
+        });
+
+        let response = Client::new()
+            .post(format!("{gateway_url}/v1/responses/compact"))
+            .bearer_auth("gateway-token")
+            .json(&request_body)
+            .send()
+            .await
+            .expect("send compact request");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["object"],
+            "response"
+        );
+
+        let (path, authorization, body) = upstream_state
+            .capture
+            .lock()
+            .expect("read captured compact request")
+            .clone()
+            .expect("compact request was captured");
+        assert_eq!(path, "/v1/responses/compact");
+        assert_eq!(authorization, "Bearer key-key-a");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap(),
+            request_body
+        );
 
         let _ = gateway_shutdown.send(());
         let _ = upstream_shutdown.send(());

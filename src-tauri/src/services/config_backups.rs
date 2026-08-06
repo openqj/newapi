@@ -7,7 +7,10 @@ use std::{
 use serde::Serialize;
 
 use crate::{
-    services::client_backup::{backup_existing_file, client_directory, managed_file_names},
+    services::client_backup::{
+        backup_directory_for, backup_existing_file, client_directory, managed_file_names,
+        LEGACY_BACKUP_DIRECTORY_NAME,
+    },
     support::now,
 };
 
@@ -48,35 +51,45 @@ pub(crate) fn list() -> Result<Vec<ConfigBackupSummary>, String> {
         if !directory.exists() {
             continue;
         }
-        for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            let path = entry.path();
-            if !entry
-                .file_type()
-                .map_err(|error| error.to_string())?
-                .is_file()
-            {
+        let backup_directories = [
+            directory.clone(),
+            directory.join(LEGACY_BACKUP_DIRECTORY_NAME),
+            backup_directory_for(&directory),
+        ];
+        for backup_directory in &backup_directories {
+            if !backup_directory.is_dir() {
                 continue;
             }
-            let Some((file_name, created_at)) = parse_backup_name(
-                &entry.file_name().to_string_lossy(),
-                managed_file_names(application),
-                &path,
-            ) else {
-                continue;
-            };
-            let metadata = entry.metadata().map_err(|error| error.to_string())?;
-            let target_path = directory.join(&file_name);
-            let backup_path = path_to_string(&path);
-            backups.push(ConfigBackupSummary {
-                id: backup_path.clone(),
-                application: (*application).to_string(),
-                file_name,
-                backup_path,
-                target_path: path_to_string(&target_path),
-                created_at,
-                byte_size: metadata.len(),
-            });
+            for entry in fs::read_dir(backup_directory).map_err(|error| error.to_string())? {
+                let entry = entry.map_err(|error| error.to_string())?;
+                let path = entry.path();
+                if !entry
+                    .file_type()
+                    .map_err(|error| error.to_string())?
+                    .is_file()
+                {
+                    continue;
+                }
+                let Some((file_name, created_at)) = parse_backup_name(
+                    &entry.file_name().to_string_lossy(),
+                    managed_file_names(application),
+                    &path,
+                ) else {
+                    continue;
+                };
+                let metadata = entry.metadata().map_err(|error| error.to_string())?;
+                let target_path = directory.join(&file_name);
+                let backup_path = path_to_string(&path);
+                backups.push(ConfigBackupSummary {
+                    id: backup_path.clone(),
+                    application: (*application).to_string(),
+                    file_name,
+                    backup_path,
+                    target_path: path_to_string(&target_path),
+                    created_at,
+                    byte_size: metadata.len(),
+                });
+            }
         }
     }
     backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));

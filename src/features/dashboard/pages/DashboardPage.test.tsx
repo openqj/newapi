@@ -1,6 +1,8 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { DashboardPage } from "./DashboardPage";
+import { ToastProvider } from "../../../components/ui";
 import type { KeyRow } from "../../api-keys";
 
 const { gatewayStatus, isTauri } = vi.hoisted(() => ({
@@ -18,6 +20,14 @@ vi.mock("../../gateway/api", () => ({
 }));
 vi.mock("../../settings/api", () => ({
   settingsApi: {
+    codexIntegration: vi.fn(() => Promise.resolve({
+      preserveOfficialLogin: true,
+      configDirectory: "C:\\Users\\test\\.codex",
+      goalMode: true,
+      remoteCompaction: true,
+      commonConfigEnabled: false,
+      commonConfigSnippet: "",
+    })),
     appVersion: vi.fn(() => Promise.resolve("0.1.5")),
     checkForUpdate: vi.fn(() => Promise.resolve(null)),
   },
@@ -43,6 +53,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+const renderWithProviders = (children: ReactNode) => render(<ToastProvider>{children}</ToastProvider>);
+
 describe("DashboardPage local route pool", () => {
   it("shows queued routes and their health in local routing mode", async () => {
     gatewayStatus.mockResolvedValue({
@@ -63,7 +75,7 @@ describe("DashboardPage local route pool", () => {
       ],
     });
 
-    render(
+    renderWithProviders(
       <DashboardPage
         stations={[
           { id: "station-1", name: "Alpha Gateway", baseUrl: "https://alpha.example.com", kind: "newapi", status: "online" },
@@ -103,7 +115,7 @@ describe("DashboardPage local route pool", () => {
       routeHealth: [],
     });
 
-    render(
+    renderWithProviders(
       <DashboardPage
         stations={[{ id: "station-1", name: "Alpha Gateway", baseUrl: "https://alpha.example.com", kind: "newapi", status: "online" }]}
         keys={[{ ...keyRow, key: { ...keyRow.key, group: "default" } }]}
@@ -125,5 +137,39 @@ describe("DashboardPage local route pool", () => {
     expect(within(routingCard as HTMLElement).getByText("Alpha Gateway")).toBeInTheDocument();
     expect(within(routingCard as HTMLElement).getByText("https://alpha.example.com")).toBeInTheDocument();
     expect(within(routingCard as HTMLElement).getByText("剩余：$12.35")).toBeInTheDocument();
+  });
+
+  it("does not display the first key when direct mode has no matching route", async () => {
+    gatewayStatus.mockResolvedValue({
+      mode: "ccSwitch",
+      running: false,
+      port: 8787,
+      baseUrl: "http://127.0.0.1:8787/v1",
+      activeStationId: null,
+      activeKeyId: null,
+      hasActiveRoute: false,
+      routeQueue: [],
+      routeHealth: [],
+    });
+
+    renderWithProviders(
+      <DashboardPage
+        stations={[{ id: "station-1", name: "Alpha Gateway", baseUrl: "https://alpha.example.com", kind: "newapi", status: "online" }]}
+        keys={[keyRow]}
+        remoteServers={[]}
+        accountRows={[]}
+        summary={{}}
+        usageRows={[]}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        onNavigate={vi.fn()}
+        onOpenUpdates={vi.fn()}
+      />,
+    );
+
+    const routingCard = await waitFor(() => screen.getByRole("heading", { name: "中转方式" }).closest("article"));
+    expect(routingCard).not.toBeNull();
+    expect(within(routingCard as HTMLElement).getAllByText("尚未选择")).toHaveLength(2);
+    expect(within(routingCard as HTMLElement).queryByText("开发环境")).not.toBeInTheDocument();
+    expect(within(routingCard as HTMLElement).queryByText("Alpha Gateway")).not.toBeInTheDocument();
   });
 });

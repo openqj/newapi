@@ -88,7 +88,7 @@ use commands::settings::{
     get_active_codex_relay_status, get_background_refresh_minutes, get_cloud_auth_status,
     get_codex_integration, get_local_cloud_backup_preview, list_cloud_backups,
     preview_cloud_backup, restore_cloud_backup, save_background_refresh_minutes,
-    set_codex_preserve_official_login,
+    set_codex_common_config, set_codex_preferences, set_codex_preserve_official_login,
 };
 use commands::stations::{
     add_station, cancel_sync, clear_station_session, delete_station, get_station_credentials,
@@ -247,6 +247,8 @@ pub(crate) fn application_builder() -> tauri::Builder<tauri::Wry> {
         restore_cloud_backup,
         get_active_codex_relay_status,
         get_codex_integration,
+        set_codex_preferences,
+        set_codex_common_config,
         set_codex_preserve_official_login,
         get_mail_oauth_status,
         save_mail_oauth_config,

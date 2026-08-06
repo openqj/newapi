@@ -19,6 +19,7 @@ import {
   emptyUsageSummary,
 } from "./app/demoData";
 import { isTauri } from "./lib/platform";
+import { scheduleIdle } from "./lib/idle";
 import { errorMessage } from "./lib/errors";
 import { settingsApi } from "./features/settings/api";
 import { PasswordResetDialog } from "./features/settings/components/PasswordResetDialog";
@@ -41,7 +42,7 @@ import "./App.css";
 const openStationUrl = (url: string) =>
   isTauri() ? openUrl(url) : window.open(url, "_blank", "noopener");
 function App() {
-  const personalCenterNotifications = useNotificationPreferences();
+  const personalCenterNotifications = useNotificationPreferences({ loadOnMount: false });
   const [view, setView] = useState<AppView>("overview");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [showAdd, setShowAdd] = useState(false);
@@ -111,6 +112,9 @@ function App() {
     backgroundRefreshMinutes, setBackgroundRefreshMinutes,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
+  useEffect(() => scheduleIdle(() => {
+    void personalCenterNotifications.loadNotificationPreferences();
+  }, 2000), [personalCenterNotifications.loadNotificationPreferences]);
   const loadActiveRelay = useCallback(async () => {
     if (!isTauri()) {
       setActiveRelay(null);
@@ -213,19 +217,25 @@ function App() {
     await marketWindow.show();
     await marketWindow.setFocus();
   }, []);
-  useEffect(() => { void loadActiveRelay(); }, [loadActiveRelay]);
+  useEffect(() => scheduleIdle(() => void loadActiveRelay(), 2000), [loadActiveRelay]);
   useEffect(() => {
     if (!isTauri()) return;
     const applyAuth = (status: CloudAuthStatus) => {
       setPersonalCenterAuth(status);
       setAccountRole(status.role ?? (status.isAdmin ? "admin" : "member"));
     };
-    void settingsApi.cloudAuthStatus().then(applyAuth).catch(() => undefined);
+    const cancelAuthLoad = scheduleIdle(() => {
+      void settingsApi.cloudAuthStatus().then(applyAuth).catch(() => undefined);
+    }, 2000);
     const onAuthChanged = (event: Event) => applyAuth((event as CustomEvent<CloudAuthStatus>).detail ?? { configured: true });
     window.addEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged);
     let unlisten: (() => void) | undefined;
     void listen(STATIONS_CHANGED_EVENT, () => void Promise.all([loadStations(), loadKeyRows(), loadAccountRows(), loadUsageSummary()])).then((value) => { unlisten = value; });
-    return () => { window.removeEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged); unlisten?.(); };
+    return () => {
+      cancelAuthLoad();
+      window.removeEventListener(PERSONAL_CENTER_AUTH_CHANGED_EVENT, onAuthChanged);
+      unlisten?.();
+    };
   }, [loadAccountRows, loadKeyRows, loadStations, loadUsageSummary]);
   useEffect(() => {
     if (!isTauri()) return;

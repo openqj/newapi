@@ -683,6 +683,10 @@ pub(crate) struct SyncProgress {
 pub(crate) struct CodexIntegrationStatus {
     pub(crate) preserve_official_login: bool,
     pub(crate) config_directory: String,
+    pub(crate) goal_mode: bool,
+    pub(crate) remote_compaction: bool,
+    pub(crate) common_config_enabled: bool,
+    pub(crate) common_config_snippet: String,
 }
 
 #[derive(Clone, Debug, Serialize)]

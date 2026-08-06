@@ -6,7 +6,10 @@ use std::{
 use serde_json::{Map, Value};
 
 use crate::{
-    services::{api_keys::read_api_key, client_backup::backup_existing_file},
+    services::{
+        api_keys::read_api_key,
+        client_backup::{backup_directory_for, backup_existing_file},
+    },
     support::api_base_url,
     AppState,
 };
@@ -68,9 +71,11 @@ fn apply_to_directory_with_backup(
 ) -> Result<Vec<String>, String> {
     fs::create_dir_all(directory).map_err(|error| error.to_string())?;
     let settings_path = directory.join(SETTINGS_FILE);
+    let backup_directory = backup_directory_for(directory);
+    fs::create_dir_all(&backup_directory).map_err(|error| error.to_string())?;
     backup_once(
         &settings_path,
-        &directory.join("settings.json.relayhub.bak"),
+        &backup_directory.join("settings.json.relayhub.bak"),
     )?;
     let mut backup_files = Vec::new();
     if let Some(path) = backup_existing_file(&settings_path)? {
@@ -170,7 +175,12 @@ mod tests {
             settings["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"],
             "1"
         );
-        assert!(directory.path().join("settings.json.relayhub.bak").exists());
+        assert!(directory
+            .path()
+            .join("relayhub")
+            .join("backups")
+            .join("settings.json.relayhub.bak")
+            .exists());
     }
 
     #[test]

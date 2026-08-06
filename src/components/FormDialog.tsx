@@ -10,6 +10,7 @@ type FormDialogProps = {
   footer?: ReactNode;
   className?: string;
   contentClassName?: string;
+  hideHeader?: boolean;
   onSubmit?: FormEventHandler<HTMLFormElement>;
   noValidate?: boolean;
 };
@@ -23,6 +24,7 @@ export function FormDialog({
   footer,
   className = "",
   contentClassName = "",
+  hideHeader = false,
   onSubmit,
   noValidate,
 }: FormDialogProps) {
@@ -51,21 +53,23 @@ export function FormDialog({
         noValidate={noValidate}
         onSubmit={onSubmit}
       >
-        <div className="form-dialog-header">
-          <div>
-            <h2 className="font-semibold">{title}</h2>
-            {description && <p className="form-dialog-description">{description}</p>}
+        {!hideHeader && (
+          <div className="form-dialog-header">
+            <div>
+              <h2 className="font-semibold">{title}</h2>
+              {description && <p className="form-dialog-description">{description}</p>}
+            </div>
+            <button
+              ref={closeButton}
+              type="button"
+              className="icon-button"
+              aria-label="关闭"
+              onClick={onClose}
+            >
+              <X size={17} />
+            </button>
           </div>
-          <button
-            ref={closeButton}
-            type="button"
-            className="icon-button"
-            aria-label="关闭"
-            onClick={onClose}
-          >
-            <X size={17} />
-          </button>
-        </div>
+        )}
         <div className={`form-dialog-content ${contentClassName}`.trim()}>{children}</div>
         {footer && <div className="form-dialog-footer">{footer}</div>}
       </form>

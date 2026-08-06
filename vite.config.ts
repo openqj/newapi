@@ -15,7 +15,6 @@ export default defineConfig(async () => ({
         manualChunks: {
           "vendor-react": ["react", "react-dom"],
           "vendor-tauri": ["@tauri-apps/api", "@tauri-apps/plugin-opener"],
-          "vendor-charts": ["chart.js", "react-chartjs-2"],
         },
       },
     },

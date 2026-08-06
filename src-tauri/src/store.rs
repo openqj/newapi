@@ -177,6 +177,26 @@ impl Store {
         Ok(Self { connection, path })
     }
 
+    pub(crate) fn migrate_legacy_database(
+        legacy_path: &Path,
+        target_path: &Path,
+    ) -> Result<(), String> {
+        if target_path.exists() || !legacy_path.is_file() {
+            return Ok(());
+        }
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+
+        let connection = Connection::open(legacy_path).map_err(|error| error.to_string())?;
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+            .map_err(|error| error.to_string())?;
+        drop(connection);
+        fs::copy(legacy_path, target_path).map_err(|error| error.to_string())?;
+        Ok(())
+    }
+
     pub(crate) fn checkpoint_and_copy(&self, destination: &Path) -> Result<(), String> {
         let _ = self.connection.execute_batch("PRAGMA wal_checkpoint(FULL)");
         fs::copy(&self.path, destination).map_err(|e| e.to_string())?;
@@ -274,5 +294,37 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn migrates_legacy_database_without_removing_the_source() {
+        let legacy_directory = tempfile::tempdir().unwrap();
+        let target_directory = tempfile::tempdir().unwrap();
+        let legacy_path = legacy_directory.path().join("api-assistant.sqlite");
+        let target_path = target_directory
+            .path()
+            .join("relayhub")
+            .join("api-assistant.sqlite");
+        let connection = Connection::open(&legacy_path).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                 INSERT INTO app_settings (key, value) VALUES ('migration-test', 'ok');",
+            )
+            .unwrap();
+        drop(connection);
+
+        Store::migrate_legacy_database(&legacy_path, &target_path).unwrap();
+
+        assert!(legacy_path.exists());
+        let migrated = Connection::open(target_path).unwrap();
+        let value: String = migrated
+            .query_row(
+                "SELECT value FROM app_settings WHERE key='migration-test'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(value, "ok");
     }
 }

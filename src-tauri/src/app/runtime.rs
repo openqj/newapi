@@ -9,15 +9,18 @@ use reqwest::Client;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent,
+    Listener, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent,
 };
 
 use crate::{
     models::GroupRate,
-    services::codex_config,
-    services::gateway::{
-        load_gateway_settings, load_or_create_gateway_token, restore_persisted_gateway_route,
-        set_gateway_route, set_tray_routing_mode, GatewayController, RoutingMode,
+    services::{
+        client_backup::{client_directory, relayhub_directory_for},
+        codex_config,
+        gateway::{
+            load_gateway_settings, load_or_create_gateway_token, restore_persisted_gateway_route,
+            set_gateway_route, set_tray_routing_mode, GatewayController, RoutingMode,
+        },
     },
     station_snapshot_store::StationSnapshotStore,
     station_store::StationStore,
@@ -219,6 +222,73 @@ fn refresh_stations_menu<R: Runtime, M: Manager<R>>(
     Ok(())
 }
 
+fn refresh_api_keys_menu<R: Runtime, M: Manager<R>>(
+    manager: &M,
+    api_keys_menu: &Submenu<R>,
+) -> Result<(), String> {
+    loop {
+        if api_keys_menu
+            .items()
+            .map_err(|error| error.to_string())?
+            .is_empty()
+        {
+            break;
+        }
+        api_keys_menu
+            .remove_at(0)
+            .map_err(|error| error.to_string())?;
+    }
+
+    let tray_stations = {
+        let state = manager.state::<AppState>();
+        let store = state
+            .store
+            .lock()
+            .map_err(|_| "本地数据库不可用".to_string())?;
+        store
+            .list_stations()?
+            .into_iter()
+            .take(12)
+            .map(|station| {
+                let snapshot = store
+                    .load_snapshot(&station.id)?
+                    .map(|(_, snapshot)| snapshot);
+                Ok((station.name, snapshot))
+            })
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
+    let mut has_api_keys = false;
+    for (station_name, snapshot) in tray_stations {
+        let Some(snapshot) = snapshot else {
+            continue;
+        };
+        for key in snapshot.api_keys {
+            has_api_keys = true;
+            let key_item = MenuItem::new(
+                manager,
+                format!("{} · {} · {}", station_name, key.name, key.masked_key),
+                false,
+                None::<&str>,
+            )
+            .map_err(|error| error.to_string())?;
+            api_keys_menu
+                .append(&key_item)
+                .map_err(|error| error.to_string())?;
+        }
+    }
+
+    if !has_api_keys {
+        let empty_keys = MenuItem::new(manager, "暂无已同步的 API 密钥", false, None::<&str>)
+            .map_err(|error| error.to_string())?;
+        api_keys_menu
+            .append(&empty_keys)
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
 /// Starts the desktop shell after the command handler has been assembled in `lib.rs`.
 ///
 /// Keeping lifecycle concerns here means command registration stays an explicit,
@@ -240,9 +310,17 @@ pub(crate) fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
-            let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
-            fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
-            let store = Store::open(directory.join("api-assistant.sqlite"))?;
+            let legacy_database = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| e.to_string())?
+                .join("api-assistant.sqlite");
+            let codex_directory = client_directory("codex")?;
+            let relayhub_directory = relayhub_directory_for(&codex_directory);
+            fs::create_dir_all(&relayhub_directory).map_err(|e| e.to_string())?;
+            let database = relayhub_directory.join("api-assistant.sqlite");
+            Store::migrate_legacy_database(&legacy_database, &database)?;
+            let store = Store::open(database)?;
             let client = Client::builder()
                 .user_agent(format!(
                     "RelayHub/{} ({}; {})",
@@ -322,21 +400,22 @@ pub(crate) fn run() {
                 });
             }
             let is_local_gateway = mode == RoutingMode::LocalGateway;
-            let gateway_running = app.state::<AppState>().gateway.is_running();
             let dashboard = MenuItem::with_id(app, "show", "仪表板", true, None::<&str>)?;
-            let open_local_gateway =
-                MenuItem::with_id(app, "open-local-gateway", "去本地网关", true, None::<&str>)?;
-            let create_api_key =
-                MenuItem::with_id(app, "create-api-key", "增加 API 密钥", true, None::<&str>)?;
+            let api_keys_menu = Submenu::new(app, "API 密钥", true)?;
+            refresh_api_keys_menu(app, &api_keys_menu)?;
             let stations_menu = Submenu::new(app, "站点", true)?;
             refresh_stations_menu(app, &stations_menu, is_local_gateway)?;
             let tray_app_handle = app.handle().clone();
             let tray_stations_menu = stations_menu.clone();
+            let tray_api_keys_menu = api_keys_menu.clone();
             app.listen(STATIONS_CHANGED_EVENT, move |_| {
                 if let Err(error) =
                     refresh_stations_menu(&tray_app_handle, &tray_stations_menu, is_local_gateway)
                 {
                     eprintln!("failed to refresh tray stations menu: {error}");
+                }
+                if let Err(error) = refresh_api_keys_menu(&tray_app_handle, &tray_api_keys_menu) {
+                    eprintln!("failed to refresh tray API keys menu: {error}");
                 }
             });
             let separator_primary = PredefinedMenuItem::separator(app)?;
@@ -358,59 +437,16 @@ pub(crate) fn run() {
             )?;
             let routing_mode =
                 Submenu::with_items(app, "中转模式", true, &[&direct, &local_gateway])?;
-            let gateway_status = MenuItem::with_id(
-                app,
-                "gateway-status",
-                if is_local_gateway {
-                    if gateway_running {
-                        format!("本地网关 · 运行中 · 127.0.0.1:{port}")
-                    } else {
-                        format!("本地网关 · 未运行 · 127.0.0.1:{port}")
-                    }
-                } else {
-                    "本地网关 · 已暂停（直转模式）".into()
-                },
-                false,
-                None::<&str>,
-            )?;
-            let separator_gateway = PredefinedMenuItem::separator(app)?;
-            let start_gateway = MenuItem::with_id(
-                app,
-                "gateway-start",
-                "启动本地网关",
-                is_local_gateway && !gateway_running,
-                None::<&str>,
-            )?;
-            let stop_gateway = MenuItem::with_id(
-                app,
-                "gateway-stop",
-                "停止本地网关",
-                is_local_gateway && gateway_running,
-                None::<&str>,
-            )?;
-            let gateway_menu = Submenu::with_items(
-                app,
-                "本地网关",
-                true,
-                &[
-                    &gateway_status,
-                    &separator_gateway,
-                    &start_gateway,
-                    &stop_gateway,
-                ],
-            )?;
             let separator_quit = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "退出 RelayHub", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
                 &[
                     &dashboard,
-                    &open_local_gateway,
-                    &create_api_key,
+                    &api_keys_menu,
                     &stations_menu,
                     &separator_primary,
                     &routing_mode,
-                    &gateway_menu,
                     &separator_quit,
                     &quit,
                 ],
@@ -440,20 +476,9 @@ pub(crate) fn run() {
                         let _ = window.show();
                     }
                 }
-                "open-local-gateway" => {
-                    show_main_window(app);
-                    let _ = app.emit("relayhub:open-local-gateway", ());
-                }
-                "create-api-key" => {
-                    show_main_window(app);
-                    let _ = app.emit("relayhub:open-api-key-create", ());
-                }
                 "mode-direct" => {
                     let _ = direct.set_checked(true);
                     let _ = local_gateway.set_checked(false);
-                    let _ = gateway_status.set_text("本地网关 · 已暂停（直转模式）");
-                    let _ = start_gateway.set_enabled(false);
-                    let _ = stop_gateway.set_enabled(false);
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = set_tray_routing_mode(app, RoutingMode::CcSwitch).await;
@@ -462,36 +487,10 @@ pub(crate) fn run() {
                 "mode-local-gateway" => {
                     let _ = direct.set_checked(false);
                     let _ = local_gateway.set_checked(true);
-                    let _ =
-                        gateway_status.set_text(format!("本地网关 · 正在启动 · 127.0.0.1:{port}"));
-                    let _ = start_gateway.set_enabled(false);
-                    let _ = stop_gateway.set_enabled(true);
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
                         let _ = set_tray_routing_mode(app, RoutingMode::LocalGateway).await;
                     });
-                }
-                "gateway-start" => {
-                    let _ =
-                        gateway_status.set_text(format!("本地网关 · 正在启动 · 127.0.0.1:{port}"));
-                    let _ = start_gateway.set_enabled(false);
-                    let _ = stop_gateway.set_enabled(true);
-                    let app = app.clone();
-                    tauri::async_runtime::spawn(async move {
-                        let state = app.state::<AppState>();
-                        if state.gateway.runtime_snapshot().await.route.is_none() {
-                            let _ = restore_persisted_gateway_route(&state).await;
-                        }
-                        let _ = state.gateway.start().await;
-                    });
-                }
-                "gateway-stop" => {
-                    let state = app.state::<AppState>();
-                    state.gateway.stop();
-                    let _ =
-                        gateway_status.set_text(format!("本地网关 · 未运行 · 127.0.0.1:{port}"));
-                    let _ = start_gateway.set_enabled(true);
-                    let _ = stop_gateway.set_enabled(false);
                 }
                 "quit" => app.exit(0),
                 _ => {}

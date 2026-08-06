@@ -7,6 +7,7 @@ import { stationApi, type Station, type StationSnapshot, type StationSyncProgres
 import { DEFAULT_BACKGROUND_REFRESH_MINUTES, settingsApi } from "../features/settings/api";
 import { useUsageData } from "../features/usage/hooks";
 import { isTauri } from "../lib/platform";
+import { scheduleIdle } from "../lib/idle";
 import type { UsageLog, UsageSummary } from "../features/usage/types";
 import type { AppView } from "./routes";
 
@@ -41,9 +42,11 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
 
   useEffect(() => {
     if (!isTauri()) return;
-    void settingsApi.backgroundRefreshMinutes()
-      .then(setBackgroundRefreshMinutes)
-      .catch(() => undefined);
+    return scheduleIdle(() => {
+      void settingsApi.backgroundRefreshMinutes()
+        .then(setBackgroundRefreshMinutes)
+        .catch(() => undefined);
+    });
   }, []);
 
   const { rows: keyRows, loadKeyRows } = useApiKeyRows({
@@ -127,21 +130,26 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     await Promise.all([loadRateRows(), loadKeyRows()]);
   }), [loadKeyRows, loadRateRows, refreshAll]);
 
-  useEffect(() => { void loadUsageSummary(); }, [loadUsageSummary]);
+  useEffect(() => scheduleIdle(() => void loadUsageSummary(), 2000), [loadUsageSummary]);
   useEffect(() => {
     if (view === "keys" || view === "overview" || view === "apiDetection") void loadKeyRows();
   }, [loadKeyRows, view]);
   useEffect(() => { if (view === "accounts" || view === "overview") void loadAccountRows(); }, [loadAccountRows, view]);
   useEffect(() => { if (view === "rates") void loadRateRows(); }, [loadRateRows, view]);
   useEffect(() => {
-    if (view === "usage") void refreshUsageLogs();
-    else if (view === "overview") void loadUsageLogs();
+    if (view === "usage") {
+      void refreshUsageLogs();
+      return;
+    }
+    if (view === "overview") return scheduleIdle(() => void loadUsageLogs(), 2000);
   }, [loadUsageLogs, refreshUsageLogs, view]);
   useEffect(() => {
-    if (view === "remote" || view === "overview") {
+    if (view === "remote") {
       void loadRemoteServers();
-      if (view === "remote") void loadKeyRows();
+      void loadKeyRows();
+      return;
     }
+    if (view === "overview") return scheduleIdle(() => void loadRemoteServers(), 2000);
   }, [loadKeyRows, loadRemoteServers, view]);
 
   return {

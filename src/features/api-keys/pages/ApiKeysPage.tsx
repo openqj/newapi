@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play } from "lucide-react";
 import { useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
@@ -7,7 +7,7 @@ import { stationApi, type Station } from "../../stations";
 import { gatewayApi } from "../../gateway/api";
 import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
-import { ApiKeyTable } from "../components/ApiKeyTable";
+import { ApiKeyTable, type ApiKeySortDirection, type ApiKeySortKey } from "../components/ApiKeyTable";
 import { ApiKeyToolbar, keyTableColumns, type KeyTableColumn } from "../components/ApiKeyToolbar";
 import { identifyModelType } from "../modelType";
 import type { ApiKeyTestState, KeyRow, ModelTestResult } from "../types";
@@ -18,6 +18,27 @@ import "./ApiKeysPage.css";
 const isActive = (status: string) => status === "active" || status === "有效";
 const rowId = (row: KeyRow) => `${row.stationId}:${row.key.id}`;
 const missingStationCredentialMessage = "未找到该站点的安全凭据";
+
+function compareApiKeyRows(left: KeyRow, right: KeyRow, sortKey: ApiKeySortKey) {
+  if (sortKey === "name") {
+    return (left.key.name || "").localeCompare(right.key.name || "", "zh-CN", { numeric: true, sensitivity: "base" });
+  }
+  const leftValue = sortKey === "concurrency"
+    ? left.key.currentConcurrency ?? 0
+    : sortKey === "expires"
+      ? left.key.expiresAt ?? Number.MAX_SAFE_INTEGER
+      : sortKey === "status"
+        ? (isActive(left.key.status) ? 1 : 0)
+        : left.key.createdAt ?? 0;
+  const rightValue = sortKey === "concurrency"
+    ? right.key.currentConcurrency ?? 0
+    : sortKey === "expires"
+      ? right.key.expiresAt ?? Number.MAX_SAFE_INTEGER
+      : sortKey === "status"
+        ? (isActive(right.key.status) ? 1 : 0)
+        : right.key.createdAt ?? 0;
+  return leftValue === rightValue ? 0 : leftValue < rightValue ? -1 : 1;
+}
 
 export function ApiKeysPage({
   rows,
@@ -49,6 +70,10 @@ export function ApiKeysPage({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [testRunning, setTestRunning] = useState(false);
   const [testStates, setTestStates] = useState<Record<string, ApiKeyTestState>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortKey, setSortKey] = useState<ApiKeySortKey>("created");
+  const [sortDirection, setSortDirection] = useState<ApiKeySortDirection>("desc");
   const stationRefreshes = useRef(new Map<string, Promise<void>>());
   useEffect(() => {
     if (openCreateRequest > 0) setEditor({});
@@ -87,7 +112,32 @@ export function ApiKeysPage({
     && (status === "all" || (status === "active" ? isActive(row.key.status) : !isActive(row.key.status)))
     && `${row.stationName} ${row.key.name} ${row.key.maskedKey} ${row.key.group ?? ""}`.toLowerCase().includes(query.toLowerCase())
   ));
-  const selectedRows = filtered.filter((row) => selectedIds.includes(rowId(row)));
+  const orderedRows = filtered
+    .map((row, index) => ({ row, index }))
+    .sort((left, right) => {
+      const result = compareApiKeyRows(left.row, right.row, sortKey);
+      if (result !== 0) return sortDirection === "asc" ? result : -result;
+      return left.index - right.index;
+    })
+    .map(({ row }) => row);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = orderedRows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    setPage(1);
+  }, [query, station, modelType, status]);
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+  const selectedRows = orderedRows.filter((row) => selectedIds.includes(rowId(row)));
+  const handleSort = (nextKey: ApiKeySortKey) => {
+    setPage(1);
+    if (sortKey === nextKey) {
+      setSortDirection((current) => current === "asc" ? "desc" : "asc");
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection("asc");
+  };
   const toggleSelected = (row: KeyRow) => {
     const id = rowId(row);
     setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
@@ -226,6 +276,14 @@ export function ApiKeysPage({
       setRefreshing(false);
     }
   };
+  const copyEndpoint = async (stationItem: Station) => {
+    try {
+      await navigator.clipboard.writeText(stationItem.baseUrl);
+      notify("接口地址已复制", "success");
+    } catch (reason) {
+      showError(reason);
+    }
+  };
   const hiddenColumns = keyTableColumns.filter(({ key }) => !visible[key]).map(({ key }) => `sub2-key-column-hidden-${key}`).join(" ");
 
   return <div className="sub2-page sub2-keys-page sub2-api-keys-page">
@@ -248,18 +306,22 @@ export function ApiKeysPage({
       onCloseColumns={() => setShowColumns(false)}
       onRefresh={() => void refresh()}
       onCreate={() => setEditor({})}
+      onCopyEndpoint={(stationItem) => void copyEndpoint(stationItem)}
     />
     <div className="api-key-bulk-actions">
       <button className="button-primary" type="button" disabled={testRunning || selectedRows.length === 0} onClick={() => void testSelected()}><Play size={16} />{testRunning ? "测试中" : "一键测试"}</button>
     </div>
     <ApiKeyTable
-      rows={filtered}
+      rows={pageRows}
       hiddenColumns={hiddenColumns}
+      sortKey={sortKey}
+      sortDirection={sortDirection}
       saving={saving}
       selectedIds={selectedIds}
       testStates={testStates}
       onToggleSelected={toggleSelected}
       onToggleAll={toggleAllSelected}
+      onSort={handleSort}
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
       onApplyToCodex={(row) => void applyToCodex(row)}
@@ -268,6 +330,7 @@ export function ApiKeysPage({
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}
     />
+    {filtered.length > 0 && <ApiKeyPagination page={page} pageCount={pageCount} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} />}
     {editor && <ApiKeyEditor
       row={editor.row}
       rows={rows}
@@ -283,4 +346,13 @@ export function ApiKeysPage({
       onError={showError}
     />}
   </div>;
+}
+
+function ApiKeyPagination({ page, pageCount, pageSize, total, onPageChange, onPageSizeChange }: { page: number; pageCount: number; pageSize: number; total: number; onPageChange: (page: number) => void; onPageSizeChange: (pageSize: number) => void }) {
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, total);
+  return <footer className="sub2-key-pagination">
+    <div className="sub2-key-pagination-summary">显示 {from} 至 {to} 共 {total} 条结果 <label>每页:<select aria-label="每页" value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label></div>
+    <nav aria-label="分页"><button type="button" title="上一页" aria-label="上一页" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft size={16} /></button><span aria-current="page">{page}</span><button type="button" title="下一页" aria-label="下一页" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)}><ChevronRight size={16} /></button></nav>
+  </footer>;
 }

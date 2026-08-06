@@ -15,6 +15,20 @@ describe("settingsApi cloud backup contract", () => {
     expect(invokeDesktop).toHaveBeenCalledWith("get_active_codex_relay_status");
   });
 
+  it("keeps Codex provider option request shapes stable", async () => {
+    await settingsApi.setCodexPreferences(true, true, false);
+    await settingsApi.setCodexCommonConfig("[tui]\nnotifications = true");
+
+    expect(invokeDesktop).toHaveBeenNthCalledWith(1, "set_codex_preferences", {
+      goalMode: true,
+      remoteCompaction: true,
+      commonConfigEnabled: false,
+    });
+    expect(invokeDesktop).toHaveBeenNthCalledWith(2, "set_codex_common_config", {
+      snippet: "[tui]\nnotifications = true",
+    });
+  });
+
   it("keeps cloud authentication and backup request shapes stable", async () => {
     await settingsApi.cloudSignIn("user@example.com", "password-123");
     await settingsApi.cloudRequestPasswordReset("user@example.com");

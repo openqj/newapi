@@ -14,6 +14,33 @@ vi.mock("../../../lib/platform", () => ({ isTauri }));
 describe("ApiKeyEditor", () => {
   afterEach(cleanup);
 
+  it("renders the editor group as a normal select without an inline selection label", () => {
+    const row: KeyRow = {
+      stationId: "station-1",
+      stationName: "station",
+      stationUrl: "https://example.test",
+      groups: [{ name: "vip", description: "高速通道", multiplier: 0.5 }],
+      models: [],
+      key: { id: "key-1", name: "key", maskedKey: "sk-***", group: "vip", status: "active" },
+    };
+
+    render(
+      <ApiKeyEditor
+        row={row}
+        rows={[row]}
+        stations={[{ id: "station-1", name: "station", baseUrl: "https://example.test", kind: "sub2api", status: "online" }]}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /选择分组: vip/ });
+    expect(trigger.closest(".sub2-editor-group-rate-select")).not.toBeNull();
+    expect(trigger).not.toHaveClass("group-rate-select-trigger-with-label");
+    expect(trigger).not.toHaveTextContent("选择分组");
+  });
+
   it("fills the key name from a preset", () => {
     render(
       <ApiKeyEditor
@@ -73,7 +100,7 @@ describe("ApiKeyEditor", () => {
     await waitFor(() => expect(onRefreshStation).toHaveBeenCalledWith("station-1"));
     await waitFor(() => expect(groups).toHaveBeenCalledWith("station-1"));
     fireEvent.click(screen.getByRole("button", { name: "请选择分组" }));
-    expect(screen.getByRole("option", { name: "vip 高速通道 0.500x" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "vip 高速通道 0.500x 倍率" })).toBeInTheDocument();
     expect(onRefreshStation.mock.invocationCallOrder[0]).toBeLessThan(groups.mock.invocationCallOrder[0]);
   });
 

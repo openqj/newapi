@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowRight,
@@ -13,8 +13,6 @@ import {
   Zap,
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { ArcElement, CategoryScale, Chart as ChartJS, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip } from "chart.js";
-import { Doughnut, Line } from "react-chartjs-2";
 import packageInfo from "../../../../package.json";
 import { isTauri } from "../../../lib/platform";
 import { apiKeyApi } from "../../api-keys/api";
@@ -23,13 +21,14 @@ import type { KeyRow } from "../../api-keys";
 import { gatewayApi } from "../../gateway/api";
 import type { GatewayRouteHealth, GatewayStatus } from "../../gateway/types";
 import { settingsApi } from "../../settings/api";
+import { CodexProviderOptions } from "../../settings/components/CodexProviderOptions";
 import type { PendingDesktopUpdate } from "../../settings/types";
 import type { DashboardPageProps } from "../types";
 import "../../../components/Sub2ApiPages.css";
 import "../../api-keys/pages/ApiKeysPage.css";
 import "./DashboardPage.css";
 
-ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip);
+const DashboardCharts = lazy(() => import("../components/DashboardCharts").then(({ DashboardCharts }) => ({ default: DashboardCharts })));
 
 type ConnectionMode = "direct" | "localRouting";
 
@@ -79,6 +78,7 @@ function OverviewCard({
   title,
   description,
   action,
+  titleSuffix,
   className,
   children,
 }: {
@@ -86,6 +86,7 @@ function OverviewCard({
   title: string;
   description?: string;
   action?: ReactNode;
+  titleSuffix?: ReactNode;
   className?: string;
   children: ReactNode;
 }) {
@@ -94,7 +95,10 @@ function OverviewCard({
       <header className="sub2-dashboard-card-heading">
         <span className="sub2-dashboard-card-icon" aria-hidden="true">{icon}</span>
         <div>
-          <h2>{title}</h2>
+          <div className="sub2-dashboard-card-title-row">
+            <h2>{title}</h2>
+            {titleSuffix}
+          </div>
           {description && <p>{description}</p>}
         </div>
         {action}
@@ -154,6 +158,7 @@ export function DashboardPage({
   const [keyActionError, setKeyActionError] = useState<string | null>(null);
   const [relayhubVersion, setRelayhubVersion] = useState(packageInfo.version);
   const [relayhubUpdate, setRelayhubUpdate] = useState<PendingDesktopUpdate | null>(null);
+  const overviewGridRef = useRef<HTMLElement>(null);
   const online = stations.filter((station) => station.status === "online").length;
   const accountByStation = useMemo(() => new Map(accountRows.map((row) => [row.stationId, row])), [accountRows]);
   const balances = accountRows.filter((row) => row.account.balance != null);
@@ -171,10 +176,16 @@ export function DashboardPage({
   const selectedKey = gatewayStatus?.activeStationId && gatewayStatus.activeKeyId
     ? keys.find((row) => row.stationId === gatewayStatus.activeStationId && row.key.id === gatewayStatus.activeKeyId)
     : undefined;
-  const routeKey = selectedKey ?? keys.find((row) => {
+  const queuedKey = keys.find((row) => {
     const route = gatewayStatus?.routeQueue[0];
     return route && route.stationId === row.stationId && route.keyId === row.key.id;
-  }) ?? keys[0];
+  });
+  const previewKey = previewKeyId ? keys.find((row) => keyRowId(row) === previewKeyId) : undefined;
+  const routeKey = connectionMode === "localRouting"
+    ? selectedKey ?? queuedKey
+    : isTauri()
+      ? selectedKey
+      : previewKey ?? keys[0];
   const routeBalance = routeKey
     ? routeKey.stationBalance ?? accountByStation.get(routeKey.stationId)?.account.balance
     : undefined;
@@ -194,24 +205,28 @@ export function DashboardPage({
     totals.total += inputTokens + row.outputTokens;
     return totals;
   }, { input: 0, output: 0, total: 0 }), [usageRows]);
-  const records = usageRows.filter((row) => row.createdAt >= beginOfDay(startDate) && row.createdAt <= endOfDay(endDate));
-  const modelMap = records.reduce((map, row) => {
-    const model = row.model || "未知模型";
-    const current = map.get(model) ?? { requests: 0, tokens: 0, cost: 0 };
-    current.requests += 1;
-    current.tokens += row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens;
-    current.cost += row.actualCost;
-    map.set(model, current);
-    return map;
-  }, new Map<string, { requests: number; tokens: number; cost: number }>());
-  const models = [...modelMap.entries()].map(([model, value]) => ({ model, ...value })).sort((a, b) => b.tokens - a.tokens).slice(0, 8);
-  const buckets = records.reduce((map, row) => {
-    const date = new Date(row.createdAt * 1000);
-    const key = granularity === "hour" ? `${date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} ${String(date.getHours()).padStart(2, "0")}:00` : date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
-    map.set(key, (map.get(key) ?? 0) + row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens);
-    return map;
-  }, new Map<string, number>());
-  const trend = [...buckets.entries()].map(([label, tokens]) => ({ label, tokens })).slice(-18);
+  const records = useMemo(() => usageRows.filter((row) => row.createdAt >= beginOfDay(startDate) && row.createdAt <= endOfDay(endDate)), [endDate, startDate, usageRows]);
+  const models = useMemo(() => {
+    const modelMap = records.reduce((map, row) => {
+      const model = row.model || "未知模型";
+      const current = map.get(model) ?? { requests: 0, tokens: 0, cost: 0 };
+      current.requests += 1;
+      current.tokens += row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens;
+      current.cost += row.actualCost;
+      map.set(model, current);
+      return map;
+    }, new Map<string, { requests: number; tokens: number; cost: number }>());
+    return [...modelMap.entries()].map(([model, value]) => ({ model, ...value })).sort((a, b) => b.tokens - a.tokens).slice(0, 8);
+  }, [records]);
+  const trend = useMemo(() => {
+    const buckets = records.reduce((map, row) => {
+      const date = new Date(row.createdAt * 1000);
+      const key = granularity === "hour" ? `${date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })} ${String(date.getHours()).padStart(2, "0")}:00` : date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+      map.set(key, (map.get(key) ?? 0) + row.inputTokens + row.outputTokens + row.cacheCreationTokens + row.cacheReadTokens);
+      return map;
+    }, new Map<string, number>());
+    return [...buckets.entries()].map(([label, tokens]) => ({ label, tokens })).slice(-18);
+  }, [granularity, records]);
   const todayTokens = (summary.todayInputTokens ?? 0) + (summary.todayOutputTokens ?? 0);
   const todayElapsedMinutes = Math.max(1, (Date.now() - beginOfDay(todayInput(new Date())) * 1000) / 60_000);
   const performanceRpm = (summary.todayRequests ?? 0) / todayElapsedMinutes;
@@ -255,6 +270,26 @@ export function DashboardPage({
       mounted = false;
     };
   }, []);
+  useLayoutEffect(() => {
+    const grid = overviewGridRef.current;
+    const usageCard = grid?.querySelector<HTMLElement>(".sub2-dashboard-usage-card");
+    const usageMetric = grid?.querySelector<HTMLElement>(".sub2-dashboard-usage-metric");
+    if (!grid || !usageCard || !usageMetric || typeof ResizeObserver === "undefined") return;
+    grid.style.removeProperty("--sub2-dashboard-inner-card-height");
+
+    const syncCardHeight = () => {
+      const innerCardHeight = usageMetric.getBoundingClientRect().height;
+      if (innerCardHeight > 0) grid.style.setProperty("--sub2-dashboard-inner-card-height", `${innerCardHeight}px`);
+      const height = usageCard.getBoundingClientRect().height;
+      if (height > 0) grid.style.setProperty("--sub2-dashboard-overview-card-height", `${height}px`);
+    };
+
+    syncCardHeight();
+    const observer = new ResizeObserver(syncCardHeight);
+    observer.observe(usageCard);
+    observer.observe(usageMetric);
+    return () => observer.disconnect();
+  }, [connectionMode]);
   const switchConnectionMode = async (nextMode: ConnectionMode) => {
     if (switchingMode || nextMode === connectionMode) return;
     if (!isTauri()) {
@@ -319,10 +354,8 @@ export function DashboardPage({
       setGroupSavingKeyId(null);
     }
   };
-  const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16"];
-
   return <div className="sub2-page sub2-dashboard-page">
-    <section className="sub2-dashboard-overview-grid">
+    <section ref={overviewGridRef} className="sub2-dashboard-overview-grid">
       <OverviewCard
         className="sub2-dashboard-usage-card"
         icon={<Activity size={18} />}
@@ -375,14 +408,12 @@ export function DashboardPage({
         className="sub2-dashboard-routing-card"
         icon={<ServerCog size={18} />}
         title="中转方式"
+        titleSuffix={<div className="sub2-dashboard-routing-status"><span className={`sub2-status ${connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running ? "sub2-status-warn" : "sub2-status-good"}`}><i />{switchingMode ? "正在切换" : connectionMode === "direct" ? "直转已启用" : gatewayStatus && !gatewayStatus.running ? "本地路由已停止" : "本地路由已启用"}</span></div>}
         description="直转使用站点 API 密钥，本地路由通过本地 Gateway 转发"
       >
         <div className="sub2-dashboard-routing-switch" role="group" aria-label="中转方式">
           <button type="button" className={`test-mode-button ${connectionMode === "direct" ? "active" : ""}`} aria-pressed={connectionMode === "direct"} disabled={switchingMode} onClick={() => void switchConnectionMode("direct")}>直转</button>
           <button type="button" className={`test-mode-button ${connectionMode === "localRouting" ? "active" : ""}`} aria-pressed={connectionMode === "localRouting"} disabled={switchingMode} onClick={() => void switchConnectionMode("localRouting")}>本地路由</button>
-        </div>
-        <div className="sub2-dashboard-routing-status">
-          <span className={`sub2-status ${connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running ? "sub2-status-warn" : "sub2-status-good"}`}><i />{switchingMode ? "正在切换" : connectionMode === "direct" ? "直转已启用" : gatewayStatus && !gatewayStatus.running ? "本地路由已停止" : "本地路由已启用"}</span>
         </div>
         {connectionMode === "localRouting" ? (
           <section className="sub2-dashboard-route-pool" aria-label="本地路由池">
@@ -416,6 +447,7 @@ export function DashboardPage({
               <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></button>
               <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></button>
             </div>
+            <CodexProviderOptions compact />
             <div className="sub2-dashboard-detail-grid">
               <div>
                 <span>API 密钥</span>
@@ -456,9 +488,8 @@ export function DashboardPage({
       <div className="sub2-dashboard-date-fields"><label>开始日期<input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>结束日期<input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
       <div className="sub2-dashboard-control-actions"><div className="sub2-quick-range"><button onClick={() => setRange(1)}>今天</button><button onClick={() => setRange(7)}>7 天</button><button onClick={() => setRange(30)}>30 天</button></div><label className="sub2-granularity">粒度<select value={granularity} onChange={(event) => setGranularity(event.target.value as "day" | "hour")}><option value="day">按天</option><option value="hour">按小时</option></select></label><button className="button-secondary" title="刷新数据" aria-label="刷新数据" onClick={() => void onRefresh()}><RefreshCw size={16} /></button></div>
     </section>
-    <section className="sub2-dashboard-chart-grid">
-      <article className="sub2-panel sub2-dashboard-chart-card"><div className="sub2-panel-heading"><div><h2>模型用量</h2><p>所选时间范围内的模型分布</p></div></div><div className="sub2-dashboard-distribution">{models.length ? <div className="sub2-dashboard-doughnut"><Doughnut data={{ labels: models.map((item) => item.model), datasets: [{ data: models.map((item) => item.tokens), backgroundColor: colors, borderWidth: 0 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }} /></div> : <div className="sub2-dashboard-no-chart">暂无可用数据</div>}<div className="sub2-dashboard-model-table"><table><thead><tr><th>模型</th><th>请求</th><th>Tokens</th><th>实际费用</th></tr></thead><tbody>{models.map((item, index) => <tr key={item.model}><td><i style={{ background: colors[index] }} />{item.model}</td><td>{formatNumber(item.requests)}</td><td>{formatNumber(item.tokens)}</td><td>{formatMoney(item.cost)}</td></tr>)}{!models.length && <tr><td colSpan={4}>暂无使用记录</td></tr>}</tbody></table></div></div></article>
-      <article className="sub2-panel sub2-dashboard-chart-card"><div className="sub2-panel-heading"><div><h2>Token 使用趋势</h2><p>{granularity === "day" ? "按天" : "按小时"}汇总</p></div></div><div className="sub2-dashboard-line">{trend.length ? <Line data={{ labels: trend.map((item) => item.label), datasets: [{ data: trend.map((item) => item.tokens), fill: true, borderColor: "#2563eb", backgroundColor: "rgba(37, 99, 235, .10)", pointRadius: 2, tension: .35 }] }} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { maxTicksLimit: 6 } }, y: { beginAtZero: true, ticks: { callback: (value) => formatNumber(Number(value)) } } } }} /> : <div className="sub2-dashboard-no-chart">暂无可用数据</div>}</div></article>
-    </section>
+    <Suspense fallback={<section className="sub2-dashboard-chart-grid" aria-busy="true" />}>
+      <DashboardCharts models={models} trend={trend} granularity={granularity} formatNumber={formatNumber} />
+    </Suspense>
   </div>;
 }

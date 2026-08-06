@@ -13,6 +13,10 @@ export type DesktopUpdateState = "idle" | "checking" | "downloading" | "latest" 
 export type CodexIntegrationStatus = {
   preserveOfficialLogin: boolean;
   configDirectory: string;
+  goalMode: boolean;
+  remoteCompaction: boolean;
+  commonConfigEnabled: boolean;
+  commonConfigSnippet: string;
 };
 
 export type ActiveCodexRelayStatus = {

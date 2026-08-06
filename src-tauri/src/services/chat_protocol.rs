@@ -833,6 +833,10 @@ pub(crate) fn is_responses_path(path: &str) -> bool {
     matches!(path, "/v1/responses" | "/v1/responses/compact")
 }
 
+pub(crate) fn is_responses_compact_path(path: &str) -> bool {
+    path == "/v1/responses/compact"
+}
+
 pub(crate) fn chat_completions_path(path: &str) -> &'static str {
     let _ = path;
     "/v1/chat/completions"

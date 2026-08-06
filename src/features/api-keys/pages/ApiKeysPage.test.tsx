@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmationProvider, ToastProvider } from "../../../components/ui";
 import { ApiKeysPage } from "./ApiKeysPage";
@@ -189,10 +189,40 @@ describe("ApiKeysPage selection and testing", () => {
       </ToastProvider>,
     );
 
-    fireEvent.change(screen.getByLabelText("模型类型筛选"), { target: { value: "Claude" } });
+    fireEvent.click(screen.getByRole("button", { name: "模型类型筛选" }));
+    fireEvent.click(screen.getByRole("option", { name: "Claude" }));
 
     expect(screen.queryByText("测试密钥")).not.toBeInTheDocument();
     expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
+  });
+
+  it("sorts the selectable key columns in both directions", () => {
+    const betaRow: KeyRow = { ...row, key: { ...row.key, id: "key-beta", name: "Beta", createdAt: 300, currentConcurrency: 1 } };
+    const alphaRow: KeyRow = { ...row, key: { ...row.key, id: "key-alpha", name: "Alpha", createdAt: 200, currentConcurrency: 2 } };
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[betaRow, alphaRow]}
+            stations={[]}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    for (const label of ["名称", "当前并发", "过期时间", "状态", "创建时间"]) {
+      expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
+    }
+    const table = screen.getByRole("table");
+    const names = () => within(table).getAllByRole("row").slice(1).map((tableRow) => tableRow.querySelector('[data-key-column="name"]')?.textContent?.trim());
+
+    expect(names()).toEqual(["Beta", "Alpha"]);
+    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+    expect(names()).toEqual(["Alpha", "Beta"]);
+    fireEvent.click(screen.getByRole("button", { name: "名称" }));
+    expect(names()).toEqual(["Beta", "Alpha"]);
   });
 
   it("appends a key to the local route queue", async () => {

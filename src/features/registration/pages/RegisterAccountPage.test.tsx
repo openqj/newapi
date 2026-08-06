@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RegisterAccountPage } from "./RegisterAccountPage";
 
@@ -37,7 +37,17 @@ vi.mock("../../stations/api", async (importOriginal) => {
 
 describe("RegisterAccountPage", () => {
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
+  });
+
+  it("uses the shared form dialog shell and password control", () => {
+    render(<RegisterAccountPage />);
+
+    expect(screen.getByRole("dialog", { name: "自动注册站点账号" })).toHaveClass("form-dialog", "register-account-dialog");
+    expect(screen.queryByRole("heading", { name: "自动注册站点账号" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "关闭" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("密码").parentElement).toHaveClass("password-input-actions");
   });
 
   it("keeps the form visible and accepts a manual code after automatic verification fails", async () => {

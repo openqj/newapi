@@ -1,14 +1,12 @@
 .register-account-body { width: 100%; height: 100%; min-width: 0; overflow: hidden; background: #fff; }
 .register-account-body #root { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; }
-.register-account-page { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; background: #fff; color: #0f172a; }
-.register-account-form { display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; overflow: hidden; background: #fff; }
-.register-account-content { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 1rem; overflow: hidden; padding: 1rem 1.25rem; }
+.register-account-page { display: flex; width: 100%; height: 100%; min-height: 0; overflow: hidden; color: #0f172a; }
+.register-account-page .modal-backdrop { padding: 0; background: #fff; backdrop-filter: none; }
+.register-account-dialog { display: flex; width: 100%; height: 100%; min-height: 0; max-height: none; flex-direction: column; border-radius: 0; box-shadow: none; }
+.register-account-dialog .form-dialog-content { min-height: 0; overflow: hidden; }
+.register-account-content { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 1rem; overflow: hidden; padding-top: 2rem; }
 .register-fields { display: grid; min-width: 0; grid-template-columns: 1fr; gap: 1rem; }
 .register-fields label { min-width: 0; }
-.register-password-input { position: relative; display: block; }
-.register-password-input .input { padding-right: 2.75rem; }
-.register-password-toggle { position: absolute; top: 50%; right: .25rem; height: 2rem; width: 2rem; transform: translateY(-50%); }
-.register-password-toggle:hover { box-shadow: none; }
 .register-manual-hint { display: flex; align-items: center; gap: .4rem; margin: -.25rem 0 0; border: 1px solid #fed7aa; border-radius: 7px; background: #fff7ed; padding: .55rem .65rem; color: #9a3412; font-size: .75rem; line-height: 1.4; }
 .register-log-panel { display: flex; min-height: 7rem; flex: 1 1 auto; flex-direction: column; overflow: hidden; border: 1px solid #e7edf4; border-radius: 7px; background: #f8fafc; }
 .register-log-heading { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e7edf4; padding: .45rem .6rem; color: #374151; font-size: .75rem; font-weight: 650; }
@@ -32,11 +30,7 @@
 .register-result.waiting-code { color: #9a3412; }
 .register-result.success { color: #166534; }
 .register-result.error { color: #be123c; }
-.register-account-actions { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: .5rem; padding: .75rem 1.25rem; background: #fff; }
-.register-account-actions button { min-height: 1.9rem; padding: .4rem .7rem; }
 
 @media (max-width: 560px) {
-  .register-account-content,
-  .register-account-actions { padding-left: 1rem; padding-right: 1rem; }
   .register-log-entry { grid-template-columns: 1.4rem 3.85rem 1rem minmax(0, 1fr); }
 }

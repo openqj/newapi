@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, ScrollText } from "lucide-react";
+import { FormDialog } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
@@ -9,6 +10,7 @@ import { normalizeStationBaseUrl } from "../../stations/components/AddStationWit
 import { stationApi, STATIONS_CHANGED_EVENT } from "../../stations/api";
 import type { StationSaveResult } from "../../stations/types";
 import { registrationApi, type MailCodeResult, type MailProvider } from "../api";
+import "../../../App.css";
 import "./RegisterAccountPage.css";
 
 const mailProviders: MailProvider[] = ["gmail", "outlook", "qq"];
@@ -289,8 +291,22 @@ export function RegisterAccountPage() {
   const submitLabel = submitting ? "注册中…" : state === "waiting-code" ? "继续注册" : state === "error" ? "重新注册" : "注册";
 
   return <main className="register-account-page">
-    <form className="register-account-form" onSubmit={submit} noValidate>
-      <div className="register-account-content">
+    <FormDialog
+      title="自动注册站点账号"
+      ariaLabel="自动注册站点账号"
+      onClose={close}
+      onSubmit={submit}
+      noValidate
+      hideHeader
+      className="register-account-dialog"
+      contentClassName="register-account-content"
+      footer={
+        <>
+          <button type="button" className="button-secondary form-dialog-cancel" onClick={close} disabled={submitting}>取消</button>
+          <button type="submit" className="button-primary form-dialog-submit" disabled={submitting || !baseUrl.trim()}>{submitLabel}</button>
+        </>
+      }
+    >
       <div className="register-fields">
         <label>
           中转站网址
@@ -306,12 +322,12 @@ export function RegisterAccountPage() {
         </label>
         <label>
           密码
-          <span className="register-password-input mt-1">
+          <div className="password-input-actions mt-1">
             <input className="input" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="自动生成或手工填写" value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
-            <button type="button" className="icon-button register-password-toggle" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"} onClick={() => setShowPassword((value) => !value)} disabled={submitting}>
+            <button type="button" className="password-visibility-toggle" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"} aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)} disabled={submitting}>
               {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
-          </span>
+          </div>
         </label>
         <label>
           邮箱验证码
@@ -334,12 +350,6 @@ export function RegisterAccountPage() {
       </section>
 
       {resultMessage && <div className={`register-result ${state}`} role={state === "error" ? "alert" : "status"}>{resultMessage}</div>}
-      </div>
-
-      <footer className="register-account-actions">
-        <button type="button" className="button-secondary" onClick={close} disabled={submitting}>取消</button>
-        <button type="submit" className="button-primary" disabled={submitting || !baseUrl.trim()}>{submitLabel}</button>
-      </footer>
-    </form>
+    </FormDialog>
   </main>;
 }

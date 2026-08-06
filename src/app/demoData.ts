@@ -149,6 +149,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
     rates: [
       {
         group: "default",
+        groupDescription: "通用模型",
         model: "gpt-4o",
         multiplier: 1,
         inputMultiplier: 1,
@@ -156,6 +157,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
       },
       {
         group: "default",
+        groupDescription: "通用模型",
         model: "claude-3-7-sonnet",
         multiplier: 1.08,
         inputMultiplier: 1.05,
@@ -163,6 +165,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
       },
       {
         group: "vip",
+        groupDescription: "高级通道",
         model: "gpt-4.1",
         multiplier: 0.92,
         inputMultiplier: 0.92,
@@ -170,6 +173,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
       },
       {
         group: "vip",
+        groupDescription: "高级通道",
         model: "gemini-2.5-pro",
         multiplier: 1.15,
         inputMultiplier: 1.1,
@@ -237,6 +241,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
     rates: [
       {
         group: "standard",
+        groupDescription: "标准通道",
         model: "gpt-4o-mini",
         multiplier: 0.65,
         inputMultiplier: 0.65,
@@ -244,6 +249,7 @@ export const demoSnapshots: Record<string, Snapshot> = {
       },
       {
         group: "standard",
+        groupDescription: "标准通道",
         model: "deepseek-v3",
         multiplier: 0.72,
         inputMultiplier: 0.72,
@@ -309,7 +315,7 @@ export const demoKeyRows: KeyRow[] = demoStations.flatMap((station) =>
       new Map(
         (demoSnapshots[station.id]?.rates ?? []).map((rate) => [
           rate.group,
-          { name: rate.group, multiplier: rate.multiplier },
+          { name: rate.group, description: rate.groupDescription, multiplier: rate.multiplier },
         ]),
       ).values(),
     ),

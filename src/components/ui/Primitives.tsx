@@ -1,5 +1,7 @@
 import { TriangleAlert } from "lucide-react";
-import type { HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { Children, isValidElement, useState, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import type { ChangeEvent } from "react";
+import { SelectDropdown, type SelectDropdownOption } from "./SelectDropdown";
 import "./Primitives.css";
 
 export function PageHeader({ title, description, actions }: { title: ReactNode; description?: ReactNode; actions?: ReactNode }) {
@@ -32,5 +34,36 @@ export function FormField({ label, error, hint, required, children }: FieldProps
 type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className"> & { error?: boolean };
 export function TextField({ error, ...props }: TextFieldProps) { return <input {...props} className="input" aria-invalid={error || undefined} />; }
 export function PasswordField({ error, ...props }: TextFieldProps) { return <input {...props} type="password" className="input" aria-invalid={error || undefined} />; }
-export function SelectField(props: SelectHTMLAttributes<HTMLSelectElement>) { return <select {...props} className="input" />; }
+type SelectOptionProps = { value?: string | number; disabled?: boolean; children?: ReactNode };
+
+export function SelectField({ children, value, defaultValue, onChange, className, id, name, title, disabled, required, "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const options: SelectDropdownOption[] = Children.toArray(children).filter((child) => isValidElement<SelectOptionProps>(child) && child.type === "option").map((child) => ({
+    value: String(child.props.value ?? ""),
+    label: child.props.children,
+    disabled: child.props.disabled,
+  }));
+  const controlledValue = value == null || Array.isArray(value) ? undefined : String(value);
+  const [internalValue, setInternalValue] = useState(() => controlledValue ?? (defaultValue == null || Array.isArray(defaultValue) ? options[0]?.value ?? "" : String(defaultValue)));
+  const selectedValue = controlledValue ?? internalValue;
+  const handleChange = (nextValue: string) => {
+    if (controlledValue == null) setInternalValue(nextValue);
+    onChange?.({ target: { value: nextValue }, currentTarget: { value: nextValue } } as ChangeEvent<HTMLSelectElement>);
+  };
+  return <SelectDropdown
+    value={selectedValue}
+    options={options}
+    onChange={handleChange}
+    id={id}
+    name={name}
+    title={title}
+    disabled={disabled}
+    ariaLabel={ariaLabel}
+    className="select-field"
+    triggerClassName={`input ${className ?? ""}`.trim()}
+    ariaLabelledBy={ariaLabelledBy}
+    ariaDescribedBy={ariaDescribedBy}
+    ariaInvalid={ariaInvalid}
+    required={required}
+  />;
+}
 export function TextareaField(props: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea {...props} className="input" />; }
