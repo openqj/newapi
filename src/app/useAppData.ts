@@ -3,7 +3,7 @@ import { type AccountRow, useAccountRows } from "../features/accounts";
 import { type KeyInfo, type KeyRow, useApiKeyRows } from "../features/api-keys";
 import { type Rate, type RateRow, useRateRows } from "../features/rates";
 import { type RemoteServer, useRemoteServers } from "../features/remote";
-import { type Station, type StationSnapshot, type StationSyncProgress, useStations } from "../features/stations";
+import { stationApi, type Station, type StationSnapshot, type StationSyncProgress, useStations } from "../features/stations";
 import { DEFAULT_BACKGROUND_REFRESH_MINUTES, settingsApi } from "../features/settings/api";
 import { useUsageData } from "../features/usage/hooks";
 import { isTauri } from "../lib/platform";
@@ -117,6 +117,12 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     await refreshFeatureRows();
   }, [loadSnapshot, loadStations, refreshFeatureRows, selectedId]);
 
+  const refreshStationLogin = useCallback(async (stationId: string) => {
+    if (!isTauri()) return;
+    await stationApi.reauthenticate(stationId, null);
+    await Promise.all([loadStations(), loadAccountRows()]);
+  }, [loadAccountRows, loadStations]);
+
   const refreshRatesAndKeys = useCallback(() => refreshAll(async () => {
     await Promise.all([loadRateRows(), loadKeyRows()]);
   }), [loadKeyRows, loadRateRows, refreshAll]);
@@ -142,7 +148,7 @@ export function useAppData({ demo, emptySnapshot, emptyUsageSummary, view }: Use
     stations, selectedId, setSelectedId, snapshot, keyRows, rateRows, accountRows, usageSummary,
     usageLogs, remoteServers, usageScope, setUsageScope, busy, syncProgress,
     backgroundRefreshMinutes, setBackgroundRefreshMinutes,
-    loadStations, loadSnapshot, loadKeyRows, loadRateRows, loadAccountRows, loadUsageSummary,
+    loadStations, loadSnapshot, loadKeyRows, loadRateRows, loadAccountRows, loadUsageSummary, refreshStationLogin,
     loadUsageLogs, refreshUsageLogs, loadRemoteServers, refreshSupportingData, refreshRatesAndKeys,
     refreshAll, cancelRefresh,
   };

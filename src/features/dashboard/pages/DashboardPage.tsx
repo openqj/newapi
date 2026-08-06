@@ -21,7 +21,7 @@ import { apiKeyApi } from "../../api-keys/api";
 import { GroupRateSelect } from "../../api-keys/components/GroupRateSelect";
 import type { KeyRow } from "../../api-keys";
 import { gatewayApi } from "../../gateway/api";
-import type { GatewayStatus } from "../../gateway/types";
+import type { GatewayRouteHealth, GatewayStatus } from "../../gateway/types";
 import { settingsApi } from "../../settings/api";
 import type { PendingDesktopUpdate } from "../../settings/types";
 import type { DashboardPageProps } from "../types";
@@ -43,6 +43,11 @@ const formatNumber = (value?: number) =>
 const todayInput = (date: Date) => date.toISOString().slice(0, 10);
 const beginOfDay = (date: string) => new Date(`${date}T00:00:00`).getTime() / 1000;
 const endOfDay = (date: string) => new Date(`${date}T23:59:59`).getTime() / 1000;
+const gatewayRouteStateLabel = (state?: GatewayRouteHealth["state"]) =>
+  state === "open" ? "冷却中" : state === "halfOpen" ? "探测中" : "可用";
+const gatewayRouteStateClass = (state?: GatewayRouteHealth["state"]) =>
+  state === "open" ? "is-open" : state === "halfOpen" ? "is-half-open" : "is-closed";
+const formatCooldown = (milliseconds: number) => `${Math.max(1, Math.ceil(milliseconds / 1000))} 秒`;
 
 function UsageMetric({
   icon,
@@ -170,6 +175,15 @@ export function DashboardPage({
     const route = gatewayStatus?.routeQueue[0];
     return route && route.stationId === row.stationId && route.keyId === row.key.id;
   }) ?? keys[0];
+  const routeBalance = routeKey
+    ? routeKey.stationBalance ?? accountByStation.get(routeKey.stationId)?.account.balance
+    : undefined;
+  const gatewayRouteRows = (gatewayStatus?.routeQueue ?? []).map((route, index) => ({
+    index,
+    route,
+    keyRow: keys.find((row) => row.stationId === route.stationId && row.key.id === route.keyId),
+    health: gatewayStatus?.routeHealth.find((item) => item.stationId === route.stationId && item.keyId === route.keyId),
+  }));
   const activeKeyRowId = gatewayStatus?.activeStationId && gatewayStatus.activeKeyId
     ? `${gatewayStatus.activeStationId}:${gatewayStatus.activeKeyId}`
     : previewKeyId;
@@ -370,14 +384,54 @@ export function DashboardPage({
         <div className="sub2-dashboard-routing-status">
           <span className={`sub2-status ${connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running ? "sub2-status-warn" : "sub2-status-good"}`}><i />{switchingMode ? "正在切换" : connectionMode === "direct" ? "直转已启用" : gatewayStatus && !gatewayStatus.running ? "本地路由已停止" : "本地路由已启用"}</span>
         </div>
-        <div className="sub2-dashboard-config-grid">
-          <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></button>
-          <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></button>
-        </div>
-        <div className="sub2-dashboard-detail-grid">
-          <div><span>{connectionMode === "direct" ? "API 密钥" : "路由来源"}</span><strong>{connectionMode === "direct" ? (routeKey ? routeKey.key.name || routeKey.key.id : "尚未选择") : "本地路由池"}</strong></div>
-          <div><span>{connectionMode === "direct" ? "当前中转站" : "可用路由池"}</span><strong>{connectionMode === "direct" ? (routeKey ? routeKey.stationName : "尚未选择") : `${gatewayStatus?.routeQueue.length ?? 0} 条路由 · ${online}/${stations.length} 个站点可用`}</strong></div>
-        </div>
+        {connectionMode === "localRouting" ? (
+          <section className="sub2-dashboard-route-pool" aria-label="本地路由池">
+            <div className="sub2-dashboard-route-pool-heading">
+              <div><span>本地路由池</span><strong>{gatewayRouteRows.length} 条路由</strong></div>
+              <span>{online}/{stations.length} 个站点可用</span>
+            </div>
+            <div className="sub2-dashboard-route-list" role="list">
+              {gatewayRouteRows.map(({ index, route, keyRow, health }) => {
+                const stationName = keyRow?.stationName ?? route.stationId;
+                const keyName = keyRow?.key.name || keyRow?.key.id || route.keyId;
+                const state = health?.state;
+                const cooldown = state === "open" && (health?.cooldownRemainingMs ?? 0) > 0
+                  ? ` · 冷却 ${formatCooldown(health?.cooldownRemainingMs ?? 0)}`
+                  : "";
+                return <div className="sub2-dashboard-route-row" role="listitem" key={`${route.stationId}:${route.keyId}`}>
+                  <span className="sub2-dashboard-route-order" aria-hidden="true">{index + 1}</span>
+                  <div className="sub2-dashboard-route-content">
+                    <div className="sub2-dashboard-route-title"><strong title={stationName}>{stationName}</strong><span title={keyName}>{keyName}</span></div>
+                    <small>{health ? `${formatNumber(health.totalRequests)} 次请求 · 失败 ${formatNumber(health.failedRequests)}` : "等待健康数据"}</small>
+                  </div>
+                  <span className={`sub2-dashboard-route-state ${gatewayRouteStateClass(state)}`}>{gatewayRouteStateLabel(state)}{cooldown}</span>
+                </div>;
+              })}
+              {!gatewayRouteRows.length && <div className="sub2-dashboard-route-empty"><strong>本地路由池暂无路由</strong><span>添加可用路由后会显示在这里</span></div>}
+            </div>
+          </section>
+        ) : (
+          <>
+            <div className="sub2-dashboard-config-grid">
+              <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></button>
+              <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></button>
+            </div>
+            <div className="sub2-dashboard-detail-grid">
+              <div>
+                <span>API 密钥</span>
+                <strong title={routeKey?.key.name || routeKey?.key.id}>{routeKey ? routeKey.key.name || routeKey.key.id : "尚未选择"}</strong>
+                {routeKey && <code title={routeKey.key.maskedKey}>{routeKey.key.maskedKey || "已隐藏"}</code>}
+                {routeKey && <small>分组：{routeKey.key.group || "default"}</small>}
+              </div>
+              <div>
+                <span>当前中转站</span>
+                <strong title={routeKey?.stationName}>{routeKey ? routeKey.stationName : "尚未选择"}</strong>
+                {routeKey && <code title={routeKey.stationUrl}>{routeKey.stationUrl}</code>}
+                {routeKey && <small>剩余：{formatRemaining(routeBalance)}</small>}
+              </div>
+            </div>
+          </>
+        )}
         {gatewayError && <p className="sub2-dashboard-routing-error" role="alert">{gatewayError}</p>}
       </OverviewCard>
 

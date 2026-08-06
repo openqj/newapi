@@ -5,7 +5,6 @@ import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { stationApi, type Station } from "../../stations";
 import { gatewayApi } from "../../gateway/api";
-import type { RoutingMode } from "../../gateway/types";
 import { apiKeyApi } from "../api";
 import { ApiKeyEditor } from "../components/ApiKeyEditor";
 import { ApiKeyTable } from "../components/ApiKeyTable";
@@ -25,12 +24,14 @@ export function ApiKeysPage({
   stations,
   onRefresh,
   onUpdated,
+  openCreateRequest = 0,
   onCodexApplied,
 }: {
   rows: KeyRow[];
   stations: Station[];
   onRefresh: () => Promise<void>;
   onUpdated: () => Promise<void>;
+  openCreateRequest?: number;
   onCodexApplied?: () => Promise<void>;
 }) {
   const confirm = useConfirm();
@@ -41,27 +42,17 @@ export function ApiKeysPage({
   const [modelType, setModelType] = useState("all");
   const [status, setStatus] = useState("all");
   const [showColumns, setShowColumns] = useState(false);
-  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, modelType: true, name: true, apiKey: true, group: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
+  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, modelType: true, name: true, apiKey: true, group: true, multiplier: true, balance: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
   const [saving, setSaving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editor, setEditor] = useState<{ row?: KeyRow } | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [testRunning, setTestRunning] = useState(false);
   const [testStates, setTestStates] = useState<Record<string, ApiKeyTestState>>({});
-  const [routingMode, setRoutingMode] = useState<RoutingMode>("ccSwitch");
   const stationRefreshes = useRef(new Map<string, Promise<void>>());
   useEffect(() => {
-    if (!isTauri()) return;
-    let mounted = true;
-    void gatewayApi.status()
-      .then((status) => {
-        if (mounted) setRoutingMode(status.mode);
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    if (openCreateRequest > 0) setEditor({});
+  }, [openCreateRequest]);
   const refreshStationGroups = useCallback(async (stationId: string) => {
     if (!isTauri()) return;
     const existing = stationRefreshes.current.get(stationId);
@@ -136,24 +127,29 @@ export function ApiKeysPage({
     const id = `codex:${rowId(row)}`;
     setSaving(id);
     try {
-      const mode = isTauri() ? (await gatewayApi.status()).mode : "ccSwitch";
-      setRoutingMode(mode);
-      if (isTauri()) await gatewayApi.setRoute(row.stationId, row.key.id);
-      else await apiKeyApi.applyToCodex(row.stationId, row.key.id);
+      await apiKeyApi.applyToCodex(row.stationId, row.key.id);
       await onCodexApplied?.();
-      notify("API 密钥已启用到 Codex", "success");
+      notify("API 密钥已写入 Codex 本地配置", "success");
     } catch (reason) {
       showError(reason);
     } finally {
       setSaving(null);
     }
   };
-  const applyToClaude = async (row: KeyRow) => {
-    const id = `claude:${rowId(row)}`;
+  const addToRoute = async (row: KeyRow) => {
+    const id = `route:${rowId(row)}`;
     setSaving(id);
     try {
-      await apiKeyApi.applyToClaude(row.stationId, row.key.id);
-      notify("API 密钥已启用到 Claude Code", "success");
+      const status = await gatewayApi.status();
+      if (status.mode !== "localGateway") throw new Error("请先切换到本地路由模式");
+      const route = { stationId: row.stationId, keyId: row.key.id };
+      const routes = status.routeQueue ?? [];
+      if (routes.some((item) => item.stationId === route.stationId && item.keyId === route.keyId)) {
+        notify("API 密钥已在本地路由中", "success");
+        return;
+      }
+      await gatewayApi.setRoutes([...routes, route]);
+      notify("API 密钥已加入本地路由", "success");
     } catch (reason) {
       showError(reason);
     } finally {
@@ -262,13 +258,12 @@ export function ApiKeysPage({
       saving={saving}
       selectedIds={selectedIds}
       testStates={testStates}
-      localGatewayMode={routingMode === "localGateway"}
       onToggleSelected={toggleSelected}
       onToggleAll={toggleAllSelected}
       onReveal={(row) => void reveal(row)}
       onGroupChange={(row, group) => void changeGroup(row, group)}
-      onApplyToClaude={(row) => void applyToClaude(row)}
       onApplyToCodex={(row) => void applyToCodex(row)}
+      onAddToRoute={(row) => void addToRoute(row)}
       onTest={(row) => void testSingle(row)}
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}

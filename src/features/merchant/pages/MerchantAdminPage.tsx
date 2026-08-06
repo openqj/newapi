@@ -4,13 +4,14 @@ import { ChevronLeft, ChevronRight, Copy, Eye, EyeOff, Filter, Pencil, Pin, Plus
 import { FormDialog, FormField, Panel, SelectField, TextareaField, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
+import { personalCenterApi } from "../../personal-center/api";
 import { merchantApi } from "../api";
 import { DEMO_MERCHANT_CHANGED_EVENT, type DemoMerchantState, loadDemoMerchantState, saveDemoMerchantState } from "../demoData";
 import type { AdminMerchantFreeCode, AdminMerchantFreeCodeInput, AdminMerchantProfile, AdminMerchantProfileInput, AdminMerchantRateShare, AdminMerchantRateShareInput, MerchantTier } from "../types";
 import "./MerchantPages.css";
 
 const rateInput = (item: AdminMerchantRateShare, pinned = item.pinned): AdminMerchantRateShareInput => ({ id: item.id, merchantId: item.merchantId, stationName: item.stationName, stationUrl: item.stationUrl, groupName: item.groupName, multiplierSummary: item.multiplierSummary, pinned });
-const freeCodeInput = (item: AdminMerchantFreeCode, pinned = item.pinned): AdminMerchantFreeCodeInput => ({ id: item.id, merchantId: item.merchantId, stationName: item.stationName, stationUrl: item.stationUrl, redeemCode: item.redeemCode, quota: item.quota, pinned });
+const freeCodeInput = (item: AdminMerchantFreeCode, pinned = item.pinned): AdminMerchantFreeCodeInput => ({ id: item.id, merchantId: item.merchantId, stationName: item.stationName, stationUrl: item.stationUrl, quota: item.quota, pinned });
 const tierLabel: Record<MerchantTier, string> = { diamond: "钻石", gold: "金牌", silver: "银牌" };
 const demoId = (kind: "rate" | "account") => `demo-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const pinnedFirst = <T extends { pinned: boolean }>(items: T[]) => [...items].sort((left, right) => Number(right.pinned) - Number(left.pinned));
@@ -90,6 +91,10 @@ export function MerchantAdminPage() {
     setPage(1);
   }, [managementTab, merchantFilter, search, statusFilter]);
 
+  useEffect(() => {
+    if (managementTab !== "accounts") setRevealedCodes({});
+  }, [managementTab]);
+
   const activeStatusFilter = managementTab === "rates"
     ? statusFilter === "pinned" || statusFilter === "normal" ? statusFilter : "all"
     : statusFilter === "available" || statusFilter === "claimed" ? statusFilter : "all";
@@ -127,6 +132,15 @@ export function MerchantAdminPage() {
     try {
       const code = demoMode ? item.redeemCode : await merchantApi.revealAdminFreeCode(item.id, accessMode);
       if (!code) throw new Error("兑换码不存在或已被删除。");
+      if (demoMode) {
+        personalCenterApi.recordLocalAudit(
+          accessMode === "copy" ? "merchant_code_copied" : "merchant_code_revealed",
+          item.id,
+          accessMode === "copy" ? "复制商家兑换码" : "查看商家兑换码",
+          { accessMode },
+          { result: "authorized" },
+        );
+      }
       if (accessMode === "view") setRevealedCodes((current) => ({ ...current, [item.id]: code }));
       return code;
     } catch (reason) {
@@ -267,7 +281,8 @@ export function MerchantAdminPage() {
     <Panel title="副窗口商家信息管理" description="维护商家信息副窗口中的分组倍率和免费额度；置顶内容会固定显示在列表最前。">
       <div className="merchant-admin-toolbar"><span className="merchant-admin-toolbar-status">{demoMode && <span className="merchant-demo-badge">模拟数据，仅本机预览</span>}{profiles.length ? `已识别 ${profiles.length} 个商家资料` : "请先由商家保存资料后再新增列表项"}</span><button type="button" className="button-secondary" onClick={() => void load()} disabled={loading || Boolean(savingId)}><RefreshCw size={16} className={loading ? "sub2-spin" : ""} />刷新</button></div>
     </Panel>
-    {loadError && <div className="merchant-load-error merchant-admin-load-error" role="alert"><span>{loadError} 当前展示的是本机模拟数据。</span><button type="button" className="button-secondary" onClick={() => void load()} disabled={loading || Boolean(savingId)}><RefreshCw size={14} />重试</button></div>}
+    {demoMode && <div className="merchant-demo-notice" role="status"><span>当前展示的是本机模拟数据，仅供预览，不会写入线上商家数据。</span></div>}
+    {loadError && <div className="merchant-load-error merchant-admin-load-error" role="alert"><span>线上商家数据加载失败：{loadError}</span><button type="button" className="button-secondary" onClick={() => void load()} disabled={loading || Boolean(savingId)}><RefreshCw size={14} />重试</button></div>}
 
     <Panel className="merchant-admin-management-card">
       <nav className="merchant-admin-tabs" role="tablist" aria-label="商家信息管理分类">
@@ -275,6 +290,7 @@ export function MerchantAdminPage() {
         <button type="button" className={`merchant-admin-tab ${managementTab === "rates" ? "active" : ""}`} role="tab" aria-selected={managementTab === "rates"} aria-controls="merchant-admin-rates" onClick={() => setManagementTab("rates")}>分组倍率列表</button>
         <button type="button" className={`merchant-admin-tab ${managementTab === "accounts" ? "active" : ""}`} role="tab" aria-selected={managementTab === "accounts"} aria-controls="merchant-admin-accounts" onClick={() => setManagementTab("accounts")}>免费额度列表</button>
       </nav>
+      <label className="merchant-admin-mobile-tab-select"><span>管理模块</span><SelectField aria-label="商家管理模块" value={managementTab} onChange={(event) => setManagementTab(event.target.value as typeof managementTab)}><option value="profiles">商家资料</option><option value="rates">分组倍率列表</option><option value="accounts">免费额度列表</option></SelectField></label>
       {managementTab === "profiles" && <section id="merchant-admin-profiles" className="merchant-admin-tab-panel" role="tabpanel">
         <div className="merchant-admin-tab-heading"><div><h3>商家资料</h3><p>编辑副窗口联系弹窗中显示的商家名称、QQ、福利链接、微信二维码和等级徽章。</p></div></div>
         <div className="merchant-admin-table-wrap"><table><thead><tr><th>商家</th><th>等级</th><th>QQ</th><th>QQ / QQ 群福利链接</th><th>微信二维码</th><th>操作</th></tr></thead><tbody>{profiles.length ? profiles.map((item) => <tr key={item.userId}><td data-label="商家"><strong>{item.merchantName}</strong><small>{item.userId}</small></td><td data-label="等级"><MerchantTierBadge tier={item.tier} /></td><td data-label="QQ">{item.qq || "未填写"}</td><td data-label="QQ / QQ 群福利链接">{item.qqLink || "未填写"}</td><td data-label="微信二维码">{item.wechatQrUrl ? "已上传" : "未上传"}</td><td data-label="操作"><button type="button" className="button-secondary" onClick={() => setEditingProfile(item)} disabled={Boolean(savingId)}><Pencil size={14} />编辑</button></td></tr>) : <tr><td colSpan={6}>{loading ? "正在加载…" : "暂无商家资料。"}</td></tr>}</tbody></table></div>
@@ -377,7 +393,7 @@ function FreeAccountEditor({ profiles, account, saving, onClose, onSave }: { pro
   const [merchantId, setMerchantId] = useState(account?.merchantId ?? profiles[0]?.userId ?? "");
   const [stationName, setStationName] = useState(account?.stationName ?? "");
   const [stationUrl, setStationUrl] = useState(account?.stationUrl ?? "");
-  const [redeemCode, setRedeemCode] = useState(account?.redeemCode ?? "");
+  const [redeemCode, setRedeemCode] = useState("");
   const [quota, setQuota] = useState(String(account?.quota ?? ""));
   const [pinned, setPinned] = useState(account?.pinned ?? false);
   const parsedQuota = Number(quota);

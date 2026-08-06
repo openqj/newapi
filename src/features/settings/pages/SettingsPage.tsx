@@ -12,24 +12,22 @@ import { UsageStatistics } from "../../usage-stats";
 import type { KeyRow } from "../../api-keys";
 import { BACKGROUND_REFRESH_OPTIONS, MIN_BACKGROUND_REFRESH_MINUTES, settingsApi } from "../api";
 import { AutoRegistrationSettings } from "../components/AutoRegistrationSettings";
+import { PoliciesSettings } from "../components/PoliciesSettings";
 import { isTauri } from "../../../lib/platform";
 import type { LoginProfile } from "../../profiles";
 import type { StationSnapshot } from "../../stations";
 import "./SettingsPage.css";
 
-export type SettingsTab = "general" | "alerts" | "alertHistory" | "profiles" | "configProfiles" | "gateway" | "usage" | "autoRegistration" | "codex" | "updates";
+export type SettingsTab = "general" | "policies" | "alertHistory" | "profiles" | "configProfiles" | "gateway" | "usage";
 
 const settingsTabs: { id: SettingsTab; label: string }[] = [
-  { id: "gateway", label: "Gateway" },
   { id: "general", label: "常规" },
-  { id: "alerts", label: "通知与告警" },
+  { id: "gateway", label: "本地路由" },
+  { id: "policies", label: "隐私与政策" },
   { id: "alertHistory", label: "告警历史与趋势" },
   { id: "profiles", label: "常用登录" },
   { id: "configProfiles", label: "配置档案" },
   { id: "usage", label: "使用统计" },
-  { id: "autoRegistration", label: "自动注册" },
-  { id: "codex", label: "Codex" },
-  { id: "updates", label: "更新" },
 ];
 
 export function SettingsPage({ demoProfiles, keyRows, syncStatuses, backgroundRefreshMinutes, onBackgroundRefreshMinutesChange, activeTab = "general", onActiveTabChange }: { demoProfiles: LoginProfile[]; keyRows: KeyRow[]; syncStatuses?: StationSnapshot["syncStatuses"]; backgroundRefreshMinutes: number; onBackgroundRefreshMinutesChange: (minutes: number) => void; activeTab?: SettingsTab; onActiveTabChange?: (tab: SettingsTab) => void }) {
@@ -49,15 +47,12 @@ export function SettingsPage({ demoProfiles, keyRows, syncStatuses, backgroundRe
     </nav>
     <section>
       {activeTab === "general" && <GeneralSettings backgroundRefreshMinutes={backgroundRefreshMinutes} onBackgroundRefreshMinutesChange={onBackgroundRefreshMinutesChange} />}
-      {activeTab === "alerts" && <AlertSettingsPanel />}
+      {activeTab === "policies" && <PoliciesSettings />}
       {activeTab === "alertHistory" && <AlertHistoryPage />}
       {activeTab === "profiles" && <ProfilesSettings demoProfiles={demoProfiles} />}
       {activeTab === "configProfiles" && <ConfigProfilesPage keyRows={keyRows} />}
       {activeTab === "gateway" && <GatewaySettings keyRows={keyRows} />}
       {activeTab === "usage" && <UsageStatistics />}
-      {activeTab === "autoRegistration" && <AutoRegistrationSettings />}
-      {activeTab === "codex" && <CodexEnhancement />}
-      {activeTab === "updates" && <Panel className="settings-panel"><UpdateSettings /></Panel>}
     </section>
   </>;
 }
@@ -84,7 +79,7 @@ function SettingsHeader({ syncStatuses }: { syncStatuses?: StationSnapshot["sync
         <div>
           <span className="settings-header-kicker">应用控制台</span>
           <h1>设置</h1>
-          <p>管理本地应用、站点同步与 Gateway 行为</p>
+          <p>管理本地应用、站点同步与本地路由行为</p>
         </div>
       </div>
       {syncStatuses && <SyncStatusCards syncStatuses={syncStatuses} summaryDetail={summaryDetail} summaryLabel={summaryLabel} summaryState={summaryState} />}
@@ -152,35 +147,46 @@ function GeneralSettings({ backgroundRefreshMinutes, onBackgroundRefreshMinutesC
     }
   };
 
-  return <Panel className="settings-panel">
-    <div className="settings-refresh-row">
-      <div>
-        <p className="font-medium">后台刷新</p>
-        <p className="mt-1 text-sm text-slate-500">应用打开期间按选定间隔自动刷新所有站点。</p>
-        <p className="mt-1 text-xs text-slate-500">建议不低于 {MIN_BACKGROUND_REFRESH_MINUTES} 分钟；站点较多时建议 30 分钟以上。</p>
+  return <div className="settings-general-stack">
+    <Panel className="settings-panel">
+      <div className="settings-refresh-row">
+        <div>
+          <p className="font-medium">后台刷新</p>
+          <p className="mt-1 text-sm text-slate-500">应用打开期间按选定间隔自动刷新所有站点。</p>
+          <p className="mt-1 text-xs text-slate-500">建议不低于 {MIN_BACKGROUND_REFRESH_MINUTES} 分钟；站点较多时建议 30 分钟以上。</p>
+        </div>
+        <select
+          className="input settings-refresh-select"
+          aria-label="后台刷新间隔"
+          value={selectedMinutes}
+          disabled={saving}
+          onChange={(event) => void saveRefreshInterval(Number(event.target.value))}
+        >
+          {BACKGROUND_REFRESH_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes >= 60 ? `${minutes / 60} 小时` : `${minutes} 分钟`}</option>)}
+        </select>
       </div>
-      <select
-        className="input settings-refresh-select"
-        aria-label="后台刷新间隔"
-        value={selectedMinutes}
-        disabled={saving}
-        onChange={(event) => void saveRefreshInterval(Number(event.target.value))}
-      >
-        {BACKGROUND_REFRESH_OPTIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes >= 60 ? `${minutes / 60} 小时` : `${minutes} 分钟`}</option>)}
-      </select>
-    </div>
-  </Panel>;
+    </Panel>
+    <AlertSettingsPanel />
+    <CodexEnhancement />
+    <Panel className="settings-panel" title="更新" description="检查并安装已签名的 RelayHub 桌面更新。"><UpdateSettings /></Panel>
+  </div>;
 }
 
 function AlertSettingsPanel() {
-  return <Panel className="settings-panel">
+  return <Panel className="settings-panel" title="通知与告警" description="控制桌面通知和站点告警策略。">
     <SettingRow title="桌面通知" description="倍率、密钥状态或优惠内容发生变化时提醒。" value="已开启" />
     <AlertSettings />
   </Panel>;
 }
 
 function ProfilesSettings({ demoProfiles }: { demoProfiles: LoginProfile[] }) {
-  return <LoginProfilesPage demoProfiles={demoProfiles} />;
+  return <div className="settings-profiles-stack">
+    <LoginProfilesPage demoProfiles={demoProfiles} />
+    <section className="settings-profiles-subsection" aria-labelledby="settings-auto-registration-title">
+      <h2 id="settings-auto-registration-title" className="settings-profiles-subsection-title">自动注册</h2>
+      <AutoRegistrationSettings />
+    </section>
+  </div>;
 }
 
 function CodexEnhancement() {

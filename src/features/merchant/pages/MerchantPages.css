@@ -88,7 +88,9 @@
 .merchant-admin-page .panel { margin: 0; }
 .merchant-admin-toolbar { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1rem; color: #64748b; font-size: .75rem; }
 .merchant-admin-toolbar-status { display: flex; align-items: center; gap: .55rem; }
+.merchant-demo-notice { display: flex; align-items: flex-start; gap: .55rem; border: 1px solid #dbeafe; border-radius: 8px; background: #eff6ff; padding: .65rem .8rem; color: #1e40af; font-size: .75rem; }
 .merchant-admin-tabs { display: flex; gap: .15rem; min-width: max-content; overflow-x: auto; border-bottom: 1px solid #e5e7eb; padding: .35rem .85rem 0; }
+.merchant-admin-mobile-tab-select { display: none; }
 .merchant-admin-tab { border: 0; border-radius: 6px 6px 0 0; background: transparent; padding: .55rem .8rem; color: #64748b; font-size: .8125rem; white-space: nowrap; }
 .merchant-admin-tab:hover { background: #f4f5f6; color: #111827; }
 .merchant-admin-tab.active { background: #111; color: #fff; font-weight: 600; }
@@ -131,7 +133,7 @@
 .merchant-admin-editor { display: grid; gap: .75rem; }
 .merchant-admin-pin-toggle { display: flex; align-items: center; gap: .45rem; color: #475569; font-size: .8125rem; }
 @media (max-width: 760px) { .merchant-admin-filter-fields { grid-template-columns: minmax(0, 1fr) minmax(9rem, .75fr); } .merchant-admin-search { grid-column: 1 / -1; } }
-@media (max-width: 560px) { .merchant-form-grid, .merchant-contact-dialog { grid-template-columns: 1fr; } .merchant-market-table { overflow-x: auto; } .merchant-admin-toolbar, .merchant-admin-tab-heading { align-items: flex-start; flex-direction: column; } .merchant-admin-toolbar > button, .merchant-admin-tab-heading > button { align-self: flex-end; } .merchant-admin-filter-fields { grid-template-columns: 1fr; } .merchant-admin-search { grid-column: auto; } .merchant-admin-filter-meta { align-items: flex-start; flex-direction: column; } .merchant-admin-filter-meta .button-secondary { align-self: flex-end; } }
+@media (max-width: 560px) { .merchant-form-grid, .merchant-contact-dialog { grid-template-columns: 1fr; } .merchant-market-table { overflow-x: auto; } .merchant-admin-toolbar, .merchant-admin-tab-heading { align-items: flex-start; flex-direction: column; } .merchant-admin-toolbar > button, .merchant-admin-tab-heading > button { align-self: flex-end; } .merchant-admin-filter-fields { grid-template-columns: 1fr; } .merchant-admin-search { grid-column: auto; } .merchant-admin-filter-meta { align-items: flex-start; flex-direction: column; } .merchant-admin-filter-meta .button-secondary { align-self: flex-end; } .merchant-admin-tabs { display: none; } .merchant-admin-mobile-tab-select { display: grid; gap: .25rem; border-bottom: 1px solid #eef0f3; padding: .65rem .85rem; color: #64748b; font-size: .6875rem; } .merchant-admin-mobile-tab-select .input { width: 100%; min-height: 2.4rem; } }
 @media (max-width: 560px) {
   .merchant-admin-table-wrap { overflow: visible; }
   .merchant-admin-table-wrap table { min-width: 0; }

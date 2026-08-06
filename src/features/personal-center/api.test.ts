@@ -77,4 +77,21 @@ describe("personalCenterApi", () => {
     expect(await personalCenterApi.auditHistory()).toHaveLength(2);
     expect(invokeDesktop).not.toHaveBeenCalled();
   });
+
+  it("records privileged browser-preview actions in the local audit timeline", async () => {
+    isTauri.mockReturnValue(false);
+
+    personalCenterApi.recordLocalAudit("merchant_code_revealed", "code-1", "查看商家兑换码", { accessMode: "view" }, { result: "authorized" });
+
+    await expect(personalCenterApi.auditHistory()).resolves.toEqual([
+      expect.objectContaining({
+        action: "merchant_code_revealed",
+        subject: "code-1",
+        detail: "查看商家兑换码",
+        actorEmail: "本机模拟管理员",
+        before: { accessMode: "view" },
+        after: { result: "authorized" },
+      }),
+    ]);
+  });
 });

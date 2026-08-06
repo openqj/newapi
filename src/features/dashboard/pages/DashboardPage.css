@@ -19,6 +19,29 @@
 .sub2-dashboard-routing-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: .25rem; }
 .sub2-dashboard-routing-switch .test-mode-button { min-height: 2.35rem; }
 .sub2-dashboard-routing-status { margin-top: .85rem; }
+.sub2-dashboard-route-pool { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; margin-top: .75rem; }
+.sub2-dashboard-route-pool-heading { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .55rem; }
+.sub2-dashboard-route-pool-heading > div { display: flex; min-width: 0; align-items: baseline; gap: .45rem; }
+.sub2-dashboard-route-pool-heading span { color: #6b7280; font-size: .6875rem; }
+.sub2-dashboard-route-pool-heading strong { color: #111827; font-size: .8125rem; font-weight: 600; }
+.sub2-dashboard-route-pool-heading > span { flex: 0 0 auto; white-space: nowrap; }
+.sub2-dashboard-route-list { max-height: 16rem; min-height: 0; overflow-y: auto; border: 1px solid #eef0f3; border-radius: 7px; background: #fafafa; padding: 0 .7rem; scrollbar-gutter: stable; }
+.sub2-dashboard-route-row { display: grid; grid-template-columns: 1.45rem minmax(0, 1fr) auto; align-items: center; gap: .6rem; min-height: 3.15rem; padding: .5rem 0; border-bottom: 1px solid #eef0f3; }
+.sub2-dashboard-route-row:last-child { border-bottom: 0; }
+.sub2-dashboard-route-order { display: grid; width: 1.35rem; height: 1.35rem; place-items: center; border-radius: 5px; background: #e5e7eb; color: #4b5563; font-size: .6875rem; font-variant-numeric: tabular-nums; }
+.sub2-dashboard-route-content { min-width: 0; }
+.sub2-dashboard-route-title { display: flex; min-width: 0; align-items: baseline; gap: .5rem; }
+.sub2-dashboard-route-title strong, .sub2-dashboard-route-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sub2-dashboard-route-title strong { color: #111827; font-size: .75rem; font-weight: 600; }
+.sub2-dashboard-route-title span { color: #4b5563; font-size: .6875rem; }
+.sub2-dashboard-route-content small { display: block; margin-top: .2rem; color: #9ca3af; font-size: .625rem; line-height: 1rem; }
+.sub2-dashboard-route-state { flex: 0 0 auto; border-radius: 999px; padding: .2rem .45rem; font-size: .625rem; font-weight: 600; white-space: nowrap; }
+.sub2-dashboard-route-state.is-closed { background: #dcfce7; color: #166534; }
+.sub2-dashboard-route-state.is-half-open { background: #dbeafe; color: #1d4ed8; }
+.sub2-dashboard-route-state.is-open { background: #fef3c7; color: #92400e; }
+.sub2-dashboard-route-empty { display: grid; min-height: 8.5rem; place-items: center; align-content: center; gap: .3rem; color: #9ca3af; text-align: center; }
+.sub2-dashboard-route-empty strong { color: #6b7280; font-size: .75rem; font-weight: 600; }
+.sub2-dashboard-route-empty span { font-size: .6875rem; }
 .sub2-dashboard-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; margin-top: .65rem; }
 .sub2-dashboard-config-grid > div,
 .sub2-dashboard-config-file { min-width: 0; border: 1px solid #eef0f3; border-radius: 7px; background: #fafafa; padding: .65rem .7rem; }
@@ -34,9 +57,10 @@
 .sub2-dashboard-detail-grid code,
 .sub2-dashboard-detail-grid strong { display: block; margin-top: .3rem; overflow: hidden; color: #374151; font-size: .75rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-detail-grid code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .6875rem; font-weight: 500; }
+.sub2-dashboard-detail-grid small { display: block; margin-top: .3rem; overflow: hidden; color: #6b7280; font-size: .6875rem; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-routing-error { margin: .75rem 0 0; color: #b91c1c; font-size: .75rem; line-height: 1.15rem; }
 
-.sub2-dashboard-key-list { min-height: 0; min-width: 0; flex: 1 1 auto; overflow-y: auto; padding-right: .25rem; scrollbar-gutter: stable; }
+.sub2-dashboard-key-list { max-height: 18.5rem; min-height: 0; min-width: 0; flex: 1 1 auto; overflow-y: auto; padding-right: .25rem; scrollbar-gutter: stable; }
 .sub2-dashboard-key-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: .8rem; min-height: 3.35rem; padding: .45rem 0; border-bottom: 1px solid #f0f1f3; }
 .sub2-dashboard-key-row:last-child { border-bottom: 0; }
 .sub2-dashboard-key-content { min-width: 0; }
@@ -71,6 +95,11 @@
 .sub2-dashboard-info-grid strong { display: block; margin-top: .3rem; overflow: hidden; color: #111827; font-size: .9rem; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .sub2-dashboard-info-value strong { min-width: 0; flex: 1 1 auto; margin-top: 0; }
 .sub2-dashboard-version-update { min-height: 1.9rem; flex: 0 0 auto; gap: .25rem; padding: .3rem .45rem; font-size: .6875rem; white-space: nowrap; }
+
+@media (min-width: 901px) {
+  .sub2-dashboard-overview-card { min-height: clamp(0px, calc(100dvh - 76px), 390px); }
+  .sub2-dashboard-overview-card .sub2-dashboard-card-body { min-height: 0; }
+}
 
 .sub2-dashboard-controls { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 1.5rem 0 1rem; }
 .sub2-dashboard-date-fields, .sub2-dashboard-control-actions { display: flex; align-items: end; gap: .65rem; flex-wrap: wrap; }
@@ -112,6 +141,8 @@
   .sub2-dashboard-station-card { min-height: 276px; }
   .sub2-dashboard-card-heading { min-height: 58px; }
   .sub2-dashboard-detail-grid { grid-template-columns: 1fr; }
+  .sub2-dashboard-route-row { grid-template-columns: 1.45rem minmax(0, 1fr); }
+  .sub2-dashboard-route-state { grid-column: 2; justify-self: start; }
   .sub2-dashboard-key-row { grid-template-columns: 1fr; gap: .6rem; }
   .sub2-dashboard-key-enable { width: 100%; }
   .sub2-dashboard-usage-metrics { grid-template-columns: 1fr; }
@@ -132,12 +163,18 @@
   .sub2-dashboard-overview-card { border-color: #454545; background: #292929; }
   .sub2-dashboard-card-heading { border-color: #414141; }
   .sub2-dashboard-card-heading h2, .sub2-dashboard-key-station strong, .sub2-dashboard-usage-metric strong, .sub2-dashboard-info-grid strong { color: #f5f5f5; }
-  .sub2-dashboard-card-heading p, .sub2-dashboard-detail-grid span, .sub2-dashboard-info-grid span, .sub2-dashboard-usage-metric-label, .sub2-dashboard-usage-metric small, .sub2-dashboard-key-name { color: #a3a3a3; }
-  .sub2-dashboard-routing-switch, .sub2-dashboard-config-grid > div, .sub2-dashboard-config-file, .sub2-dashboard-detail-grid > div, .sub2-dashboard-usage-metric, .sub2-dashboard-info-grid > div { border-color: #454545; background: #333; }
+  .sub2-dashboard-card-heading p, .sub2-dashboard-detail-grid span, .sub2-dashboard-info-grid span, .sub2-dashboard-usage-metric-label, .sub2-dashboard-usage-metric small, .sub2-dashboard-key-name, .sub2-dashboard-route-pool-heading span { color: #a3a3a3; }
+  .sub2-dashboard-routing-switch, .sub2-dashboard-config-grid > div, .sub2-dashboard-config-file, .sub2-dashboard-detail-grid > div, .sub2-dashboard-usage-metric, .sub2-dashboard-info-grid > div, .sub2-dashboard-route-list { border-color: #454545; background: #333; }
   .sub2-dashboard-config-file:hover { border-color: #5b5b5b; background: #3d3d3d; }
 .sub2-dashboard-config-grid span { color: #a3a3a3; }
 .sub2-dashboard-config-grid code { color: #e5e5e5; }
-  .sub2-dashboard-detail-grid code, .sub2-dashboard-detail-grid strong, .sub2-dashboard-key-station span { color: #e5e5e5; }
+  .sub2-dashboard-detail-grid code, .sub2-dashboard-detail-grid strong, .sub2-dashboard-key-station span, .sub2-dashboard-route-pool-heading strong, .sub2-dashboard-route-title strong { color: #e5e5e5; }
+  .sub2-dashboard-detail-grid small { color: #a3a3a3; }
+  .sub2-dashboard-route-row { border-color: #454545; }
+  .sub2-dashboard-route-order { background: #454545; color: #d4d4d4; }
+  .sub2-dashboard-route-title span { color: #d4d4d4; }
+  .sub2-dashboard-route-content small, .sub2-dashboard-route-empty span { color: #a3a3a3; }
+  .sub2-dashboard-route-empty strong { color: #d4d4d4; }
   .sub2-dashboard-date-fields input, .sub2-dashboard-control-actions .sub2-granularity select { border-color: #454545; background: #333; color: #e5e5e5; }
   .sub2-dashboard-model-table th { color: #bdbdbd; }
   .sub2-dashboard-model-table td { border-color: #414141; color: #d4d4d4; }

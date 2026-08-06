@@ -8,7 +8,7 @@
 .settings-tab.active { color: var(--ui-text); }
 .settings-tab.active::after { background: #000; }
 .settings-tab:focus-visible { outline: 2px solid #000; outline-offset: -2px; border-radius: .25rem; }
-.settings-header { display: grid; margin-bottom: 1.35rem; padding: .15rem 0 1.3rem; border-bottom: 1px solid var(--ui-border); }
+.settings-header { display: grid; margin-bottom: 1.35rem; padding: .15rem 0 1.3rem; border-bottom: none; }
 .settings-header-top { display: grid; grid-template-columns: minmax(15rem, .7fr) minmax(0, 1.3fr); align-items: start; gap: 1.5rem; }
 .settings-header-title { display: flex; align-items: flex-start; gap: .85rem; min-width: 0; }
 .settings-header-icon { display: grid; flex: 0 0 auto; width: 2.75rem; height: 2.75rem; place-items: center; border: 1px solid #e2e8f0; border-radius: .8rem; background: #f8fafc; color: #111827; }
@@ -39,6 +39,10 @@
 .settings-sync-item.is-error .settings-sync-item-icon { background: #fff7ed; }
 .settings-sync-item.is-pending .settings-sync-item-icon { color: #64748b; }
 .settings-refresh-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; }
+.settings-general-stack { display: grid; gap: 1rem; }
+.settings-profiles-stack { display: grid; gap: 1.25rem; }
+.settings-profiles-subsection { display: grid; gap: .75rem; }
+.settings-profiles-subsection-title { margin: 0; color: var(--ui-text); font-size: 1.1rem; font-weight: 700; }
 .settings-refresh-row > div { min-width: 0; }
 .settings-refresh-select { width: 8rem; flex: 0 0 8rem; }
 .settings-repository-link { width: 2.25rem; height: 2.25rem; padding: 0; }

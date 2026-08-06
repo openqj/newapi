@@ -84,6 +84,8 @@ export type AppRouteContext = {
   onRefreshUsageLogs: () => Promise<void>;
   onRefreshRemoteServers: () => Promise<void>;
   onRefreshSupportingData: () => Promise<void>;
+  onRefreshStation: (stationId: string) => Promise<void>;
+  apiKeyCreateRequest: number;
   onCodexRelayChanged: () => Promise<void>;
   onOpenStation: (url: string) => void | Promise<void>;
 };
@@ -131,7 +133,7 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
         onRefresh={onRefreshAll}
         onNavigate={navigate}
         onOpenUpdates={() => {
-          onSettingsTabChange("updates");
+          onSettingsTabChange("general");
           navigate("settings");
         }}
       />
@@ -140,12 +142,13 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   accounts: {
     view: "accounts",
     navigation: { label: "站点账户", Icon: UsersRound },
-    createPage: ({ accountRows, stations, onRefreshAll, onRefreshSupportingData, onOpenStation, onAddStation, onEditStationAccount, merchantRateRechargeStationId, onMerchantRateRechargeOpened }) => (
+    createPage: ({ accountRows, stations, onRefreshAll, onRefreshSupportingData, onRefreshStation, onOpenStation, onAddStation, onEditStationAccount, merchantRateRechargeStationId, onMerchantRateRechargeOpened }) => (
       <AccountsPage
         rows={accountRows}
         stations={stations}
         onRefresh={onRefreshAll}
         onUpdated={onRefreshSupportingData}
+        onRefreshStation={onRefreshStation}
         onOpenStation={onOpenStation}
         onAdd={onAddStation}
         onEdit={onEditStationAccount}
@@ -170,8 +173,8 @@ export const appRoutes: Readonly<Record<AppView, AppRoute>> = {
   keys: {
     view: "keys",
     navigation: { label: "API 密钥", Icon: KeyRound },
-    createPage: ({ keyRows, stations, onRefreshRatesAndKeys, onRefreshSupportingData, onCodexRelayChanged }) => (
-      <ApiKeysPage rows={keyRows} stations={stations} onRefresh={onRefreshRatesAndKeys} onUpdated={onRefreshSupportingData} onCodexApplied={onCodexRelayChanged} />
+    createPage: ({ keyRows, stations, onRefreshRatesAndKeys, onRefreshSupportingData, apiKeyCreateRequest, onCodexRelayChanged }) => (
+      <ApiKeysPage rows={keyRows} stations={stations} onRefresh={onRefreshRatesAndKeys} onUpdated={onRefreshSupportingData} openCreateRequest={apiKeyCreateRequest} onCodexApplied={onCodexRelayChanged} />
     ),
   },
   usage: {

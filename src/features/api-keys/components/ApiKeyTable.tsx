@@ -1,4 +1,4 @@
-import { Clipboard, Copy, Pencil, Play, Sparkles, Trash2 } from "lucide-react";
+import { Clipboard, Copy, Pencil, Play, Route, Trash2 } from "lucide-react";
 import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
 import { GroupRateSelect } from "./GroupRateSelect";
 import { identifyModelType, modelTypeTitle } from "../modelType";
@@ -10,24 +10,26 @@ type ApiKeyTableProps = {
   saving: string | null;
   selectedIds: string[];
   testStates: Record<string, ApiKeyTestState>;
-  localGatewayMode: boolean;
   onToggleSelected: (row: KeyRow) => void;
   onToggleAll: () => void;
   onReveal: (row: KeyRow) => void;
   onGroupChange: (row: KeyRow, group: string) => void;
-  onApplyToClaude: (row: KeyRow) => void;
   onApplyToCodex: (row: KeyRow) => void;
+  onAddToRoute: (row: KeyRow) => void;
   onTest: (row: KeyRow) => void;
   onEdit: (row: KeyRow) => void;
   onDelete: (row: KeyRow) => void;
 };
 
 const formatMoney = (value?: number) => value == null ? "-" : `${value.toFixed(4)} 元`;
+const formatMultiplier = (value?: number) => value == null ? "-" : `${value.toFixed(3)}x`;
+const formatBalance = (value?: number) => value == null ? "-" : `${value.toFixed(2)} 元`;
 const formatTime = (value?: number) => value
   ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "short", timeStyle: "short" }).format(value * 1000)
   : "尚未同步";
 const isActive = (status: string) => status === "active" || status === "有效";
 const rowId = (row: KeyRow) => `${row.stationId}:${row.key.id}`;
+const rowMultiplier = (row: KeyRow) => row.groups.find((group) => group.name === (row.key.group ?? "default"))?.multiplier;
 
 function TestStatus({ state }: { state?: ApiKeyTestState }) {
   if (!state) return null;
@@ -41,13 +43,12 @@ export function ApiKeyTable({
   saving,
   selectedIds,
   testStates,
-  localGatewayMode,
   onToggleSelected,
   onToggleAll,
   onReveal,
   onGroupChange,
-  onApplyToClaude,
   onApplyToCodex,
+  onAddToRoute,
   onTest,
   onEdit,
   onDelete,
@@ -64,7 +65,7 @@ export function ApiKeyTable({
           <thead>
             <tr>
               <th className="table-page-select-cell"><input type="checkbox" aria-label="全选 API 密钥" checked={allSelected} onChange={onToggleAll} /></th>
-              <th data-key-column="station">中转站</th><th data-key-column="modelType">模型类型</th><th data-key-column="name">名称</th><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="concurrency">当前并发</th>
+              <th data-key-column="station">中转站</th><th data-key-column="modelType">模型类型</th><th data-key-column="name">名称</th><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="multiplier">倍率</th><th data-key-column="balance">余额</th><th data-key-column="concurrency">当前并发</th>
               <th data-key-column="usage">用量</th><th data-key-column="expires">过期时间</th><th data-key-column="status">状态</th><th data-key-column="created">创建时间</th><th data-key-column="actions">操作</th>
             </tr>
           </thead>
@@ -75,7 +76,7 @@ export function ApiKeyTable({
               const active = isActive(row.key.status);
               const modelType = identifyModelType(row.models);
               const testState = testStates[id];
-              const busy = saving === id || saving === `claude:${id}` || saving === `codex:${id}` || testState?.status === "testing";
+              const busy = saving === id || saving === `codex:${id}` || saving === `route:${id}` || testState?.status === "testing";
               return (
                 <tr key={id}>
                   <td className="table-page-select-cell"><input type="checkbox" aria-label={`选择 API 密钥 ${row.key.name || row.key.id}`} checked={selectedIds.includes(id)} onChange={() => onToggleSelected(row)} /></td>
@@ -84,6 +85,8 @@ export function ApiKeyTable({
                   <td data-key-column="name"><strong>{row.key.name || "未命名密钥"}</strong></td>
                   <td data-key-column="apiKey"><div className="sub2-key-code"><code>{row.key.maskedKey || "已隐藏"}</code><button type="button" title="复制 API 密钥" className="sub2-copy-key" onClick={() => onReveal(row)}><Copy size={15} /></button></div></td>
                   <td data-key-column="group"><GroupRateSelect className="sub2-key-group-rate-select" value={row.key.group ?? "default"} groups={row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]} disabled={busy} onChange={(group) => onGroupChange(row, group)} /></td>
+                  <td data-key-column="multiplier" className="sub2-key-value">{formatMultiplier(rowMultiplier(row))}</td>
+                  <td data-key-column="balance" className="sub2-key-value">{formatBalance(row.stationBalance)}</td>
                   <td data-key-column="concurrency"><span className={`sub2-concurrency ${row.key.currentConcurrency ? "active" : ""}`}>{row.key.currentConcurrency ?? 0}</span></td>
                   <td data-key-column="usage">
                     <div className="sub2-key-usage">
@@ -97,9 +100,9 @@ export function ApiKeyTable({
                   <td data-key-column="created">{formatTime(row.key.createdAt)}</td>
                   <td data-key-column="actions">
                     <div className="sub2-key-row-actions">
-                      <button type="button" className="enable" title={localGatewayMode ? "无需重启chatgpt" : "启动后需重启chatgpt"} onClick={() => onApplyToCodex(row)} disabled={busy}>启用</button>
+                      <button type="button" className="enable" title="直接写入本地 Codex 配置" onClick={() => onApplyToCodex(row)} disabled={busy}>启用</button>
                       <button type="button" className="test" title="测试 API 密钥" onClick={() => onTest(row)} disabled={busy}><Play size={15} aria-hidden="true" /><span>测试</span></button>
-                      <button type="button" className="claude" title="配置 Claude Code 中转站" onClick={() => onApplyToClaude(row)} disabled={busy}><Sparkles size={15} aria-hidden="true" /><span>Claude</span></button>
+                      <button type="button" className="route" title="加入本地路由" onClick={() => onAddToRoute(row)} disabled={busy}><Route size={15} aria-hidden="true" /><span>加入路由</span></button>
                       <button type="button" className="edit" title="编辑密钥" onClick={() => onEdit(row)} disabled={busy}><Pencil size={15} /><span>编辑</span></button>
                       <button type="button" className="delete" title="删除密钥" onClick={() => onDelete(row)} disabled={busy}><Trash2 size={15} /><span>删除</span></button>
                     </div>
@@ -121,7 +124,7 @@ export function ApiKeyTable({
             <code>{row.key.maskedKey || "已隐藏"}</code>
             <dl>
               <div><dt>来源</dt><dd>{row.stationName}</dd></div><div><dt>网址</dt><dd>{row.stationUrl}</dd></div><div><dt>模型类型</dt><dd>{modelType}</dd></div>
-              <div><dt>分组</dt><dd>{row.key.group || "default"}</dd></div><div><dt>今日消费</dt><dd>{formatMoney(row.key.todaySpent)}</dd></div>
+              <div><dt>分组</dt><dd>{row.key.group || "default"}</dd></div><div><dt>倍率</dt><dd>{formatMultiplier(rowMultiplier(row))}</dd></div><div><dt>余额</dt><dd>{formatBalance(row.stationBalance)}</dd></div><div><dt>今日消费</dt><dd>{formatMoney(row.key.todaySpent)}</dd></div>
               <div><dt>额度</dt><dd>{formatMoney(row.key.remainingQuota)}</dd></div>
             </dl>
             <div className="sub2-card-actions">

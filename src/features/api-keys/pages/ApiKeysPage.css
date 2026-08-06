@@ -49,8 +49,6 @@
 .sub2-key-data-table th:nth-child(2) { min-width: 185px; }
 .sub2-key-data-table .sub2-key-code { min-width: 0; max-width: 12rem; }
 .sub2-key-data-table .sub2-key-code code { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub2-key-data-table th:nth-child(12) { position: sticky; right: 0; z-index: 3; background: #f9fafb; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
-.sub2-key-data-table td:nth-child(12) { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
 .sub2-key-row-actions .enable { min-width: 3.25rem; min-height: 1.9rem; flex-direction: row; justify-content: center; background: #111827; color: #fff; font-size: .75rem; font-weight: 600; }
 .sub2-key-row-actions .enable:hover:not(:disabled) { background: #374151; color: #fff; }
 .sub2-keys-page .sub2-record-card code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -88,8 +86,10 @@
 .sub2-key-data-table .table-page-station strong,
 .sub2-key-data-table [data-key-column="name"] strong,
 .sub2-keys-page .table-page-mobile-select strong { font-weight: 400; }
-.sub2-key-data-table table { min-width: 1685px; }
+.sub2-key-data-table table { min-width: 1830px; }
 .sub2-key-data-table [data-key-column="modelType"] { min-width: 8.5rem; }
+.sub2-key-data-table [data-key-column="multiplier"], .sub2-key-data-table [data-key-column="balance"] { min-width: 6.5rem; white-space: nowrap; }
+.sub2-key-value { color: #374151; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .75rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .sub2-key-data-table [data-key-column="actions"] { min-width: 330px; }
 .sub2-key-data-table [data-key-column="actions"] { position: sticky; right: 0; z-index: 2; background: #fff; box-shadow: -8px 0 12px -12px rgba(15, 23, 42, .35); }
 .sub2-key-data-table th[data-key-column="actions"] { z-index: 3; background: #f9fafb; }
@@ -100,6 +100,8 @@
 .sub2-key-data-table.sub2-key-column-hidden-name [data-key-column],
 .sub2-key-data-table.sub2-key-column-hidden-apiKey [data-key-column],
 .sub2-key-data-table.sub2-key-column-hidden-group [data-key-column],
+.sub2-key-data-table.sub2-key-column-hidden-multiplier [data-key-column],
+.sub2-key-data-table.sub2-key-column-hidden-balance [data-key-column],
 .sub2-key-data-table.sub2-key-column-hidden-concurrency [data-key-column],
 .sub2-key-data-table.sub2-key-column-hidden-usage [data-key-column],
 .sub2-key-data-table.sub2-key-column-hidden-expires [data-key-column],
@@ -111,9 +113,14 @@
 .sub2-key-data-table.sub2-key-column-hidden-name [data-key-column="name"],
 .sub2-key-data-table.sub2-key-column-hidden-apiKey [data-key-column="apiKey"],
 .sub2-key-data-table.sub2-key-column-hidden-group [data-key-column="group"],
+.sub2-key-data-table.sub2-key-column-hidden-multiplier [data-key-column="multiplier"],
+.sub2-key-data-table.sub2-key-column-hidden-balance [data-key-column="balance"],
 .sub2-key-data-table.sub2-key-column-hidden-concurrency [data-key-column="concurrency"],
 .sub2-key-data-table.sub2-key-column-hidden-usage [data-key-column="usage"],
 .sub2-key-data-table.sub2-key-column-hidden-expires [data-key-column="expires"],
 .sub2-key-data-table.sub2-key-column-hidden-status [data-key-column="status"],
 .sub2-key-data-table.sub2-key-column-hidden-created [data-key-column="created"],
 .sub2-key-data-table.sub2-key-column-hidden-actions [data-key-column="actions"] { display: none !important; }
+
+.sub2-key-row-actions .route { width: 3.75rem; min-width: 3.75rem; flex: 0 0 3.75rem; white-space: nowrap; }
+.sub2-key-row-actions .route:hover:not(:disabled) { background: #ecfeff; color: #0e7490; }

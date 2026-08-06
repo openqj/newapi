@@ -93,6 +93,8 @@
 .personal-admin-user-list small { margin-top: .12rem; color: var(--ui-muted); font-size: .6875rem; }
 .personal-admin-state { display: inline-flex; width: fit-content; align-items: center; border-radius: 999px; background: #f1f5f9; padding: .2rem .45rem; color: #64748b; font-size: .6875rem; white-space: nowrap; }
 .personal-admin-state.enabled { background: #dcfce7; color: #15803d; }
+.personal-admin-status-group { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .3rem; }
+.personal-admin-state.active { background: #dcfce7; color: #15803d; }
 .personal-admin-state.expired { background: #fef3c7; color: #92400e; }
 .personal-admin-loading { display: flex; align-items: center; justify-content: center; gap: .45rem; margin: 0; padding: 1rem; color: var(--ui-muted); font-size: .8125rem; }
 .personal-admin-loading-spinner { width: .8rem; height: .8rem; border: 2px solid #cbd5e1; border-top-color: #111827; border-radius: 50%; animation: personal-admin-spin .7s linear infinite; }

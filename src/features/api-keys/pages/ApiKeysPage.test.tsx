@@ -4,10 +4,10 @@ import { ConfirmationProvider, ToastProvider } from "../../../components/ui";
 import { ApiKeysPage } from "./ApiKeysPage";
 import type { KeyRow } from "../types";
 
-const { applyToClaude, gatewayStatus, groups, isTauri, reauthenticate, refresh, setRoute, testModels } = vi.hoisted(() => ({
-  applyToClaude: vi.fn(),
-  gatewayStatus: vi.fn(() => Promise.resolve({ mode: "ccSwitch" })),
-  setRoute: vi.fn(),
+const { applyToCodex, gatewayStatus, groups, isTauri, reauthenticate, refresh, setRoutes, testModels } = vi.hoisted(() => ({
+  applyToCodex: vi.fn(),
+  gatewayStatus: vi.fn(() => Promise.resolve({ mode: "ccSwitch", routeQueue: [] as { stationId: string; keyId: string }[] })),
+  setRoutes: vi.fn(),
   groups: vi.fn(),
   isTauri: vi.fn(() => false),
   reauthenticate: vi.fn(),
@@ -20,17 +20,18 @@ vi.mock("../../stations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../stations")>();
   return { ...actual, stationApi: { ...actual.stationApi, reauthenticate, refresh } };
 });
-vi.mock("../../gateway/api", () => ({ gatewayApi: { status: gatewayStatus, setRoute } }));
+vi.mock("../../gateway/api", () => ({ gatewayApi: { status: gatewayStatus, setRoutes } }));
 vi.mock("../api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api")>();
-  return { apiKeyApi: { ...actual.apiKeyApi, applyToClaude, groups, testModels } };
+  return { apiKeyApi: { ...actual.apiKeyApi, applyToCodex, groups, testModels } };
 });
 
 const row: KeyRow = {
   stationId: "station-1",
   stationName: "测试站点",
   stationUrl: "https://example.test",
-  groups: [{ name: "default" }],
+  stationBalance: 12.345,
+  groups: [{ name: "default", multiplier: 0.75 }],
   models: ["gpt-test"],
   key: {
     id: "key-1",
@@ -47,10 +48,12 @@ describe("ApiKeysPage selection and testing", () => {
     cleanup();
     vi.clearAllMocks();
     isTauri.mockReturnValue(false);
-    gatewayStatus.mockResolvedValue({ mode: "ccSwitch" });
+    gatewayStatus.mockResolvedValue({ mode: "ccSwitch", routeQueue: [] });
   });
 
-  it("keeps the client actions without an external importer", async () => {
+  it("writes the selected key directly to the local Codex config", async () => {
+    isTauri.mockReturnValue(true);
+    applyToCodex.mockResolvedValue(undefined);
     render(
       <ToastProvider>
         <ConfirmationProvider>
@@ -64,12 +67,13 @@ describe("ApiKeysPage selection and testing", () => {
       </ToastProvider>,
     );
 
-    const claudeAction = screen.getByRole("button", { name: "Claude" });
     expect(screen.queryByRole("button", { name: "导入" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Claude" })).not.toBeInTheDocument();
 
-    fireEvent.click(claudeAction);
+    fireEvent.click(screen.getByRole("button", { name: "启用" }));
 
-    await waitFor(() => expect(applyToClaude).toHaveBeenCalledWith("station-1", "key-1"));
+    await waitFor(() => expect(applyToCodex).toHaveBeenCalledWith("station-1", "key-1"));
+    expect(setRoutes).not.toHaveBeenCalled();
   });
 
   it("automatically logs in before creating a key for a disconnected station", async () => {
@@ -136,6 +140,10 @@ describe("ApiKeysPage selection and testing", () => {
     );
 
     expect(screen.getByRole("columnheader", { name: "模型类型" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "倍率" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "余额" })).toBeInTheDocument();
+    expect(screen.getAllByText("0.750x").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("12.35 元").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ChatGPT").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "一键测试" })).toBeDisabled();
     fireEvent.click(screen.getAllByRole("checkbox", { name: "选择 API 密钥 测试密钥" })[0]);
@@ -187,9 +195,10 @@ describe("ApiKeysPage selection and testing", () => {
     expect(screen.getAllByText("Claude").length).toBeGreaterThan(0);
   });
 
-  it("shows that ChatGPT does not need a restart in local Gateway mode", async () => {
+  it("appends a key to the local route queue", async () => {
     isTauri.mockReturnValue(true);
-    gatewayStatus.mockResolvedValue({ mode: "localGateway" });
+    gatewayStatus.mockResolvedValue({ mode: "localGateway", routeQueue: [{ stationId: "station-2", keyId: "key-2" }] });
+    setRoutes.mockResolvedValue({});
     render(
       <ToastProvider>
         <ConfirmationProvider>
@@ -203,6 +212,29 @@ describe("ApiKeysPage selection and testing", () => {
       </ToastProvider>,
     );
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "启用" })).toHaveAttribute("title", "无需重启chatgpt"));
+    fireEvent.click(screen.getAllByRole("button", { name: "加入路由" })[0]);
+
+    await waitFor(() => expect(setRoutes).toHaveBeenCalledWith([
+      { stationId: "station-2", keyId: "key-2" },
+      { stationId: "station-1", keyId: "key-1" },
+    ]));
+  });
+
+  it("opens the create dialog for a tray create request", () => {
+    render(
+      <ToastProvider>
+        <ConfirmationProvider>
+          <ApiKeysPage
+            rows={[]}
+            stations={[{ id: "station-1", name: "测试站点", baseUrl: "https://example.test", kind: "sub2api", status: "online" }]}
+            openCreateRequest={1}
+            onRefresh={vi.fn().mockResolvedValue(undefined)}
+            onUpdated={vi.fn().mockResolvedValue(undefined)}
+          />
+        </ConfirmationProvider>
+      </ToastProvider>,
+    );
+
+    expect(screen.getByRole("dialog", { name: "创建 API 密钥" })).toBeInTheDocument();
   });
 });

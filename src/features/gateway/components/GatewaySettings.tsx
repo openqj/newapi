@@ -127,27 +127,27 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
   const savePort = () => {
     const port = Number.parseInt(portDraft, 10);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      setError("本地 Gateway 端口必须是 1 到 65535 之间的整数");
+      setError("本地路由端口必须是 1 到 65535 之间的整数");
       return;
     }
-    void run("port", () => gatewayApi.setPort(port), "Gateway 端口已保存");
+    void run("port", () => gatewayApi.setPort(port), "本地路由端口已保存");
   };
 
   const saveRoutes = () => {
     if (status?.mode !== "localGateway") {
-      setError("请先切换到本地 Gateway 模式，再保存路由池");
+      setError("请先切换到本地路由模式，再保存路由池");
       return;
     }
     if (!draftRoutes.length) {
-      setError("至少保留一条 Gateway 路由");
+      setError("至少保留一条本地路由");
       return;
     }
-    void run("routes", () => gatewayApi.setRoutes(draftRoutes), "Gateway 路由池已保存", true);
+    void run("routes", () => gatewayApi.setRoutes(draftRoutes), "本地路由池已保存", true);
   };
 
   const toggleGateway = () => {
     if (!status || status.mode !== "localGateway") return;
-    void run("gateway", status.running ? gatewayApi.stop : gatewayApi.start, status.running ? "Gateway 已停止" : "Gateway 已启动");
+    void run("gateway", status.running ? gatewayApi.stop : gatewayApi.start, status.running ? "本地路由已停止" : "本地路由已启动");
   };
 
   const addRoute = () => {
@@ -178,22 +178,22 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
   const isTauriApp = isTauri();
 
   return <div className="gateway-settings">
-    <Panel className="settings-panel gateway-panel" title="Gateway 动态路由" description="让 ChatGPT / Codex 连接固定本地地址，再由 RelayHub 按优先级和健康状态选择上游。">
-      {!isTauriApp && <InlineAlert kind="info">Gateway 仅在 RelayHub 桌面应用中运行。</InlineAlert>}
+    <Panel className="settings-panel gateway-panel" title="本地路由" description="让 ChatGPT / Codex 连接固定本地地址，再由 RelayHub 按优先级和健康状态选择上游。">
+      {!isTauriApp && <InlineAlert kind="info">本地路由仅在 RelayHub 桌面应用中运行。</InlineAlert>}
       {error && <InlineAlert onDismiss={() => setError(null)}>{error}</InlineAlert>}
       <div className="gateway-topline">
         <div>
           <span className="gateway-eyebrow">路由入口</span>
-          <div className="gateway-mode-switch" role="group" aria-label="Gateway 路由模式">
+          <div className="gateway-mode-switch" role="group" aria-label="本地路由模式">
             <button type="button" className={`test-mode-button ${status?.mode === "ccSwitch" ? "active" : ""}`} aria-pressed={status?.mode === "ccSwitch"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("ccSwitch")}>直转</button>
             <button type="button" className={`test-mode-button ${status?.mode === "localGateway" ? "active" : ""}`} aria-pressed={status?.mode === "localGateway"} disabled={!status || Boolean(busyAction) || !isTauriApp} onClick={() => switchMode("localGateway")}>本地路由</button>
           </div>
-          <p className="gateway-helper">直转写入站点地址和 API 密钥；本地路由写入下方固定地址，由 Gateway 负责转发。</p>
+          <p className="gateway-helper">直转写入站点地址和 API 密钥；本地路由写入下方固定地址，由本地路由负责转发。</p>
         </div>
         <div className="gateway-running-actions">
           <span className={`gateway-running-badge ${status?.running ? "online" : "offline"}`}><i />{status?.running ? "运行中" : "已停止"}</span>
-          <button type="button" className="button-secondary" disabled={!status || status.mode !== "localGateway" || Boolean(busyAction) || !isTauriApp} onClick={toggleGateway}><Power size={15} />{busyAction === "gateway" ? "处理中" : status?.running ? "停止 Gateway" : "启动 Gateway"}</button>
-          <button type="button" className="button-secondary" title="刷新 Gateway 状态" aria-label="刷新 Gateway 状态" disabled={loading || Boolean(busyAction) || !isTauriApp} onClick={() => void refresh(true)}><RefreshCw size={15} className={loading ? "gateway-spin" : ""} /></button>
+          <button type="button" className="button-secondary" disabled={!status || status.mode !== "localGateway" || Boolean(busyAction) || !isTauriApp} onClick={toggleGateway}><Power size={15} />{busyAction === "gateway" ? "处理中" : status?.running ? "停止本地路由" : "启动本地路由"}</button>
+          <button type="button" className="button-secondary" title="刷新本地路由状态" aria-label="刷新本地路由状态" disabled={loading || Boolean(busyAction) || !isTauriApp} onClick={() => void refresh(true)}><RefreshCw size={15} className={loading ? "gateway-spin" : ""} /></button>
         </div>
       </div>
 
@@ -221,7 +221,7 @@ export function GatewaySettings({ keyRows }: { keyRows: KeyRow[] }) {
         </FormField>
       </div>
 
-      {loading && !status ? <div className="gateway-loading"><Loader2 size={18} className="gateway-spin" />正在读取 Gateway 状态…</div> : draftRoutes.length === 0 ? <EmptyState title="还没有 Gateway 路由" description="添加至少一条站点 / API 密钥后，保存路由池即可启用动态转发。" /> : <div className="gateway-route-list" aria-live="polite">{draftRoutes.map((route, index) => {
+      {loading && !status ? <div className="gateway-loading"><Loader2 size={18} className="gateway-spin" />正在读取本地路由状态…</div> : draftRoutes.length === 0 ? <EmptyState title="还没有本地路由" description="添加至少一条站点 / API 密钥后，保存路由池即可启用动态转发。" /> : <div className="gateway-route-list" aria-live="polite">{draftRoutes.map((route, index) => {
         const row = configuredRow(route);
         const health = healthByRoute.get(routeKey(route));
         const active = status?.activeStationId === route.stationId && status.activeKeyId === route.keyId;

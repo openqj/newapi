@@ -34,16 +34,39 @@ function membershipKey({ stationId, accountId }: Pick<MembershipAccess, "station
   return `${stationId}:${accountId}`;
 }
 
-function appendLocalAudit(action: string, membership: MembershipAccess) {
+function appendLocalAuditEntry(entry: Omit<PersonalCenterAuditEntry, "id" | "createdAt">) {
   const entries = readLocal<PersonalCenterAuditEntry[]>(AUDIT_HISTORY_KEY, []);
   entries.unshift({
+    ...entry,
     id: Date.now(),
-    action,
-    subject: membershipKey(membership),
-    detail: `${membership.plan} / ${membership.accessLevel}`,
     createdAt: Date.now(),
   });
   writeLocal(AUDIT_HISTORY_KEY, entries.slice(0, 200));
+}
+
+function membershipSnapshot(membership: MembershipAccess) {
+  return {
+    stationId: membership.stationId,
+    accountId: membership.accountId,
+    userEmail: membership.userEmail,
+    plan: membership.plan,
+    accessLevel: membership.accessLevel,
+    enabled: membership.enabled,
+    expiresAt: membership.expiresAt ?? null,
+    privileges: membership.privileges,
+  };
+}
+
+function appendLocalMembershipAudit(action: string, membership: MembershipAccess, before?: MembershipAccess, after?: MembershipAccess) {
+  appendLocalAuditEntry({
+    action,
+    subject: membershipKey(membership),
+    detail: `${membership.plan} / ${membership.accessLevel}`,
+    actorId: "demo-admin",
+    actorEmail: "本机模拟管理员",
+    before: before ? membershipSnapshot(before) : undefined,
+    after: after ? membershipSnapshot(after) : undefined,
+  });
 }
 
 /** Desktop commands with a persisted browser-preview implementation. */
@@ -73,10 +96,11 @@ export const personalCenterApi = {
     if (isTauri()) return invokeDesktop<MembershipAccess>("save_personal_center_membership", { membership });
     const memberships = readLocal<MembershipAccess[]>(MEMBERSHIPS_KEY, []);
     const index = memberships.findIndex((item) => membershipKey(item) === membershipKey(membership));
+    const previous = index >= 0 ? memberships[index] : undefined;
     if (index >= 0) memberships[index] = membership;
     else memberships.unshift(membership);
     writeLocal(MEMBERSHIPS_KEY, memberships);
-    appendLocalAudit(index >= 0 ? "membership.updated" : "membership.created", membership);
+    appendLocalMembershipAudit(index >= 0 ? "membership.updated" : "membership.created", membership, previous, membership);
     return membership;
   },
 
@@ -85,7 +109,12 @@ export const personalCenterApi = {
     const memberships = readLocal<MembershipAccess[]>(MEMBERSHIPS_KEY, []);
     const membership = memberships.find((item) => item.stationId === stationId && item.accountId === accountId);
     writeLocal(MEMBERSHIPS_KEY, memberships.filter((item) => item.stationId !== stationId || item.accountId !== accountId));
-    if (membership) appendLocalAudit("membership.deleted", membership);
+    if (membership) appendLocalMembershipAudit("membership.deleted", membership, membership);
+  },
+
+  recordLocalAudit(action: string, subject: string, detail: string, before?: unknown, after?: unknown) {
+    if (isTauri()) return;
+    appendLocalAuditEntry({ action, subject, detail, before, after, actorId: "demo-admin", actorEmail: "本机模拟管理员" });
   },
 
   async auditHistory(limit = 500): Promise<PersonalCenterAuditEntry[]> {

@@ -65,7 +65,7 @@ async function findConnectedMailbox() {
     }),
   );
   const connected = statuses.find(({ status }) => status?.connected && status.email);
-  if (!connected) throw new Error("未找到已连接邮箱，请先到“设置 → 自动注册”配置 Gmail、Outlook 或 QQ 邮箱");
+  if (!connected) throw new Error("未找到已连接邮箱，请先到“设置 → 常用登录”配置 Gmail、Outlook 或 QQ 邮箱");
   return { provider: connected.provider, email: connected.status!.email! };
 }
 

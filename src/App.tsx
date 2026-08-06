@@ -53,6 +53,7 @@ function App() {
   const [showMessages, setShowMessages] = useState(false);
   const [activeRelay, setActiveRelay] = useState<ActiveCodexRelayStatus | null>(null);
   const [activeRelayRefreshing, setActiveRelayRefreshing] = useState(false);
+  const [apiKeyCreateRequest, setApiKeyCreateRequest] = useState(0);
   const [accountRole, setAccountRole] = useState<AccountRole>("member");
   const [personalCenterAuth, setPersonalCenterAuth] = useState<CloudAuthStatus | null>(null);
   const navigate = useCallback((nextView: AppView) => {
@@ -62,6 +63,18 @@ function App() {
   const openLoginProfiles = useCallback(() => {
     setSettingsTab("profiles");
     setView("settings");
+  }, []);
+  const openLocalGateway = useCallback(() => {
+    setShowAdd(false);
+    setEditingStation(null);
+    setSettingsTab("gateway");
+    setView("settings");
+  }, []);
+  const openApiKeyCreator = useCallback(() => {
+    setShowAdd(false);
+    setEditingStation(null);
+    setApiKeyCreateRequest((request) => request + 1);
+    setView("keys");
   }, []);
   const handlePersonalCenterAuthChanged = useCallback((status: CloudAuthStatus) => {
     setPersonalCenterAuth(status);
@@ -94,7 +107,7 @@ function App() {
   const {
     stations, snapshot, keyRows, rateRows, accountRows, usageSummary, usageLogs,
     remoteServers, usageScope, setUsageScope, busy, syncProgress, loadStations, loadKeyRows, loadAccountRows,
-    loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData,
+    loadUsageSummary, refreshUsageLogs, loadRemoteServers, refreshSupportingData, refreshStationLogin,
     backgroundRefreshMinutes, setBackgroundRefreshMinutes,
     refreshRatesAndKeys, refreshAll, cancelRefresh,
   } = useAppData({ demo: appDemo, emptySnapshot, emptyUsageSummary, view });
@@ -141,6 +154,7 @@ function App() {
     onSettingsTabChange: setSettingsTab,
     backgroundRefreshMinutes,
     onBackgroundRefreshMinutesChange: setBackgroundRefreshMinutes,
+    apiKeyCreateRequest,
     personalCenterNotificationPreferences: personalCenterNotifications.preferences,
     personalCenterAuth,
     accountRole,
@@ -169,6 +183,7 @@ function App() {
     onRefreshUsageLogs: refreshUsageLogs,
     onRefreshRemoteServers: loadRemoteServers,
     onRefreshSupportingData: refreshSupportingData,
+    onRefreshStation: refreshStationLogin,
     onCodexRelayChanged: loadActiveRelay,
     onOpenStation: (url) => {
       void openStationUrl(url);
@@ -218,6 +233,15 @@ function App() {
     void listen("relayhub:open-merchant-center", () => setView("merchantCenter")).then((value) => { unlisten = value; });
     return () => unlisten?.();
   }, []);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let unlisten: (() => void)[] = [];
+    void Promise.all([
+      listen("relayhub:open-local-gateway", openLocalGateway),
+      listen("relayhub:open-api-key-create", openApiKeyCreator),
+    ]).then((values) => { unlisten = values; });
+    return () => unlisten.forEach((cleanup) => cleanup());
+  }, [openApiKeyCreator, openLocalGateway]);
   useEffect(() => {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;

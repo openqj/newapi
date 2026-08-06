@@ -18,6 +18,7 @@ export function AccountsPage({
   stations,
   onRefresh,
   onUpdated,
+  onRefreshStation,
   onOpenStation,
   onAdd,
   onEdit,
@@ -28,6 +29,7 @@ export function AccountsPage({
   stations: Station[];
   onRefresh: () => Promise<void>;
   onUpdated: () => Promise<void>;
+  onRefreshStation: (stationId: string) => Promise<void>;
   onOpenStation: (url: string) => Promise<void> | void;
   onAdd: () => void;
   onEdit: (row: AccountRow) => void;
@@ -39,6 +41,7 @@ export function AccountsPage({
   const [query, setQuery] = useState("");
   const [station, setStation] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshingStationId, setRefreshingStationId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -71,6 +74,18 @@ export function AccountsPage({
       await onRefresh();
     } finally {
       setRefreshing(false);
+    }
+  };
+  const refreshLogin = async (row: AccountRow) => {
+    if (refreshingStationId) return;
+    setRefreshingStationId(row.stationId);
+    try {
+      await onRefreshStation(row.stationId);
+      notify(`${row.stationName} 登录状态已刷新`, "success");
+    } catch (reason) {
+      notify(errorMessage(reason, "刷新站点登录状态失败，请稍后重试。"), "error");
+    } finally {
+      setRefreshingStationId(null);
     }
   };
   const remove = async (row: AccountRow) => {
@@ -153,13 +168,13 @@ export function AccountsPage({
         <td>{row.account.email || "-"}</td><td>{row.account.role || "-"}</td><td>{row.account.status || "-"}</td>
         <td><span className={`account-balance${row.account.balance == null ? " missing" : ""}`}>{formatMoney(row.account.balance)}</span></td>
         <td>{formatNumber(row.usage.todayRequests)}</td><td>{formatNumber(row.usage.totalRequests)}</td><td><StatusBadge status={row.syncStatus} /></td><td>{formatTime(row.lastSyncedAt)}</td>
-        <td><div className="account-row-actions"><button type="button" className="redeem" title="兑换额度" onClick={() => setRedeemRow(row)}><TicketCheck size={15} /><span>兑换</span></button><button type="button" className="edit" title="编辑站点账号" onClick={() => onEdit(row)}><Pencil size={15} /><span>编辑</span></button><button type="button" className="delete" title="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={15} /><span>删除</span></button></div></td>
+        <td><div className="account-row-actions"><button type="button" className="button-secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={15} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} /><span>刷新</span></button><button type="button" className="redeem" title="兑换额度" onClick={() => setRedeemRow(row)}><TicketCheck size={15} /><span>兑换</span></button><button type="button" className="edit" title="编辑站点账号" onClick={() => onEdit(row)}><Pencil size={15} /><span>编辑</span></button><button type="button" className="delete" title="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={15} /><span>删除</span></button></div></td>
       </tr>)}</tbody></table></div>}
       mobile={<div className="sub2-mobile-cards">{filtered.map((row) => <article className="sub2-record-card" key={row.stationId}>
         <div className="sub2-record-card-heading"><label className="table-page-mobile-select"><input type="checkbox" aria-label={`选择站点账号 ${row.stationName}`} checked={selectedIds.includes(row.stationId)} onChange={() => toggleSelected(row.stationId)} /><strong>{row.account.displayName || row.account.username || "未命名账户"}</strong></label><StatusBadge status={row.syncStatus} /></div>
         <small>{row.stationName}</small>
         <dl><div><dt>邮箱</dt><dd>{row.account.email || "-"}</dd></div><div><dt>角色</dt><dd>{row.account.role || "-"}</dd></div><div><dt>余额</dt><dd><span className={`account-balance${row.account.balance == null ? " missing" : ""}`}>{formatMoney(row.account.balance)}</span></dd></div><div><dt>今日请求</dt><dd>{formatNumber(row.usage.todayRequests)}</dd></div></dl>
-        <div className="sub2-card-actions"><button className="button-secondary" onClick={() => setRedeemRow(row)}><TicketCheck size={16} />兑换</button><button className="button-secondary" onClick={() => void onOpenStation(row.stationUrl)}><Server size={16} />打开站点</button><button className="button-secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</button><button type="button" className="sub2-icon-action sub2-danger-action" aria-label="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={16} /></button></div>
+        <div className="sub2-card-actions"><button type="button" className="button-secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={16} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} />刷新</button><button className="button-secondary" onClick={() => setRedeemRow(row)}><TicketCheck size={16} />兑换</button><button className="button-secondary" onClick={() => void onOpenStation(row.stationUrl)}><Server size={16} />打开站点</button><button className="button-secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</button><button type="button" className="sub2-icon-action sub2-danger-action" aria-label="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={16} /></button></div>
       </article>)}</div>}
     />
     {redeemRow && <RedeemCodeDialog row={redeemRow} onClose={() => setRedeemRow(null)} onRedeemed={onUpdated} />}

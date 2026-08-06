@@ -9,7 +9,7 @@ use reqwest::Client;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     tray::TrayIconBuilder,
-    Listener, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent,
+    Emitter, Listener, Manager, PhysicalPosition, PhysicalSize, Runtime, WindowEvent,
 };
 
 use crate::{
@@ -43,6 +43,13 @@ fn tray_rate_label(rate: &GroupRate) -> String {
             rate.group, rate.model, rate.multiplier
         ),
         _ => format!("{} · {} · ×{:.2}", rate.group, rate.model, rate.multiplier),
+    }
+}
+
+fn show_main_window<R: Runtime, M: Manager<R>>(manager: &M) {
+    if let Some(window) = manager.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
@@ -317,6 +324,10 @@ pub(crate) fn run() {
             let is_local_gateway = mode == RoutingMode::LocalGateway;
             let gateway_running = app.state::<AppState>().gateway.is_running();
             let dashboard = MenuItem::with_id(app, "show", "仪表板", true, None::<&str>)?;
+            let open_local_gateway =
+                MenuItem::with_id(app, "open-local-gateway", "去本地网关", true, None::<&str>)?;
+            let create_api_key =
+                MenuItem::with_id(app, "create-api-key", "增加 API 密钥", true, None::<&str>)?;
             let stations_menu = Submenu::new(app, "站点", true)?;
             refresh_stations_menu(app, &stations_menu, is_local_gateway)?;
             let tray_app_handle = app.handle().clone();
@@ -394,6 +405,8 @@ pub(crate) fn run() {
                 app,
                 &[
                     &dashboard,
+                    &open_local_gateway,
+                    &create_api_key,
                     &stations_menu,
                     &separator_primary,
                     &routing_mode,
@@ -422,13 +435,18 @@ pub(crate) fn run() {
                     }
                 }
                 "show" => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
+                    show_main_window(app);
                     if let Some(window) = app.get_webview_window("merchant-market") {
                         let _ = window.show();
                     }
+                }
+                "open-local-gateway" => {
+                    show_main_window(app);
+                    let _ = app.emit("relayhub:open-local-gateway", ());
+                }
+                "create-api-key" => {
+                    show_main_window(app);
+                    let _ = app.emit("relayhub:open-api-key-create", ());
                 }
                 "mode-direct" => {
                     let _ = direct.set_checked(true);

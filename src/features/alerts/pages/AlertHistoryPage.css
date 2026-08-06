@@ -1,4 +1,4 @@
-.alert-history-page { display: grid; gap: 1rem; }
+.alert-history-page { max-width: none; margin: 0; display: grid; gap: 1rem; }
 .alert-history-summary { margin: 0; }
 .alert-history-stat-warning .sub2-stat-icon { color: #b45309; background: #fef3c7; }
 .alert-history-stat-success .sub2-stat-icon { color: #15803d; background: #dcfce7; }

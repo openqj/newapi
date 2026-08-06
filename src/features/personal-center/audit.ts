@@ -11,6 +11,7 @@ export const auditActionLabels: Record<string, string> = {
   "notification.updated": "修改云端通知",
   "notification.revoked": "撤回云端通知",
   "notification.deleted": "删除云端通知",
+  "notification_preferences.updated": "修改通知规则",
   notification_insert: "发布云端通知",
   notification_update: "修改云端通知",
   notification_delete: "删除云端通知",
@@ -51,7 +52,11 @@ export function membershipEffectiveStatus(membership: Pick<MembershipAccess, "en
 }
 
 export function membershipStatusLabel(status: MembershipEffectiveStatus) {
-  return status === "active" ? "已启用" : status === "expired" ? "已过期" : "已停用";
+  return status === "active" ? "当前有效" : status === "expired" ? "已过期" : "当前无效";
+}
+
+export function membershipEnabledLabel(enabled: boolean) {
+  return enabled ? "已启用" : "已停用";
 }
 
 export function formatAuditDateTime(value?: number | null) {
