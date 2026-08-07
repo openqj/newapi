@@ -16,7 +16,7 @@ describe("DetectionConfigForm", () => {
 
     fireEvent.change(screen.getByPlaceholderText("https://api.anthropic.com"), { target: { value: "https://example.test" } });
     fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "sk-test" } });
-    fireEvent.click(screen.getByRole("listitem"));
+    fireEvent.click(screen.getByRole("button", { name: /gpt-5\.5/i }));
 
     expect(defaults.onEndpointChange).toHaveBeenCalledWith("https://example.test");
     expect(defaults.onApiKeyChange).toHaveBeenCalledWith("sk-test");

@@ -211,7 +211,7 @@ begin
          code_id::text,
          case when access_mode = 'copy' then 'Admin copied a merchant redeem code' else 'Admin viewed a merchant redeem code' end,
          jsonb_build_object('accessMode', access_mode),
-         jsonb_build_object('result', 'authorized');
+         jsonb_build_object('result', 'authorized')
   from auth.users users
   where users.id = auth.uid();
 

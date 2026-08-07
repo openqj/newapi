@@ -14,14 +14,14 @@ import {
 } from "lucide-react";
 import { openPath } from "@tauri-apps/plugin-opener";
 import packageInfo from "../../../../package.json";
+import { Button, IconButton, List, ListItem, SelectField, TextField } from "../../../components/ui";
 import { isTauri } from "../../../lib/platform";
 import { apiKeyApi } from "../../api-keys/api";
 import { GroupRateSelect } from "../../api-keys/components/GroupRateSelect";
 import type { KeyRow } from "../../api-keys";
 import { gatewayApi } from "../../gateway/api";
-import type { GatewayRouteHealth, GatewayStatus } from "../../gateway/types";
+import type { ConnectionMode, GatewayRouteHealth, GatewayStatus } from "../../gateway/types";
 import { settingsApi } from "../../settings/api";
-import { CodexProviderOptions } from "../../settings/components/CodexProviderOptions";
 import type { PendingDesktopUpdate } from "../../settings/types";
 import type { DashboardPageProps } from "../types";
 import "../../../components/Sub2ApiPages.css";
@@ -30,7 +30,7 @@ import "./DashboardPage.css";
 
 const DashboardCharts = lazy(() => import("../components/DashboardCharts").then(({ DashboardCharts }) => ({ default: DashboardCharts })));
 
-type ConnectionMode = "direct" | "localRouting";
+type SwitchableConnectionMode = Exclude<ConnectionMode, "disabled">;
 
 const formatMoney = (value?: number) =>
   value == null ? "-" : `${value.toFixed(4)} 额度`;
@@ -123,13 +123,13 @@ function VersionValue({
 }) {
   return <div className="sub2-dashboard-info-value">
     <strong title={updateTitle ?? version}>{version}</strong>
-    {updateAvailable && onUpdate && <button
-      type="button"
-      className="button-secondary sub2-dashboard-version-update"
+    {updateAvailable && onUpdate && <Button
+      variant="secondary"
+      className="sub2-dashboard-version-update"
       title={`更新 ${label}`}
       aria-label={`更新 ${label}`}
       onClick={onUpdate}
-    ><RefreshCw size={13} />更新</button>}
+    ><RefreshCw size={13} />更新</Button>}
   </div>;
 }
 
@@ -148,7 +148,7 @@ export function DashboardPage({
   const [endDate, setEndDate] = useState(todayInput(new Date()));
   const [granularity, setGranularity] = useState<"day" | "hour">("day");
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus | null>(null);
-  const [previewMode, setPreviewMode] = useState<ConnectionMode>("direct");
+  const [previewMode, setPreviewMode] = useState<SwitchableConnectionMode>("direct");
   const [previewKeyId, setPreviewKeyId] = useState<string | null>(null);
   const [switchingMode, setSwitchingMode] = useState(false);
   const [gatewayError, setGatewayError] = useState<string | null>(null);
@@ -172,7 +172,8 @@ export function DashboardPage({
       updateAvailable: remoteServers.some((server) => server.codexUpdateAvailable),
     };
   }, [remoteServers]);
-  const connectionMode: ConnectionMode = gatewayStatus?.mode === "localGateway" ? "localRouting" : gatewayStatus ? "direct" : previewMode;
+  const connectionMode: ConnectionMode = gatewayStatus?.connectionMode
+    ?? (gatewayStatus?.mode === "localGateway" ? "localRouting" : gatewayStatus ? "direct" : isTauri() ? "disabled" : previewMode);
   const selectedKey = gatewayStatus?.activeStationId && gatewayStatus.activeKeyId
     ? keys.find((row) => row.stationId === gatewayStatus.activeStationId && row.key.id === gatewayStatus.activeKeyId)
     : undefined;
@@ -290,7 +291,7 @@ export function DashboardPage({
     observer.observe(usageMetric);
     return () => observer.disconnect();
   }, [connectionMode]);
-  const switchConnectionMode = async (nextMode: ConnectionMode) => {
+  const switchConnectionMode = async (nextMode: SwitchableConnectionMode) => {
     if (switchingMode || nextMode === connectionMode) return;
     if (!isTauri()) {
       setPreviewMode(nextMode);
@@ -354,6 +355,20 @@ export function DashboardPage({
       setGroupSavingKeyId(null);
     }
   };
+  const routingStatusTone = connectionMode === "disabled"
+    ? "sub2-status-warn"
+    : connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running
+      ? "sub2-status-warn"
+      : "sub2-status-good";
+  const routingStatusLabel = switchingMode
+    ? "正在切换"
+    : connectionMode === "disabled"
+      ? "未开启"
+      : connectionMode === "direct"
+        ? "直转已启用"
+        : gatewayStatus && !gatewayStatus.running
+          ? "本地路由已停止"
+          : "本地路由已启用";
   return <div className="sub2-page sub2-dashboard-page">
     <section ref={overviewGridRef} className="sub2-dashboard-overview-grid">
       <OverviewCard
@@ -361,7 +376,7 @@ export function DashboardPage({
         icon={<Activity size={18} />}
         title="今日使用"
         description="所有已同步站点的今日汇总"
-        action={<button type="button" className="button-secondary sub2-dashboard-icon-action" title="查看使用记录" aria-label="查看使用记录" onClick={() => onNavigate("usage")}><ArrowRight size={15} /></button>}
+        action={<IconButton variant="secondary" className="sub2-dashboard-icon-action" label="查看使用记录" onClick={() => onNavigate("usage")} icon={<ArrowRight size={15} />} />}
       >
         <div className="sub2-dashboard-usage-metrics">
           <UsageMetric tone="green" icon={<DollarSign size={18} />} label="余额" value={balances.length ? formatMoney(totalBalance) : "-"} detail="可用" />
@@ -378,9 +393,9 @@ export function DashboardPage({
         icon={<Gauge size={18} />}
         title="站点与密匙"
         description={`${keys.length} 个 API 密匙 · ${online}/${stations.length} 个站点正常运行`}
-        action={<button type="button" className="button-secondary sub2-dashboard-icon-action" title="同步站点" aria-label="同步站点" onClick={() => void onRefresh()}><RefreshCw size={15} /></button>}
+        action={<IconButton variant="secondary" className="sub2-dashboard-icon-action" label="同步站点" onClick={() => void onRefresh()} icon={<RefreshCw size={15} />} />}
       >
-        <div className="sub2-dashboard-key-list">
+        <List className="sub2-dashboard-key-list">
           {keys.map((row) => {
             const id = keyRowId(row);
             const groupValue = groupDrafts[id] ?? row.key.group ?? "default";
@@ -388,7 +403,7 @@ export function DashboardPage({
             const busy = enablingKeyId === id || groupSavingKeyId === id;
             const enabled = activeKeyRowId === id;
             const balance = row.stationBalance ?? accountByStation.get(row.stationId)?.account.balance;
-            return <div className="sub2-dashboard-key-row" key={id}>
+            return <ListItem className="sub2-dashboard-key-row" key={id}>
               <div className="sub2-dashboard-key-content">
                 <div className="sub2-dashboard-key-station"><strong>{row.stationName}</strong><span>剩余：{formatRemaining(balance)}</span></div>
                 <div className="sub2-dashboard-key-meta">
@@ -396,11 +411,11 @@ export function DashboardPage({
                   <GroupRateSelect className="sub2-dashboard-key-group" value={groupValue} groups={groups} disabled={busy} onChange={(group) => void changeKeyGroup(row, group)} />
                 </div>
               </div>
-              <button type="button" className="button-primary sub2-dashboard-key-enable" aria-pressed={enabled} title={enabled ? "当前已启用" : "启用此 API 密钥"} disabled={busy || enabled} onClick={() => void enableKey(row)}>{enabled ? "已启用" : enablingKeyId === id ? "启用中" : "启用"}</button>
-            </div>;
+              <Button variant="primary" className="sub2-dashboard-key-enable" aria-pressed={enabled} title={enabled ? "当前已启用" : "启用此 API 密钥"} disabled={busy || enabled} onClick={() => void enableKey(row)}>{enabled ? "已启用" : enablingKeyId === id ? "启用中" : "启用"}</Button>
+            </ListItem>;
           })}
           {!keys.length && <div className="sub2-dashboard-empty">尚未添加 API 密钥</div>}
-        </div>
+        </List>
         {keyActionError && <p className="sub2-dashboard-key-error" role="alert">{keyActionError}</p>}
       </OverviewCard>
 
@@ -408,12 +423,13 @@ export function DashboardPage({
         className="sub2-dashboard-routing-card"
         icon={<ServerCog size={18} />}
         title="中转方式"
-        titleSuffix={<div className="sub2-dashboard-routing-status"><span className={`sub2-status ${connectionMode === "localRouting" && gatewayStatus && !gatewayStatus.running ? "sub2-status-warn" : "sub2-status-good"}`}><i />{switchingMode ? "正在切换" : connectionMode === "direct" ? "直转已启用" : gatewayStatus && !gatewayStatus.running ? "本地路由已停止" : "本地路由已启用"}</span></div>}
+        titleSuffix={<div className="sub2-dashboard-routing-status"><span className={`sub2-status ${routingStatusTone}`}><i />{routingStatusLabel}</span></div>}
         description="直转使用站点 API 密钥，本地路由通过本地 Gateway 转发"
       >
         <div className="sub2-dashboard-routing-switch" role="group" aria-label="中转方式">
-          <button type="button" className={`test-mode-button ${connectionMode === "direct" ? "active" : ""}`} aria-pressed={connectionMode === "direct"} disabled={switchingMode} onClick={() => void switchConnectionMode("direct")}>直转</button>
-          <button type="button" className={`test-mode-button ${connectionMode === "localRouting" ? "active" : ""}`} aria-pressed={connectionMode === "localRouting"} disabled={switchingMode} onClick={() => void switchConnectionMode("localRouting")}>本地路由</button>
+          <Button variant="test" className={`is-status ${connectionMode === "disabled" ? "active" : ""}`} aria-pressed={connectionMode === "disabled"} disabled title="Codex 当前使用本地配置，RelayHub 未接管">未开启</Button>
+          <Button variant="test" className={connectionMode === "direct" ? "active" : ""} aria-pressed={connectionMode === "direct"} disabled={switchingMode} onClick={() => void switchConnectionMode("direct")}>直转</Button>
+          <Button variant="test" className={connectionMode === "localRouting" ? "active" : ""} aria-pressed={connectionMode === "localRouting"} disabled={switchingMode} onClick={() => void switchConnectionMode("localRouting")}>本地路由</Button>
         </div>
         {connectionMode === "localRouting" ? (
           <section className="sub2-dashboard-route-pool" aria-label="本地路由池">
@@ -421,7 +437,7 @@ export function DashboardPage({
               <div><span>本地路由池</span><strong>{gatewayRouteRows.length} 条路由</strong></div>
               <span>{online}/{stations.length} 个站点可用</span>
             </div>
-            <div className="sub2-dashboard-route-list" role="list">
+            <List className="sub2-dashboard-route-list">
               {gatewayRouteRows.map(({ index, route, keyRow, health }) => {
                 const stationName = keyRow?.stationName ?? route.stationId;
                 const keyName = keyRow?.key.name || keyRow?.key.id || route.keyId;
@@ -429,25 +445,24 @@ export function DashboardPage({
                 const cooldown = state === "open" && (health?.cooldownRemainingMs ?? 0) > 0
                   ? ` · 冷却 ${formatCooldown(health?.cooldownRemainingMs ?? 0)}`
                   : "";
-                return <div className="sub2-dashboard-route-row" role="listitem" key={`${route.stationId}:${route.keyId}`}>
+                return <ListItem className="sub2-dashboard-route-row" key={`${route.stationId}:${route.keyId}`}>
                   <span className="sub2-dashboard-route-order" aria-hidden="true">{index + 1}</span>
                   <div className="sub2-dashboard-route-content">
                     <div className="sub2-dashboard-route-title"><strong title={stationName}>{stationName}</strong><span title={keyName}>{keyName}</span></div>
                     <small>{health ? `${formatNumber(health.totalRequests)} 次请求 · 失败 ${formatNumber(health.failedRequests)}` : "等待健康数据"}</small>
                   </div>
                   <span className={`sub2-dashboard-route-state ${gatewayRouteStateClass(state)}`}>{gatewayRouteStateLabel(state)}{cooldown}</span>
-                </div>;
+                </ListItem>;
               })}
               {!gatewayRouteRows.length && <div className="sub2-dashboard-route-empty"><strong>本地路由池暂无路由</strong><span>添加可用路由后会显示在这里</span></div>}
-            </div>
+            </List>
           </section>
         ) : (
           <>
             <div className="sub2-dashboard-config-grid">
-              <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></button>
-              <button type="button" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></button>
+              <Button variant="ghost" className="sub2-dashboard-config-file" title="使用默认程序打开 auth.json" aria-label="打开 auth.json" onClick={() => void openCodexFile("auth.json")}><span>认证文件</span><code><FileText size={13} aria-hidden="true" />auth.json</code></Button>
+              <Button variant="ghost" className="sub2-dashboard-config-file" title="使用默认程序打开 config.toml" aria-label="打开 config.toml" onClick={() => void openCodexFile("config.toml")}><span>路由文件</span><code><FileText size={13} aria-hidden="true" />config.toml</code></Button>
             </div>
-            <CodexProviderOptions compact />
             <div className="sub2-dashboard-detail-grid">
               <div>
                 <span>API 密钥</span>
@@ -485,8 +500,8 @@ export function DashboardPage({
     </section>
 
     <section className="sub2-dashboard-controls">
-      <div className="sub2-dashboard-date-fields"><label>开始日期<input type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>结束日期<input type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
-      <div className="sub2-dashboard-control-actions"><div className="sub2-quick-range"><button onClick={() => setRange(1)}>今天</button><button onClick={() => setRange(7)}>7 天</button><button onClick={() => setRange(30)}>30 天</button></div><label className="sub2-granularity">粒度<select value={granularity} onChange={(event) => setGranularity(event.target.value as "day" | "hour")}><option value="day">按天</option><option value="hour">按小时</option></select></label><button className="button-secondary" title="刷新数据" aria-label="刷新数据" onClick={() => void onRefresh()}><RefreshCw size={16} /></button></div>
+      <div className="sub2-dashboard-date-fields"><label>开始日期<TextField type="date" value={startDate} max={endDate} onChange={(event) => setStartDate(event.target.value)} /></label><label>结束日期<TextField type="date" value={endDate} min={startDate} onChange={(event) => setEndDate(event.target.value)} /></label></div>
+      <div className="sub2-dashboard-control-actions"><div className="sub2-quick-range"><Button variant="ghost" onClick={() => setRange(1)}>今天</Button><Button variant="ghost" onClick={() => setRange(7)}>7 天</Button><Button variant="ghost" onClick={() => setRange(30)}>30 天</Button></div><label className="sub2-granularity">粒度<SelectField value={granularity} onChange={(event) => setGranularity(event.target.value as "day" | "hour")}><option value="day">按天</option><option value="hour">按小时</option></SelectField></label><IconButton variant="secondary" label="刷新数据" onClick={() => void onRefresh()} icon={<RefreshCw size={16} />} /></div>
     </section>
     <Suspense fallback={<section className="sub2-dashboard-chart-grid" aria-busy="true" />}>
       <DashboardCharts models={models} trend={trend} granularity={granularity} formatNumber={formatNumber} />

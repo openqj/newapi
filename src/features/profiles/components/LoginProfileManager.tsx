@@ -1,6 +1,5 @@
 import { type FormEvent, useState } from "react";
-import { FormDialog } from "../../../components/ui";
-import { useToast } from "../../../components/ui";
+import { Button, FormDialog, List, ListItem, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../api";
@@ -53,40 +52,40 @@ export function LoginProfileManager({
       contentClassName="space-y-4"
       footer={
         <>
-          <button
-            type="button"
-            className="button-secondary form-dialog-cancel"
+          <Button
+            variant="secondary"
+            className="form-dialog-cancel"
             onClick={onClose}
           >
             取消
-          </button>
-          <button className="button-primary form-dialog-submit" disabled={saving}>
+          </Button>
+          <Button variant="primary" className="form-dialog-submit" type="submit" disabled={saving}>
             {saving ? "保存中" : "保存账号"}
-          </button>
+          </Button>
         </>
       }
     >
-      <div className="rounded-lg border border-slate-100">
+      <List className="rounded-lg border border-slate-100">
         {profiles.length === 0 ? (
           <p className="px-3 py-4 text-sm text-slate-500">
             尚无已保存账号。
           </p>
         ) : (
-          profiles.map((profile) => (
-            <div
+            profiles.map((profile) => (
+            <ListItem
               className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-sm last:border-0"
               key={profile.id}
             >
               <span className="font-medium">{profile.name}</span>
               <span className="text-slate-500">{profile.username}</span>
-            </div>
+            </ListItem>
           ))
         )}
-      </div>
+      </List>
       <label>
         账号名称
-        <input
-          className="input mt-1"
+        <TextField
+          className="mt-1"
           name="name"
           required
           placeholder="例如：常用中转站账号"
@@ -94,8 +93,8 @@ export function LoginProfileManager({
       </label>
       <label>
         用户名
-        <input
-          className="input mt-1"
+        <TextField
+          className="mt-1"
           name="username"
           required
           autoComplete="username"
@@ -103,8 +102,8 @@ export function LoginProfileManager({
       </label>
       <label>
         密码
-        <input
-          className="input mt-1"
+        <TextField
+          className="mt-1"
           name="password"
           type="password"
           required

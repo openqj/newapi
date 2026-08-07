@@ -83,6 +83,18 @@ pub(crate) fn current_relay_credentials() -> Result<Option<(String, Option<Strin
     Ok(active_relay_credentials_from_contents(&config, &auth))
 }
 
+pub(crate) fn is_local_gateway_config(base_url: &str, gateway_token: &str) -> Result<bool, String> {
+    let directory = codex_directory()?;
+    let config = read_optional(&directory.join("config.toml"))?;
+    let auth = read_optional(&directory.join("auth.json"))?;
+    Ok(is_local_gateway_config_from_contents(
+        &config,
+        &auth,
+        base_url,
+        gateway_token,
+    ))
+}
+
 pub(crate) async fn active_relay_status(
     state: &AppState,
 ) -> Result<Option<ActiveCodexRelayStatus>, String> {
@@ -783,6 +795,9 @@ fn apply_raw_with_preserve_login(
         &preferences,
         common_config.as_deref(),
     )?;
+    if current_routing_mode(state)? == RoutingMode::CcSwitch {
+        crate::services::gateway::mark_direct_config_managed(state)?;
+    }
     Ok((backup_files, status(state)?))
 }
 
@@ -840,6 +855,34 @@ fn active_relay_credentials(config: &str) -> Option<(String, Option<String>)> {
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     Some((url, key))
+}
+
+fn is_local_gateway_config_from_contents(
+    config: &str,
+    auth: &str,
+    base_url: &str,
+    gateway_token: &str,
+) -> bool {
+    let Some(provider_name) = active_provider_id(config) else {
+        return false;
+    };
+    if provider_name != LOCAL_GATEWAY_PROVIDER {
+        return false;
+    }
+    let Some((url, Some(key))) = active_relay_credentials_from_contents(config, auth) else {
+        return false;
+    };
+    url.trim().trim_end_matches('/') == base_url.trim().trim_end_matches('/')
+        && key.trim() == gateway_token.trim()
+}
+
+fn active_provider_id(config: &str) -> Option<String> {
+    let document = config.parse::<toml::Value>().ok()?;
+    document
+        .as_table()?
+        .get("model_provider")?
+        .as_str()
+        .map(str::to_string)
 }
 
 fn active_relay_credentials_from_contents(
@@ -1162,8 +1205,8 @@ mod tests {
     use super::{
         active_relay_credentials, active_relay_credentials_from_contents, active_relay_url,
         apply_to_directory, build_config_with_model, build_config_with_preferences,
-        build_local_gateway_config, local_relay_credentials_from_contents, CodexPreferences,
-        LocalGatewaySnapshot,
+        build_local_gateway_config, is_local_gateway_config_from_contents,
+        local_relay_credentials_from_contents, CodexPreferences, LocalGatewaySnapshot,
     };
 
     #[test]
@@ -1211,6 +1254,36 @@ experimental_bearer_token = "sk-provider"
                 Some("sk-provider".into())
             ))
         );
+    }
+
+    #[test]
+    fn recognizes_only_the_active_relayhub_local_gateway_provider() {
+        let config = r#"
+model_provider = "relayhub_local"
+
+[model_providers.relayhub_local]
+base_url = "http://127.0.0.1:18765/v1"
+experimental_bearer_token = "rh-token"
+"#;
+
+        assert!(is_local_gateway_config_from_contents(
+            config,
+            "",
+            "http://127.0.0.1:18765/v1",
+            "rh-token",
+        ));
+        assert!(!is_local_gateway_config_from_contents(
+            &config.replace("relayhub_local", "custom"),
+            "",
+            "http://127.0.0.1:18765/v1",
+            "rh-token",
+        ));
+        assert!(!is_local_gateway_config_from_contents(
+            config,
+            "",
+            "http://127.0.0.1:18765/v1",
+            "rh-other-token",
+        ));
     }
 
     #[test]

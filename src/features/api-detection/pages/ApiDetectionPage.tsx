@@ -11,7 +11,7 @@ import type {
   SavedApiKeyRow,
 } from "../types";
 import { demoResult, endpointDisplay, modelOptions, protocolForModel } from "../utils";
-import { useToast } from "../../../components/ui";
+import { Button, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { DetectionResultPanel } from "../components/DetectionResultPanel";
@@ -267,7 +267,7 @@ export function ApiDetectionPage({ keyRows }: { keyRows: SavedApiKeyRow[] }) {
 
         <section className="api-intelligence-action" aria-label="检测智商">
           <div><div className="api-intelligence-kicker"><Brain size={15} /> 独立能力测试</div><h2>检测智商</h2><p>固定推理题重复测试，用于观察 ChatGPT 是否出现降智或结果波动。</p></div>
-          <button type="button" className="button-secondary" onClick={() => void runIntelligence()} disabled={intelligenceRunning || running}><Brain size={16} />{intelligenceRunning ? "检测中" : "检测智商"}</button>
+          <Button variant="secondary" onClick={() => void runIntelligence()} disabled={intelligenceRunning || running}><Brain size={16} />{intelligenceRunning ? "检测中" : "检测智商"}</Button>
         </section>
         {intelligenceResult && <IntelligenceTestPanel result={intelligenceResult} model={model} baselineScore={intelligenceBaseline} />}
 

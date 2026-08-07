@@ -60,11 +60,6 @@
 .codex-option-grid input { width: 1rem; height: 1rem; accent-color: #111827; }
 .codex-option-grid label:has(input:disabled) { cursor: not-allowed; opacity: .6; }
 .codex-common-config-button { margin-left: auto; }
-.settings-toggle { position: relative; flex: 0 0 auto; width: 3rem; height: 1.75rem; border-radius: 999px; background: #cbd5e1; transition: background .16s; }
-.settings-toggle i { position: absolute; top: .2rem; left: .2rem; width: 1.35rem; height: 1.35rem; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(15, 23, 42, .2); transition: transform .16s; }
-.settings-toggle.active { background: #10b981; }
-.settings-toggle.active i { transform: translateX(1.25rem); }
-.settings-toggle:disabled { cursor: not-allowed; opacity: .6; }
 @media (max-width: 640px) {
   .settings-header-top { grid-template-columns: 1fr; }
   .settings-sync-panel-heading { align-items: flex-start; flex-direction: column; gap: .2rem; }

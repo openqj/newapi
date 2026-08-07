@@ -2,13 +2,14 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
 import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
+import { Button, IconButton } from "./Button";
+import { Dialog } from "./Dialog";
+import { TextField } from "./Primitives";
 import "./Feedback.css";
 
 type NoticeKind = "success" | "error" | "info";
@@ -35,9 +36,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div className={`toast toast-${item.kind}`} key={item.id}>
             {item.kind === "success" ? <CircleCheck size={17} /> : item.kind === "error" ? <CircleAlert size={17} /> : <Info size={17} />}
             <span>{item.message}</span>
-            <button type="button" aria-label="关闭提示" onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))}>
-              <X size={16} />
-            </button>
+            <IconButton label="关闭提示" onClick={() => setItems((current) => current.filter((entry) => entry.id !== item.id))} icon={<X size={16} />} />
           </div>
         ))}
       </div>,
@@ -57,32 +56,15 @@ export function InlineAlert({ children, kind = "error", onDismiss }: { children:
   return <div className={`inline-alert inline-alert-${kind}`} role={kind === "error" ? "alert" : "status"}>
     <Icon size={16} />
     <span>{children}</span>
-    {onDismiss && <button type="button" aria-label="关闭提示" onClick={onDismiss}><X size={16} /></button>}
+    {onDismiss && <IconButton label="关闭提示" onClick={onDismiss} icon={<X size={16} />} />}
   </div>;
 }
 
-type DialogProps = { title: string; description?: ReactNode; children?: ReactNode; onClose: () => void; footer: ReactNode };
-function OverlayDialog({ title, description, children, onClose, footer }: DialogProps) {
-  const closeButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeButton.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-  return createPortal(
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal overlay-dialog" role="dialog" aria-modal="true" aria-labelledby="overlay-dialog-title">
-        <header className="form-dialog-header">
-          <div><h2 id="overlay-dialog-title" className="font-semibold">{title}</h2>{description && <p className="form-dialog-description">{description}</p>}</div>
-          <button ref={closeButton} type="button" className="icon-button" aria-label="关闭" onClick={onClose}><X size={17} /></button>
-        </header>
-        {children && <div className="form-dialog-content">{children}</div>}
-        <footer className="form-dialog-footer">{footer}</footer>
-      </section>
-    </div>,
-    document.body,
-  );
+type DialogContentProps = { title: string; description?: ReactNode; children?: ReactNode; onClose: () => void; footer: ReactNode };
+function OverlayDialog({ title, description, children, onClose, footer }: DialogContentProps) {
+  return <Dialog title={title} description={description} ariaLabel={title} onClose={onClose} footer={footer} portal>
+    {children}
+  </Dialog>;
 }
 
 type ConfirmOptions = { title?: string; description: ReactNode; confirmLabel?: string; destructive?: boolean };
@@ -95,7 +77,7 @@ export function ConfirmationProvider({ children }: { children: ReactNode }) {
   const settle = useCallback((value: boolean) => { setPending((current) => { current?.resolve(value); return null; }); }, []);
   return <ConfirmContext.Provider value={{ confirm }}>
     {children}
-    {pending && <OverlayDialog title={pending.options.title ?? "确认操作"} description={pending.options.description} onClose={() => settle(false)} footer={<><button type="button" className="button-secondary" onClick={() => settle(false)}>取消</button><button type="button" className={pending.options.destructive ? "button-danger" : "button-primary"} onClick={() => settle(true)}>{pending.options.confirmLabel ?? "确认"}</button></>} />}
+    {pending && <OverlayDialog title={pending.options.title ?? "确认操作"} description={pending.options.description} onClose={() => settle(false)} footer={<><Button variant="secondary" onClick={() => settle(false)}>取消</Button><Button variant={pending.options.destructive ? "danger" : "primary"} onClick={() => settle(true)}>{pending.options.confirmLabel ?? "确认"}</Button></>} />}
   </ConfirmContext.Provider>;
 }
 
@@ -118,8 +100,8 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 
 function PromptDialog({ pending, onClose, onSubmit }: { pending: { options: PromptOptions }; onClose: () => void; onSubmit: (value: string) => void }) {
   const [value, setValue] = useState(pending.options.initialValue ?? "");
-  return <OverlayDialog title={pending.options.title} description={pending.options.description} onClose={onClose} footer={<><button type="button" className="button-secondary" onClick={onClose}>取消</button><button type="button" className="button-primary" onClick={() => onSubmit(value)}>{pending.options.confirmLabel ?? "确认"}</button></>}>
-    <label className="form-field"><span>{pending.options.label}</span><input autoFocus className="input" value={value} inputMode={pending.options.inputMode} onChange={(event) => setValue(event.target.value)} /></label>
+  return <OverlayDialog title={pending.options.title} description={pending.options.description} onClose={onClose} footer={<><Button variant="secondary" onClick={onClose}>取消</Button><Button variant="primary" onClick={() => onSubmit(value)}>{pending.options.confirmLabel ?? "确认"}</Button></>}>
+    <label className="form-field"><span>{pending.options.label}</span><TextField autoFocus value={value} inputMode={pending.options.inputMode} onChange={(event) => setValue(event.target.value)} /></label>
   </OverlayDialog>;
 }
 

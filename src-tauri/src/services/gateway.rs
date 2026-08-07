@@ -24,7 +24,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_opener::OpenerExt;
-use tokio::sync::{oneshot, RwLock};
+use tokio::{
+    sync::{oneshot, RwLock},
+    time::timeout,
+};
 use url::Url;
 use uuid::Uuid;
 
@@ -34,8 +37,6 @@ use crate::{
     services::api_keys::read_api_key,
     services::{chat_protocol, codex_config},
     settings_store::SettingsStore,
-    station_snapshot_store::StationSnapshotStore,
-    station_store::StationStore,
     store::Store,
     support::{api_base_url, station_base},
     AppState,
@@ -45,13 +46,17 @@ pub(crate) const DEFAULT_GATEWAY_PORT: u16 = 18765;
 pub(crate) const GATEWAY_TOKEN_ID: &str = "local-gateway-token";
 const ACTIVE_GATEWAY_ROUTES_SETTING: &str = "activeGatewayRoutes";
 const DIRECT_GATEWAY_ROUTE_SETTING: &str = "directGatewayRoute";
-const DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING: &str = "directGatewayConfigFingerprint";
+const RELAYHUB_DIRECT_CONFIG_FINGERPRINT_SETTING: &str = "relayhubManagedDirectConfigFingerprint";
 const DEFAULT_CIRCUIT_FAILURE_THRESHOLD: u32 = 4;
 const DEFAULT_CIRCUIT_SUCCESS_THRESHOLD: u32 = 2;
 const DEFAULT_CIRCUIT_RECOVERY: Duration = Duration::from_secs(60);
 const DEFAULT_CIRCUIT_ERROR_RATE_THRESHOLD: f64 = 0.6;
 const DEFAULT_CIRCUIT_MIN_REQUESTS: u32 = 10;
 const GATEWAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const GATEWAY_UPSTREAM_HEADER_TIMEOUT: Duration = Duration::from_secs(12);
+const GATEWAY_UPSTREAM_FIRST_CHUNK_TIMEOUT: Duration = Duration::from_secs(15);
+const GATEWAY_UPSTREAM_BODY_TIMEOUT: Duration = Duration::from_secs(45);
+const GATEWAY_CIRCUIT_ESCAPE_AFTER: Duration = Duration::from_secs(5);
 const MAX_GATEWAY_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -61,10 +66,19 @@ pub(crate) enum RoutingMode {
     LocalGateway,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ConnectionMode {
+    Disabled,
+    Direct,
+    LocalRouting,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GatewayStatus {
     pub(crate) mode: RoutingMode,
+    pub(crate) connection_mode: ConnectionMode,
     pub(crate) running: bool,
     pub(crate) port: u16,
     pub(crate) base_url: String,
@@ -216,6 +230,21 @@ impl GatewayCircuitBreaker {
                 Some(true)
             }
         }
+    }
+
+    fn allow_escape_probe(&mut self) -> Option<bool> {
+        if self.state != GatewayCircuitState::Open
+            || self.half_open_probe_in_flight
+            || !self
+                .opened_at
+                .is_some_and(|opened_at| opened_at.elapsed() >= GATEWAY_CIRCUIT_ESCAPE_AFTER)
+        {
+            return None;
+        }
+        self.state = GatewayCircuitState::HalfOpen;
+        self.consecutive_successes = 0;
+        self.half_open_probe_in_flight = true;
+        Some(true)
     }
 
     fn record_success(&mut self, used_half_open_probe: bool, config: GatewayCircuitConfig) {
@@ -477,120 +506,59 @@ fn direct_config_fingerprint(credentials: Option<(&str, Option<&str>)>) -> Strin
     format!("sha256:{:x}", Sha256::digest(input.as_bytes()))
 }
 
-fn live_direct_route_candidates(
-    state: &AppState,
-    relay_url: &str,
-) -> Result<(Vec<GatewayRouteSelection>, bool, bool), String> {
-    let relay_root = station_base(relay_url);
-    let store = state
-        .store
-        .lock()
-        .map_err(|_| "Local database is unavailable".to_string())?;
-    let mut candidates = Vec::new();
-    let mut station_found = false;
-    let mut snapshot_loaded = false;
-    for station in store.list_stations()? {
-        if station_base(&station.base_url) != relay_root {
-            continue;
-        }
-        station_found = true;
-        if let Some((_, snapshot)) = store.load_snapshot(&station.id)? {
-            snapshot_loaded = true;
-            candidates.extend(
-                snapshot
-                    .api_keys
-                    .into_iter()
-                    .map(|key| GatewayRouteSelection {
-                        station_id: station.id.clone(),
-                        key_id: key.id,
-                    }),
-            );
-        }
-    }
-    Ok((candidates, station_found, snapshot_loaded))
-}
-
-async fn sync_direct_route_with_codex_config(
-    state: &AppState,
-) -> Result<Option<GatewayRouteSelection>, String> {
+pub(crate) fn mark_direct_config_managed(state: &AppState) -> Result<(), String> {
     let current = codex_config::current_relay_credentials()?;
     let fingerprint = direct_config_fingerprint(
         current
             .as_ref()
             .map(|(url, key)| (url.as_str(), key.as_deref())),
     );
-    let (stored_fingerprint, stored_route) = {
-        let store = state
-            .store
-            .lock()
-            .map_err(|_| "Local database is unavailable".to_string())?;
-        (
-            store.setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING)?,
-            load_direct_route(&store)?,
-        )
-    };
-    if stored_fingerprint.as_deref() == Some(fingerprint.as_str()) {
-        return Ok(stored_route);
-    }
+    state
+        .store
+        .lock()
+        .map_err(|_| "Local database is unavailable".to_string())?
+        .save_setting(RELAYHUB_DIRECT_CONFIG_FINGERPRINT_SETTING, &fingerprint)
+}
 
-    let Some((relay_url, Some(relay_key))) = current.as_ref() else {
-        let store = state
-            .store
-            .lock()
-            .map_err(|_| "Local database is unavailable".to_string())?;
-        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
-        store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
-        return Ok(None);
-    };
-    let (candidates, station_found, snapshot_loaded) =
-        live_direct_route_candidates(state, relay_url)?;
-    if candidates.is_empty() {
-        if station_found && !snapshot_loaded {
-            return Ok(stored_route);
+async fn current_connection_mode(
+    state: &AppState,
+    mode: &RoutingMode,
+    runtime: &GatewayRuntime,
+) -> Result<ConnectionMode, String> {
+    match mode {
+        RoutingMode::LocalGateway => {
+            if codex_config::is_local_gateway_config(
+                &gateway_base_url(runtime.port),
+                &runtime.token,
+            )? {
+                Ok(ConnectionMode::LocalRouting)
+            } else {
+                Ok(ConnectionMode::Disabled)
+            }
         }
-        let store = state
-            .store
-            .lock()
-            .map_err(|_| "Local database is unavailable".to_string())?;
-        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
-        store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
-        return Ok(None);
-    }
-
-    let mut inspected = false;
-    let mut matched = None;
-    for candidate in candidates {
-        if let Ok((station, api_key)) =
-            read_api_key(state, &candidate.station_id, &candidate.key_id).await
-        {
-            inspected = true;
-            if station_base(&station.base_url) == station_base(relay_url)
-                && api_key.trim() == relay_key.trim()
+        RoutingMode::CcSwitch => {
+            let current = codex_config::current_relay_credentials()?;
+            let fingerprint = direct_config_fingerprint(
+                current
+                    .as_ref()
+                    .map(|(url, key)| (url.as_str(), key.as_deref())),
+            );
+            let store = state
+                .store
+                .lock()
+                .map_err(|_| "Local database is unavailable".to_string())?;
+            let managed_fingerprint = store.setting(RELAYHUB_DIRECT_CONFIG_FINGERPRINT_SETTING)?;
+            let has_direct_route = load_direct_route(&store)?.is_some();
+            if current.is_some()
+                && has_direct_route
+                && managed_fingerprint.as_deref() == Some(fingerprint.as_str())
             {
-                matched = Some(candidate);
-                break;
+                Ok(ConnectionMode::Direct)
+            } else {
+                Ok(ConnectionMode::Disabled)
             }
         }
     }
-
-    // Keep the last known route when the station cannot currently reveal any
-    // candidate key. A temporary login/network failure must not look like an
-    // external configuration change.
-    if matched.is_none() && !inspected {
-        return Ok(stored_route);
-    }
-
-    let store = state
-        .store
-        .lock()
-        .map_err(|_| "Local database is unavailable".to_string())?;
-    if let Some(route) = matched.as_ref() {
-        persist_direct_route(&store, route)?;
-    } else {
-        store.save_setting(DIRECT_GATEWAY_ROUTE_SETTING, "")?;
-    }
-    store.save_setting(DIRECT_GATEWAY_CONFIG_FINGERPRINT_SETTING, &fingerprint)?;
-    Ok(matched)
 }
 
 async fn resolve_route_selections(
@@ -657,6 +625,7 @@ pub(crate) async fn set_gateway_route(
         &route.api_key,
         RoutingMode::CcSwitch,
     )?;
+    mark_direct_config_managed(state)?;
     Ok(())
 }
 
@@ -689,7 +658,7 @@ pub(crate) async fn set_gateway_routes(
 pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String> {
     let mode = current_routing_mode(state)?;
     let runtime = state.gateway.runtime_snapshot().await;
-    let (route_queue, direct_route) = if runtime.routes.is_empty() {
+    let (route_queue, persisted_direct_route) = if runtime.routes.is_empty() {
         let store = state
             .store
             .lock()
@@ -711,21 +680,18 @@ pub(crate) async fn get_status(state: &AppState) -> Result<GatewayStatus, String
             None,
         )
     };
-    let direct_route = if mode == RoutingMode::CcSwitch {
-        sync_direct_route_with_codex_config(state).await?
-    } else {
-        direct_route
-    };
-    let active_route = if mode == RoutingMode::CcSwitch {
-        direct_route
-    } else {
-        runtime.route.as_ref().map(|route| GatewayRouteSelection {
+    let connection_mode = current_connection_mode(state, &mode, &runtime).await?;
+    let active_route = match connection_mode {
+        ConnectionMode::Direct => persisted_direct_route,
+        ConnectionMode::LocalRouting => runtime.route.as_ref().map(|route| GatewayRouteSelection {
             station_id: route.station_id.clone(),
             key_id: route.key_id.clone(),
-        })
+        }),
+        ConnectionMode::Disabled => None,
     };
     Ok(GatewayStatus {
         mode,
+        connection_mode,
         running: state.gateway.is_running(),
         port: runtime.port,
         base_url: gateway_base_url(runtime.port),
@@ -826,10 +792,12 @@ pub(crate) async fn set_routing_mode(
     mode: RoutingMode,
 ) -> Result<GatewayStatus, String> {
     let previous_mode = current_routing_mode(state)?;
-    if previous_mode == mode {
+    let previous_runtime = state.gateway.runtime_snapshot().await;
+    let previous_connection_mode =
+        current_connection_mode(state, &previous_mode, &previous_runtime).await?;
+    if previous_mode == mode && previous_connection_mode != ConnectionMode::Disabled {
         return get_status(state).await;
     }
-    let previous_runtime = state.gateway.runtime_snapshot().await;
     let was_running = state.gateway.is_running();
     let previous_direct_route_setting = {
         let store = state
@@ -892,6 +860,7 @@ pub(crate) async fn set_routing_mode(
                 });
                 return Err(transition_error(error, rollback));
             }
+            mark_direct_config_managed(state)?;
         }
         RoutingMode::LocalGateway => {
             if state.gateway.runtime_snapshot().await.routes.is_empty() {
@@ -1298,22 +1267,6 @@ fn gateway_log(request_id: Option<&str>, message: impl std::fmt::Display) {
     }
 }
 
-fn gateway_reqwest_error_kind(error: &reqwest::Error) -> &'static str {
-    if error.is_timeout() {
-        "timeout"
-    } else if error.is_connect() {
-        "connect"
-    } else if error.is_request() {
-        "request"
-    } else if error.is_body() {
-        "body"
-    } else if error.is_decode() {
-        "decode"
-    } else {
-        "other"
-    }
-}
-
 fn log_gateway_upstream_response(
     request_id: &str,
     route: &GatewayRoute,
@@ -1328,22 +1281,6 @@ fn log_gateway_upstream_response(
             gateway_route_label(route),
             status.as_u16(),
             latency_ms,
-        ),
-    );
-}
-
-fn log_gateway_upstream_error(
-    request_id: &str,
-    route: &GatewayRoute,
-    stage: &str,
-    error: &reqwest::Error,
-) {
-    gateway_log(
-        Some(request_id),
-        format_args!(
-            "upstream error route={} stage={stage} kind={}",
-            gateway_route_label(route),
-            gateway_reqwest_error_kind(error),
         ),
     );
 }
@@ -1388,13 +1325,78 @@ fn gateway_route_key(route: &GatewayRoute) -> String {
     format!("{}\u{0}{}", route.station_id, route.key_id)
 }
 
-fn allow_gateway_route(state: &GatewayServiceState, route: &GatewayRoute) -> Option<bool> {
+fn all_gateway_routes_circuit_open(state: &GatewayServiceState, routes: &[GatewayRoute]) -> bool {
+    let Ok(breakers) = state.circuit_breakers.lock() else {
+        return false;
+    };
+    !routes.is_empty()
+        && routes.iter().all(|route| {
+            breakers
+                .get(&gateway_route_key(route))
+                .is_some_and(|breaker| breaker.state == GatewayCircuitState::Open)
+        })
+}
+
+fn allow_gateway_route(
+    state: &GatewayServiceState,
+    route: &GatewayRoute,
+    allow_escape_probe: bool,
+) -> Option<bool> {
     let key = gateway_route_key(route);
     let mut breakers = state.circuit_breakers.lock().ok()?;
     let breaker = breakers
         .entry(key)
         .or_insert_with(GatewayCircuitBreaker::new);
-    breaker.allow_request(state.circuit_config)
+    breaker.allow_request(state.circuit_config).or_else(|| {
+        allow_escape_probe
+            .then(|| breaker.allow_escape_probe())
+            .flatten()
+    })
+}
+
+async fn send_upstream_with_header_timeout(
+    request: reqwest::RequestBuilder,
+    header_timeout: Duration,
+) -> Result<reqwest::Response, String> {
+    match timeout(header_timeout, request.send()).await {
+        Ok(Ok(response)) => Ok(response),
+        Ok(Err(error)) => Err(format!("upstream request failed: {error}")),
+        Err(_) => Err(format!(
+            "upstream response headers timed out after {} seconds",
+            header_timeout.as_secs()
+        )),
+    }
+}
+
+async fn read_upstream_body_with_timeout(response: reqwest::Response) -> Result<Bytes, String> {
+    match timeout(GATEWAY_UPSTREAM_BODY_TIMEOUT, response.bytes()).await {
+        Ok(Ok(body)) => Ok(body),
+        Ok(Err(error)) => Err(format!("upstream response read failed: {error}")),
+        Err(_) => Err(format!(
+            "upstream response body timed out after {} seconds",
+            GATEWAY_UPSTREAM_BODY_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+async fn read_first_upstream_chunk(
+    stream: &mut Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>>,
+    first_chunk_timeout: Duration,
+) -> Result<Bytes, String> {
+    loop {
+        match timeout(first_chunk_timeout, stream.as_mut().next()).await {
+            Ok(Some(Ok(chunk))) if !chunk.is_empty() => return Ok(chunk),
+            Ok(Some(Ok(_))) => continue,
+            Ok(Some(Err(error))) => return Err(format!("upstream stream read failed: {error}")),
+            Ok(None) => return Err("upstream stream ended before the first data chunk".into()),
+            Err(_) => {
+                return Err(format!(
+                    "upstream first data chunk timed out after {} seconds",
+                    first_chunk_timeout.as_secs()
+                ))
+            }
+        }
+    }
 }
 
 fn record_gateway_route_result(
@@ -2017,7 +2019,8 @@ async fn gateway_proxy_streaming_request(
     route: GatewayRoute,
 ) -> Response {
     let request_started_at = Instant::now();
-    let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
+    let allow_escape_probe = all_gateway_routes_circuit_open(&state, std::slice::from_ref(&route));
+    let Some(used_half_open_probe) = allow_gateway_route(&state, &route, allow_escape_probe) else {
         gateway_log(
             Some(&request_id),
             format_args!(
@@ -2078,24 +2081,31 @@ async fn gateway_proxy_streaming_request(
         outbound = outbound.header(name.clone(), value.clone());
     }
 
-    let upstream = match outbound.send().await {
-        Ok(response) => response,
-        Err(error) => {
-            record_gateway_route_result(&state, &route, used_half_open_probe, false);
-            log_gateway_upstream_error(&request_id, &route, "send", &error);
-            log_gateway_request_finished(
-                &request_id,
-                request_started_at,
-                StatusCode::BAD_GATEWAY,
-                "upstream_request_failed",
-            );
-            return gateway_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_request_failed",
-                format!("上游请求失败：{error}"),
-            );
-        }
-    };
+    let upstream =
+        match send_upstream_with_header_timeout(outbound, GATEWAY_UPSTREAM_HEADER_TIMEOUT).await {
+            Ok(response) => response,
+            Err(error) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "upstream error route={} stage=send reason={error}",
+                        gateway_route_label(&route),
+                    ),
+                );
+                log_gateway_request_finished(
+                    &request_id,
+                    request_started_at,
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_request_failed",
+                );
+                return gateway_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_request_failed",
+                    format!("上游请求失败：{error}"),
+                );
+            }
+        };
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
@@ -2113,7 +2123,7 @@ async fn gateway_proxy_streaming_request(
         response_action,
     );
     if is_retryable_upstream_status(status) {
-        match upstream.bytes().await {
+        match read_upstream_body_with_timeout(upstream).await {
             Ok(body) => {
                 record_gateway_route_response(&state, &route, used_half_open_probe, status);
                 record_local_usage(
@@ -2140,7 +2150,13 @@ async fn gateway_proxy_streaming_request(
             }
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
-                log_gateway_upstream_error(&request_id, &route, "read_retryable_response", &error);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "upstream error route={} stage=read_retryable_response reason={error}",
+                        gateway_route_label(&route),
+                    ),
+                );
                 log_gateway_request_finished(
                     &request_id,
                     request_started_at,
@@ -2208,7 +2224,7 @@ async fn gateway_proxy_streaming_request(
         return build_gateway_response(status, &upstream_headers, response_body);
     }
 
-    match upstream.bytes().await {
+    match read_upstream_body_with_timeout(upstream).await {
         Ok(body) => {
             record_local_usage(
                 state.local_store.as_ref(),
@@ -2228,7 +2244,13 @@ async fn gateway_proxy_streaming_request(
             build_gateway_response(status, &upstream_headers, Body::from(body))
         }
         Err(error) => {
-            log_gateway_upstream_error(&request_id, &route, "read_response", &error);
+            gateway_log(
+                Some(&request_id),
+                format_args!(
+                    "upstream error route={} stage=read_response reason={error}",
+                    gateway_route_label(&route),
+                ),
+            );
             log_gateway_request_finished(
                 &request_id,
                 request_started_at,
@@ -2436,9 +2458,11 @@ async fn gateway_proxy(
     let mut last_error = None;
     let mut last_response = None;
     let mut last_route = None;
+    let mut allow_escape_probe = all_gateway_routes_circuit_open(&state, &routes);
 
     for route in routes {
-        let Some(used_half_open_probe) = allow_gateway_route(&state, &route) else {
+        let Some(used_half_open_probe) = allow_gateway_route(&state, &route, allow_escape_probe)
+        else {
             gateway_log(
                 Some(&request_id),
                 format_args!(
@@ -2448,6 +2472,9 @@ async fn gateway_proxy(
             );
             continue;
         };
+        if used_half_open_probe {
+            allow_escape_probe = false;
+        }
         attempted = true;
         last_route = Some(route.clone());
         gateway_log(
@@ -2484,11 +2511,22 @@ async fn gateway_proxy(
             outbound = outbound.header(name.clone(), value.clone());
         }
 
-        let upstream = match outbound.send().await {
+        let upstream = match send_upstream_with_header_timeout(
+            outbound,
+            GATEWAY_UPSTREAM_HEADER_TIMEOUT,
+        )
+        .await
+        {
             Ok(response) => response,
             Err(error) => {
                 record_gateway_route_result(&state, &route, used_half_open_probe, false);
-                log_gateway_upstream_error(&request_id, &route, "send", &error);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "upstream error route={} stage=send reason={error}",
+                        gateway_route_label(&route),
+                    ),
+                );
                 last_error = Some(format!("上游请求失败：{error}"));
                 continue;
             }
@@ -2511,7 +2549,7 @@ async fn gateway_proxy(
         if is_retryable_upstream_status(status) {
             let mut headers = upstream.headers().clone();
             let mut response_read = false;
-            match upstream.bytes().await {
+            match read_upstream_body_with_timeout(upstream).await {
                 Ok(mut body) => {
                     if protocol_context.is_some() {
                         body = Bytes::from(protocol_error_body(&body));
@@ -2526,11 +2564,12 @@ async fn gateway_proxy(
                     response_read = true;
                 }
                 Err(error) => {
-                    log_gateway_upstream_error(
-                        &request_id,
-                        &route,
-                        "read_retryable_response",
-                        &error,
+                    gateway_log(
+                        Some(&request_id),
+                        format_args!(
+                            "upstream error route={} stage=read_retryable_response reason={error}",
+                            gateway_route_label(&route),
+                        ),
                     );
                     last_error = Some(format!("上游错误响应读取失败：{error}"));
                 }
@@ -2559,16 +2598,6 @@ async fn gateway_proxy(
             continue;
         }
 
-        record_gateway_route_result(&state, &route, used_half_open_probe, true);
-        gateway_log(
-            Some(&request_id),
-            format_args!(
-                "route succeeded route={} status={} latency_ms={response_latency_ms}",
-                gateway_route_label(&route),
-                status.as_u16(),
-            ),
-        );
-        state.runtime.write().await.route = Some(route.clone());
         let upstream_headers = upstream.headers().clone();
         let upstream_is_streaming = upstream_headers
             .get(header::CONTENT_TYPE)
@@ -2576,6 +2605,42 @@ async fn gateway_proxy(
             .is_some_and(|value| value.to_ascii_lowercase().contains("text/event-stream"));
         let is_streaming = upstream_is_streaming;
         if is_streaming {
+            let mut upstream_stream: Pin<
+                Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>,
+            > = Box::pin(upstream.bytes_stream());
+            let first_chunk = match read_first_upstream_chunk(
+                &mut upstream_stream,
+                GATEWAY_UPSTREAM_FIRST_CHUNK_TIMEOUT,
+            )
+            .await
+            {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                    gateway_log(
+                        Some(&request_id),
+                        format_args!(
+                            "upstream error route={} stage=read_first_stream_chunk reason={error}",
+                            gateway_route_label(&route),
+                        ),
+                    );
+                    last_error = Some(error);
+                    continue;
+                }
+            };
+            record_gateway_route_result(&state, &route, used_half_open_probe, true);
+            gateway_log(
+                Some(&request_id),
+                format_args!(
+                    "route succeeded route={} status={} latency_ms={response_latency_ms}",
+                    gateway_route_label(&route),
+                    status.as_u16(),
+                ),
+            );
+            state.runtime.write().await.route = Some(route.clone());
+            let upstream_stream =
+                stream::once(async move { Ok::<Bytes, reqwest::Error>(first_chunk) })
+                    .chain(upstream_stream);
             let response_headers = if protocol_context.is_some() {
                 protocol_response_headers(&upstream_headers, true)
             } else {
@@ -2583,7 +2648,7 @@ async fn gateway_proxy(
             };
             let response_body = if let Some(context) = protocol_context.clone() {
                 Body::from_stream(LoggingResponseStream::new(
-                    convert_chat_stream(upstream.bytes_stream(), context),
+                    convert_chat_stream(upstream_stream, context),
                     LoggingResponseMeta {
                         request_id: request_id.clone(),
                         local_store: state.local_store.clone(),
@@ -2598,7 +2663,7 @@ async fn gateway_proxy(
                 ))
             } else {
                 Body::from_stream(LoggingResponseStream::new(
-                    upstream.bytes_stream(),
+                    upstream_stream,
                     LoggingResponseMeta {
                         request_id: request_id.clone(),
                         local_store: state.local_store.clone(),
@@ -2620,8 +2685,18 @@ async fn gateway_proxy(
             );
             return build_gateway_response(status, &response_headers, response_body);
         }
-        match upstream.bytes().await {
+        match read_upstream_body_with_timeout(upstream).await {
             Ok(body) => {
+                record_gateway_route_result(&state, &route, used_half_open_probe, true);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "route succeeded route={} status={} latency_ms={response_latency_ms}",
+                        gateway_route_label(&route),
+                        status.as_u16(),
+                    ),
+                );
+                state.runtime.write().await.route = Some(route.clone());
                 let (body, response_headers) = if let Some(context) = protocol_context.as_ref() {
                     if status.is_client_error() || status.is_server_error() {
                         (
@@ -2695,32 +2770,16 @@ async fn gateway_proxy(
                 return build_gateway_response(status, &response_headers, Body::from(body));
             }
             Err(error) => {
-                log_gateway_upstream_error(&request_id, &route, "read_response", &error);
-                log_gateway_request_finished(
-                    &request_id,
-                    request_started_at,
-                    StatusCode::BAD_GATEWAY,
-                    "upstream_response_read_failed",
+                record_gateway_route_result(&state, &route, used_half_open_probe, false);
+                gateway_log(
+                    Some(&request_id),
+                    format_args!(
+                        "upstream error route={} stage=read_response reason={error}",
+                        gateway_route_label(&route),
+                    ),
                 );
-                record_local_usage(
-                    state.local_store.as_ref(),
-                    &route,
-                    &uri,
-                    &app_type,
-                    request_model.as_deref(),
-                    &[],
-                    status,
-                    response_latency_ms,
-                    Some(elapsed_ms(request_started_at)),
-                    None,
-                    false,
-                    Some(format!("上游响应读取失败：{error}")),
-                );
-                return gateway_error(
-                    StatusCode::BAD_GATEWAY,
-                    "upstream_response_read_failed",
-                    "上游响应读取失败",
-                );
+                last_error = Some(error);
+                continue;
             }
         }
     }
@@ -3035,6 +3094,53 @@ mod tests {
             breaker.allow_request(GatewayCircuitConfig::default()),
             Some(false)
         );
+    }
+
+    #[test]
+    fn escape_probe_releases_an_open_route_before_normal_recovery() {
+        let mut breaker = GatewayCircuitBreaker::new();
+        breaker.open();
+        breaker.opened_at = Some(Instant::now() - GATEWAY_CIRCUIT_ESCAPE_AFTER);
+
+        assert_eq!(breaker.allow_escape_probe(), Some(true));
+        assert_eq!(breaker.allow_escape_probe(), None);
+        assert_eq!(breaker.state, GatewayCircuitState::HalfOpen);
+    }
+
+    #[tokio::test]
+    async fn upstream_header_timeout_returns_a_controlled_error() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("bind timeout test listener");
+        let address = listener
+            .local_addr()
+            .expect("get timeout test listener address");
+        tokio::spawn(async move {
+            let _ = listener.accept().await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+
+        let error = send_upstream_with_header_timeout(
+            reqwest::Client::new().get(format!("http://{address}")),
+            Duration::from_millis(20),
+        )
+        .await
+        .expect_err("header timeout should fail the upstream attempt");
+        assert!(
+            error.contains("response headers timed out")
+                || error.starts_with("upstream request failed:"),
+            "unexpected upstream timeout error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn first_stream_chunk_timeout_is_reported_before_headers_are_sent() {
+        let mut upstream_stream: Pin<Box<dyn Stream<Item = Result<Bytes, reqwest::Error>> + Send>> =
+            Box::pin(stream::pending());
+        let error = read_first_upstream_chunk(&mut upstream_stream, Duration::from_millis(20))
+            .await
+            .expect_err("first stream chunk should time out");
+        assert!(error.contains("first data chunk timed out"));
     }
 
     fn test_gateway_state(

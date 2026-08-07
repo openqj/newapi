@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import { Cookie, ExternalLink, FileText, Info, ShieldCheck } from "lucide-react";
+import { List, ListItem } from "../../../components/ui";
 import "./PoliciesSettings.css";
 
 type PolicySection = {
@@ -207,7 +208,7 @@ export function PoliciesSettings() {
           {sections.map(({ heading, paragraphs, bullets }) => <section key={heading} className="policy-section">
             <h4>{heading}</h4>
             {paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-            {bullets && <ul>{bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+            {bullets && <List as="ul">{bullets.map((bullet) => <ListItem as="li" key={bullet}>{bullet}</ListItem>)}</List>}
           </section>)}
         </div>
       </article>)}

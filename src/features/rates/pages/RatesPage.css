@@ -2,3 +2,5 @@
 @media (max-width: 767px) { .sub2-rate-header { align-items: flex-start; flex-direction: column; gap: .5rem; }.sub2-rates-page .table-page-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }.sub2-rates-page .table-page-filters .sub2-search { grid-column: 1 / -1; width: 100%; min-width: 0; max-width: none; }.sub2-rates-page .table-page-filters select:last-child { width: 100%; min-width: 0; max-width: none; } }
 .sub2-rates-page { margin: 0; }
 .sub2-rates-page .sub2-rate-data-table td:nth-child(3), .sub2-rates-page .sub2-record-card dl > div:first-child dd { font-size: .95rem; }
+.sub2-rates-page .table-page-filters > .select-field:last-child { width: 12rem; min-width: 12rem; max-width: 12rem; }
+@media (max-width: 767px) { .sub2-rates-page .table-page-filters > .select-field:last-child { width: 100%; min-width: 0; max-width: none; } }

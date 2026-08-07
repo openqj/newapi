@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "../lib/platform";
+import { IconButton } from "./ui";
 import "./WindowControls.css";
 
 export function WindowControls() {
@@ -24,8 +25,8 @@ export function WindowControls() {
   };
 
   return <div className="window-controls">
-    <button type="button" className="window-control-button" aria-label="最小化" title="最小化" onClick={() => void getCurrentWindow().minimize()}><span className="window-control-icon window-minimize-icon" /></button>
-    <button type="button" className="window-control-button" aria-label="最大化或还原" title="最大化或还原" onClick={() => void toggleMaximize()}><span className={`window-control-icon ${maximized ? "window-restore-icon" : "window-maximize-icon"}`} /></button>
-    <button type="button" className="window-control-button window-close-button" aria-label="关闭窗口" title="关闭" onClick={() => void getCurrentWindow().close()}><span className="window-control-icon window-close-icon" /></button>
+    <IconButton variant="ghost" className="window-control-button" label="最小化" onClick={() => void getCurrentWindow().minimize()} icon={<span className="window-control-icon window-minimize-icon" />} />
+    <IconButton variant="ghost" className="window-control-button" label="最大化或还原" onClick={() => void toggleMaximize()} icon={<span className={`window-control-icon ${maximized ? "window-restore-icon" : "window-maximize-icon"}`} />} />
+    <IconButton variant="ghost" className="window-control-button window-close-button" label="关闭窗口" onClick={() => void getCurrentWindow().close()} icon={<span className="window-control-icon window-close-icon" />} />
   </div>;
 }

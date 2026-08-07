@@ -9,7 +9,7 @@ import {
   Tooltip,
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
-import { EmptyState, PageHeader, Panel, useToast } from "../../../components/ui";
+import { Button, EmptyState, IconButton, PageHeader, Panel, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { alertApi } from "../api";
@@ -74,7 +74,7 @@ export function AlertHistoryPage({ onBack }: { onBack?: () => void } = {}) {
     <PageHeader
       title="告警历史与趋势"
       description="集中查看最近 200 条告警记录及近 7 日变化。"
-      actions={<div className="flex gap-2">{onBack && <button type="button" className="button-secondary" onClick={onBack}><ArrowLeft size={16} />返回设置</button>}<button type="button" className="button-secondary" title="刷新" aria-label="刷新" onClick={() => void refresh()} disabled={loading || !isTauri()}><RefreshCw size={16} className={loading ? "animate-spin" : ""} /></button></div>}
+      actions={<div className="flex gap-2">{onBack && <Button variant="secondary" onClick={onBack}><ArrowLeft size={16} />返回设置</Button>}<IconButton variant="secondary" label="刷新" onClick={() => void refresh()} disabled={loading || !isTauri()} icon={<RefreshCw size={16} className={loading ? "animate-spin" : ""} />} /></div>}
     />
     <section className="sub2-stat-grid alert-history-summary" aria-label="告警汇总">
       <StatCard icon={<BellRing size={18} />} label="记录总数" value={String(entries.length)} note="最近 200 条记录" />

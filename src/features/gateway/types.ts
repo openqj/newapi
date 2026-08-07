@@ -1,4 +1,5 @@
 export type RoutingMode = "ccSwitch" | "localGateway";
+export type ConnectionMode = "disabled" | "direct" | "localRouting";
 
 export type GatewayRouteSelection = {
   stationId: string;
@@ -18,6 +19,7 @@ export type GatewayRouteHealth = GatewayRouteSelection & {
 
 export type GatewayStatus = {
   mode: RoutingMode;
+  connectionMode: ConnectionMode;
   running: boolean;
   port: number;
   baseUrl: string;

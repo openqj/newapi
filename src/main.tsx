@@ -1,6 +1,6 @@
 import React, { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from "react";
 import ReactDOM from "react-dom/client";
-import { ConfirmationProvider, PromptProvider, ToastProvider } from "./components/ui";
+import { Button, ConfirmationProvider, PromptProvider, ToastProvider } from "./components/ui";
 import "./index.css";
 
 type ErrorBoundaryProps = { children: ReactNode };
@@ -29,9 +29,9 @@ class AppErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState>
             <h1 className="text-lg font-semibold">RelayHub failed to render</h1>
             <p className="mt-2 text-sm text-slate-600">{this.state.error.message}</p>
             {isDynamicImportError(this.state.error) && (
-              <button type="button" className="button-primary mt-4" onClick={() => window.location.reload()}>
+              <Button variant="primary" className="mt-4" onClick={() => window.location.reload()}>
                 重新加载页面
-              </button>
+              </Button>
             )}
           </section>
         </main>

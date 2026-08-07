@@ -1,7 +1,7 @@
 import { ChevronsUpDown, ChevronDown, ChevronUp, Clipboard, Copy, Pencil, Play, Route, SquareTerminal, Trash2 } from "lucide-react";
-import { DataTable, EmptyState, StatusBadge } from "../../../components/ui";
+import { Button, DataTable, EmptyState, IconButton, StatusBadge } from "../../../components/ui";
 import { GroupRateSelect } from "./GroupRateSelect";
-import { identifyModelType, modelTypeTitle } from "../modelType";
+import { identifyModelType } from "../modelType";
 import type { ApiKeyTestState, KeyRow } from "../types";
 
 export type ApiKeySortKey = "name" | "concurrency" | "expires" | "status" | "created";
@@ -10,10 +10,10 @@ export type ApiKeySortDirection = "asc" | "desc";
 function SortableHeader({ label, column, sortKey, sortDirection, onSort }: { label: string; column: ApiKeySortKey; sortKey: ApiKeySortKey; sortDirection: ApiKeySortDirection; onSort: (column: ApiKeySortKey) => void }) {
   const active = sortKey === column;
   return <th data-key-column={column} aria-sort={active ? (sortDirection === "asc" ? "ascending" : "descending") : "none"}>
-    <button type="button" className={`sub2-key-sort-header${active ? " is-active" : ""}`} title={`按${label}排序`} onClick={() => onSort(column)}>
+    <Button variant="ghost" className={`sub2-key-sort-header${active ? " is-active" : ""}`} title={`按${label}排序`} onClick={() => onSort(column)}>
       <span>{label}</span>
       {active ? (sortDirection === "asc" ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />) : <ChevronsUpDown size={13} aria-hidden="true" />}
-    </button>
+    </Button>
   </th>;
 }
 
@@ -84,7 +84,7 @@ export function ApiKeyTable({
           <thead>
             <tr>
               <th className="table-page-select-cell"><input type="checkbox" aria-label="全选 API 密钥" checked={allSelected} onChange={onToggleAll} /></th>
-              <th data-key-column="station">中转站</th><th data-key-column="modelType">模型类型</th><SortableHeader column="name" label="名称" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="multiplier">倍率</th><th data-key-column="balance">余额</th><SortableHeader column="concurrency" label="当前并发" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} />
+              <th data-key-column="station">中转站</th><SortableHeader column="name" label="名称" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><th data-key-column="apiKey">API 密钥</th><th data-key-column="group">分组</th><th data-key-column="balance">余额</th><SortableHeader column="concurrency" label="当前并发" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} />
               <th data-key-column="usage">用量</th><SortableHeader column="expires" label="过期时间" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><SortableHeader column="status" label="状态" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><SortableHeader column="created" label="创建时间" sortKey={sortKey} sortDirection={sortDirection} onSort={onSort} /><th data-key-column="actions">操作</th>
             </tr>
           </thead>
@@ -93,18 +93,15 @@ export function ApiKeyTable({
               const id = rowId(row);
               const totalQuota = row.key.totalQuota ?? ((row.key.remainingQuota ?? 0) + (row.key.usedQuota ?? 0));
               const active = isActive(row.key.status);
-              const modelType = identifyModelType(row.models);
               const testState = testStates[id];
               const busy = saving === id || saving === `codex:${id}` || saving === `route:${id}` || testState?.status === "testing";
               return (
                 <tr key={id}>
                   <td className="table-page-select-cell"><input type="checkbox" aria-label={`选择 API 密钥 ${row.key.name || row.key.id}`} checked={selectedIds.includes(id)} onChange={() => onToggleSelected(row)} /></td>
                   <td data-key-column="station" className="table-page-station"><strong>{row.stationName}</strong><small>{row.stationUrl}</small></td>
-                  <td data-key-column="modelType"><span className="sub2-model-type" title={modelTypeTitle(row.models)}>{modelType}</span></td>
                   <td data-key-column="name"><strong>{row.key.name || "未命名密钥"}</strong></td>
-                  <td data-key-column="apiKey"><div className="sub2-key-code"><code>{row.key.maskedKey || "已隐藏"}</code><button type="button" title="复制 API 密钥" className="sub2-copy-key" onClick={() => onReveal(row)}><Copy size={15} /></button></div></td>
+                  <td data-key-column="apiKey"><div className="sub2-key-code"><code>{row.key.maskedKey || "已隐藏"}</code><IconButton label="复制 API 密钥" className="sub2-copy-key" onClick={() => onReveal(row)} icon={<Copy size={15} />} /></div></td>
                   <td data-key-column="group"><GroupRateSelect className="sub2-key-group-rate-select" value={row.key.group ?? "default"} groups={row.groups.length ? row.groups : [{ name: row.key.group ?? "default" }]} disabled={busy} searchable showSelectionLabel onChange={(group) => onGroupChange(row, group)} /></td>
-                  <td data-key-column="multiplier" className="sub2-key-value">{formatMultiplier(rowMultiplier(row))}</td>
                   <td data-key-column="balance" className="sub2-key-value">{formatBalance(row.stationBalance)}</td>
                   <td data-key-column="concurrency"><span className={`sub2-concurrency ${row.key.currentConcurrency ? "active" : ""}`}>{row.key.currentConcurrency ?? 0}</span></td>
                   <td data-key-column="usage">
@@ -119,11 +116,11 @@ export function ApiKeyTable({
                   <td data-key-column="created">{formatTime(row.key.createdAt)}</td>
                   <td data-key-column="actions">
                     <div className="sub2-key-row-actions">
-                      <button type="button" className="enable" title="直接写入本地 Codex 配置" onClick={() => onApplyToCodex(row)} disabled={busy}><SquareTerminal size={15} aria-hidden="true" /><span>启用</span></button>
-                      <button type="button" className="test" title="测试 API 密钥" onClick={() => onTest(row)} disabled={busy}><Play size={15} aria-hidden="true" /><span>测试</span></button>
-                      <button type="button" className="route" title="加入本地路由" onClick={() => onAddToRoute(row)} disabled={busy}><Route size={15} aria-hidden="true" /><span>加入路由</span></button>
-                      <button type="button" className="edit" title="编辑密钥" onClick={() => onEdit(row)} disabled={busy}><Pencil size={15} /><span>编辑</span></button>
-                      <button type="button" className="delete" title="删除密钥" onClick={() => onDelete(row)} disabled={busy}><Trash2 size={15} /><span>删除</span></button>
+                      <Button variant="ghost" className="enable" title="直接写入本地 Codex 配置" onClick={() => onApplyToCodex(row)} disabled={busy}><SquareTerminal size={15} aria-hidden="true" /><span>启用</span></Button>
+                      <Button variant="ghost" className="test" title="测试 API 密钥" onClick={() => onTest(row)} disabled={busy}><Play size={15} aria-hidden="true" /><span>测试</span></Button>
+                      <Button variant="ghost" className="route" title="加入本地路由" onClick={() => onAddToRoute(row)} disabled={busy}><Route size={15} aria-hidden="true" /><span>加入路由</span></Button>
+                      <Button variant="ghost" className="edit" title="编辑密钥" onClick={() => onEdit(row)} disabled={busy}><Pencil size={15} /><span>编辑</span></Button>
+                      <Button variant="ghost" className="delete" title="删除密钥" onClick={() => onDelete(row)} disabled={busy}><Trash2 size={15} /><span>删除</span></Button>
                     </div>
                   </td>
                 </tr>
@@ -147,10 +144,10 @@ export function ApiKeyTable({
               <div><dt>额度</dt><dd>{formatMoney(row.key.remainingQuota)}</dd></div>
             </dl>
             <div className="sub2-card-actions">
-              <button type="button" className="button-secondary" onClick={() => onReveal(row)}><Clipboard size={16} />复制</button>
-              <button type="button" className="button-secondary" onClick={() => onTest(row)} disabled={testState?.status === "testing"}><Play size={16} />测试</button>
-              <button type="button" className="button-secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</button>
-              <button type="button" className="sub2-icon-action sub2-danger-action" aria-label="删除密钥" onClick={() => onDelete(row)}><Trash2 size={16} /></button>
+              <Button variant="secondary" onClick={() => onReveal(row)}><Clipboard size={16} />复制</Button>
+              <Button variant="secondary" onClick={() => onTest(row)} disabled={testState?.status === "testing"}><Play size={16} />测试</Button>
+              <Button variant="secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</Button>
+              <IconButton variant="ghost" className="sub2-icon-action sub2-danger-action" label="删除密钥" onClick={() => onDelete(row)} icon={<Trash2 size={16} />} />
             </div>
           </article>;
         })}

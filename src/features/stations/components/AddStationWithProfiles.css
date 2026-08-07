@@ -3,10 +3,11 @@
 .account-input-actions .input { padding-right: 4.5rem; }
 .password-input-actions { position: relative; }
 .password-input-actions .input { padding-right: 3rem; }
-.password-visibility-toggle { position: absolute; top: 0; right: 0; display: inline-flex; height: 100%; width: 2.5rem; align-items: center; justify-content: center; border: 0; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; }
+.password-visibility-toggle { position: absolute; top: 50%; right: 0; display: inline-flex; height: 100%; width: 2.5rem; align-items: center; justify-content: center; border: 0; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; transform: translateY(-50%); }
 .password-visibility-toggle:hover:not(:disabled) { background: #f0ecea; color: #2f2c2c; }
 .password-visibility-toggle:focus-visible { outline: 2px solid #0f766e; outline-offset: -2px; }
 .account-profile-picker, .account-profile-chevron { display: none; }
+.account-input-actions > .select-field:has(.account-profile-picker) { display: none; }
 .account-profile-trigger { position: absolute; top: 0; right: 2rem; display: inline-grid; height: 100%; width: 2rem; place-items: center; border: 0; background: transparent; color: #7c7370; }
 .account-profile-trigger:hover { background: #f0ecea; color: #2f2c2c; }
 .account-profile-menu { position: absolute; z-index: 3; top: calc(100% + .3rem); right: 0; width: 100%; overflow: hidden; border: 1px solid #ded6d3; border-radius: 7px; background: #fff; box-shadow: 0 10px 24px rgba(41,37,36,.14); }
@@ -14,7 +15,7 @@
 .account-profile-menu button:last-child { border-bottom: 0; }
 .account-profile-menu button:hover { background: #faf7f8; }
 .account-profile-menu small { overflow: hidden; color: #8a7f7a; font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
-.account-profile-manage { position: absolute; top: 0; right: 0; display: inline-flex; height: 100%; width: 2rem; align-items: center; justify-content: center; border: 0; border-left: 1px solid #e7dfdc; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; }
+.account-profile-manage { position: absolute; top: 50%; right: 0; display: inline-flex; height: 100%; width: 2rem; align-items: center; justify-content: center; border: 0; border-left: 1px solid #e7dfdc; border-radius: 0 7px 7px 0; background: transparent; color: #7c7370; transform: translateY(-50%); }
 .account-profile-manage:hover { background: #f0ecea; color: #2f2c2c; }
 .verification-code-actions { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem; gap: .5rem; }
 .verification-code-actions .button-secondary { width: 6.5rem; white-space: nowrap; }

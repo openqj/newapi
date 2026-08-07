@@ -26,3 +26,6 @@
 @media (prefers-color-scheme: dark) { .sub2-usage-overview { background: #454545; }.sub2-usage-overview div { border-color: #454545; background: #292929; color: #e5e5e5; } }
 @media (prefers-color-scheme: dark) { .usage-cost-details-trigger { background: #3a3a3a; color: #a3a3a3; }.usage-cost-details-trigger:hover, .usage-cost-details-trigger:focus-visible { background: #1e3a8a; color: #93c5fd; } }
 @media (prefers-color-scheme: dark) { .usage-token-details-trigger { background: #3a3a3a; color: #a3a3a3; }.usage-token-details-trigger:hover, .usage-token-details-trigger:focus-visible { background: #1e3a8a; color: #93c5fd; } }
+.usage-filter-select { display: grid; gap: .35rem; color: #4b5563; font-size: .75rem; font-weight: 600; }
+.usage-filter-select .select-field, .sub2-granularity .select-field { width: 100%; min-width: 0; }
+.usage-filter-select .ui-select-dropdown-trigger, .sub2-granularity .ui-select-dropdown-trigger { min-height: 2.35rem; }

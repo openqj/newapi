@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Trash2, X } from "lucide-react";
-import { DataTable, useToast } from "../../../components/ui";
+import { Trash2 } from "lucide-react";
+import { Button, DataTable, Dialog, IconButton, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../api";
@@ -98,9 +98,9 @@ export function LoginProfileTableManager({
     const editing = editingCell?.index === index && editingCell.field === field;
     if (editing) {
       return (
-        <input
+        <TextField
           autoFocus
-          className="input profile-cell-input"
+          className="profile-cell-input"
           value={row[field]}
           type={field === "password" ? "password" : field === "email" ? "email" : "text"}
           autoComplete={field === "username" ? "username" : field === "email" ? "email" : "new-password"}
@@ -133,14 +133,14 @@ export function LoginProfileTableManager({
       password: "密码",
     };
     return (
-      <button
-        type="button"
+      <Button
+        variant="ghost"
         className={`profile-cell-display profile-cell-${field}`}
         aria-label={`编辑${labels[field]}`}
         onClick={() => setEditingCell({ index, field })}
       >
         {value}
-      </button>
+      </Button>
     );
   };
 
@@ -162,69 +162,46 @@ export function LoginProfileTableManager({
     }
   };
 
-  return (
-    <div
-      className={embedded ? "profile-manager-panel" : "modal-backdrop"}
-      role="presentation"
-    >
-      <section
-        className={embedded ? "profile-editor-panel" : "modal profile-manager-modal"}
-        aria-label="常用登录"
-      >
-        {!embedded && (
-          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-            <h2 className="font-semibold">常用登录</h2>
-            <button type="button" className="icon-button" onClick={onClose}>
-              <X size={17} />
-            </button>
-          </div>
-        )}
-        <div className={embedded ? "" : "p-5"}>
-          <DataTable
-            className="profile-editor-table"
-            ariaLabel="常用登录配置"
-            desktop={
-              <table>
-                <thead>
-                  <tr>
-                    <th>用户名</th>
-                    <th>邮箱</th>
-                    <th>密码</th>
-                    <th className="profile-delete-heading">管理</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, index) => (
-                    <tr key={row.id ?? `new-${index}`}>
-                      <td>{renderCell(row, index, "username")}</td>
-                      <td>{renderCell(row, index, "email")}</td>
-                      <td>{renderCell(row, index, "password")}</td>
-                      <td className="profile-delete-cell">
-                        <button
-                          type="button"
-                          className="icon-button"
-                          aria-label="删除账号"
-                          title="删除账号"
-                          onClick={() => void deleteRow(index)}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            }
-          />
-        </div>
-        {!embedded && (
-          <div className="flex justify-end border-t border-slate-200 px-5 py-4">
-            <button type="button" className="button-secondary" onClick={onClose}>
-              关闭
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
+  const table = (
+    <DataTable
+      className="profile-editor-table"
+      ariaLabel="常用登录配置"
+      desktop={
+        <table>
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>邮箱</th>
+              <th>密码</th>
+              <th className="profile-delete-heading">管理</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.id ?? `new-${index}`}>
+                <td>{renderCell(row, index, "username")}</td>
+                <td>{renderCell(row, index, "email")}</td>
+                <td>{renderCell(row, index, "password")}</td>
+                <td className="profile-delete-cell">
+                  <IconButton
+                    variant="icon"
+                    label="删除账号"
+                    onClick={() => void deleteRow(index)}
+                    icon={<Trash2 size={16} />}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      }
+    />
   );
+
+  if (embedded) {
+    return <div className="profile-manager-panel" role="presentation"><section className="profile-editor-panel" aria-label="常用登录">{table}</section></div>;
+  }
+
+  const close = onClose ?? (() => undefined);
+  return <Dialog title="常用登录" ariaLabel="常用登录" className="profile-manager-modal" contentClassName="p-5" onClose={close} footer={<Button variant="secondary" onClick={close}>关闭</Button>}>{table}</Dialog>;
 }

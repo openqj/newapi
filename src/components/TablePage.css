@@ -2,9 +2,10 @@
 .table-page-toolbar { display: flex; align-items: center; justify-content: flex-start; gap: 1rem; margin-bottom: 1rem; }
 .table-page-filters, .table-page-actions { display: flex; align-items: center; gap: .65rem; flex-wrap: nowrap; }
 .table-page-filters { flex: 0 0 auto; min-width: 0; }
-.table-page-filters .sub2-search, .table-page-filters select { width: 10rem; min-width: 10rem; max-width: 10rem; }
+.table-page-filters .sub2-search, .table-page-filters select, .table-page-filters > .select-field { width: 10rem; min-width: 10rem; max-width: 10rem; }
 .table-page-filters .sub2-search { flex: 0 0 10rem; }
 .table-page-filters select { min-height: 2.45rem; border: 1px solid #d9dde4; border-radius: 7px; background: #fff; padding: .45rem 2.2rem .45rem .7rem; color: #374151; font-size: .8125rem; outline: 0; }
+.table-page-filters > .select-field { flex: 0 0 10rem; }
 .table-page-actions { flex: 0 0 auto; justify-content: flex-end; margin-left: auto; }
 .table-page-actions > .button-secondary { min-width: 2.45rem; justify-content: center; }
 .table-page-actions .sub2-column-menu > .button-secondary, .table-page-actions > .button-primary { min-width: 6.5rem; justify-content: center; }
@@ -27,5 +28,5 @@
   .table-page-filters { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .table-page-actions { width: 100%; justify-content: flex-end; }
   .table-page-filters .sub2-search { grid-column: 1 / -1; width: 100%; max-width: none; }
-  .table-page-filters select { width: 100%; min-width: 0; }
+  .table-page-filters select, .table-page-filters > .select-field { width: 100%; min-width: 0; max-width: none; flex-basis: auto; }
 }

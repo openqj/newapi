@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import { emit } from "@tauri-apps/api/event";
-import { FormDialog, FormField, StatusBadge, TextField, useToast } from "../../../components/ui";
+import { Button, FormDialog, FormField, StatusBadge, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { CONFIG_PROFILE_CHANGED_EVENT, configProfileApi } from "../api";
@@ -156,8 +156,8 @@ export function ConfigImportDialog({ onImported }: { onImported?: () => void }) 
     ariaLabel="导入配置档案"
     onClose={close}
     footer={<>
-      <button type="button" className="button-secondary" onClick={close} disabled={busy}>取消</button>
-      <button type="button" className="button-primary" onClick={() => void importProfile()} disabled={busy || !preview || !name.trim()}>导入档案</button>
+      <Button variant="secondary" onClick={close} disabled={busy}>取消</Button>
+      <Button variant="primary" onClick={() => void importProfile()} disabled={busy || !preview || !name.trim()}>导入档案</Button>
     </>}
   >
     <div className="config-import-detection">

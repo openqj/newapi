@@ -1,5 +1,5 @@
 import { TriangleAlert } from "lucide-react";
-import { Children, isValidElement, useState, type HTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { Children, forwardRef, isValidElement, useState, type HTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import type { ChangeEvent } from "react";
 import { SelectDropdown, type SelectDropdownOption } from "./SelectDropdown";
 import "./Primitives.css";
@@ -22,7 +22,7 @@ export function StatusBadge({ status, children, className, indicator }: { status
 }
 
 export function EmptyState({ title = "暂无数据", description, action, className, children, message }: { title?: ReactNode; description?: ReactNode; action?: ReactNode; className?: string; children?: ReactNode; message?: ReactNode }) {
-  if (message != null && !className && !children) return <div className="sub2-empty"><TriangleAlert size={22} /><span>{message}</span></div>;
+  if (message != null && !children) return <div className={className ?? "sub2-empty"}><TriangleAlert size={22} /><span>{message}</span></div>;
   return <div className={className ?? "empty-state"}>{children ?? <><strong>{title}</strong>{description && <p>{description}</p>}{action && <div>{action}</div>}</>}</div>;
 }
 
@@ -31,13 +31,18 @@ export function FormField({ label, error, hint, required, children }: FieldProps
   return <label className="form-field"><span>{label}{required && <b aria-hidden="true"> *</b>}</span>{children}{hint && !error && <small>{hint}</small>}{error && <small className="field-error">{error}</small>}</label>;
 }
 
-type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "className"> & { error?: boolean };
-export function TextField({ error, ...props }: TextFieldProps) { return <input {...props} className="input" aria-invalid={error || undefined} />; }
-export function PasswordField({ error, ...props }: TextFieldProps) { return <input {...props} type="password" className="input" aria-invalid={error || undefined} />; }
+export type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & { error?: boolean };
+export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function TextField({ error, className, "aria-invalid": ariaInvalid, ...props }, ref) {
+  return <input {...props} ref={ref} className={["input", className].filter(Boolean).join(" ")} aria-invalid={error || ariaInvalid || undefined} />;
+});
+export const PasswordField = forwardRef<HTMLInputElement, TextFieldProps>(function PasswordField({ error, className, "aria-invalid": ariaInvalid, ...props }, ref) {
+  return <input {...props} ref={ref} type="password" className={["input", className].filter(Boolean).join(" ")} aria-invalid={error || ariaInvalid || undefined} />;
+});
 type SelectOptionProps = { value?: string | number; disabled?: boolean; children?: ReactNode };
+const isOptionElement = (child: ReactNode): child is ReactElement<SelectOptionProps> => isValidElement<SelectOptionProps>(child) && child.type === "option";
 
 export function SelectField({ children, value, defaultValue, onChange, className, id, name, title, disabled, required, "aria-label": ariaLabel, "aria-labelledby": ariaLabelledBy, "aria-describedby": ariaDescribedBy, "aria-invalid": ariaInvalid }: SelectHTMLAttributes<HTMLSelectElement>) {
-  const options: SelectDropdownOption[] = Children.toArray(children).filter((child) => isValidElement<SelectOptionProps>(child) && child.type === "option").map((child) => ({
+  const options: SelectDropdownOption[] = Children.toArray(children).filter(isOptionElement).map((child) => ({
     value: String(child.props.value ?? ""),
     label: child.props.children,
     disabled: child.props.disabled,
@@ -66,4 +71,7 @@ export function SelectField({ children, value, defaultValue, onChange, className
     required={required}
   />;
 }
-export function TextareaField(props: TextareaHTMLAttributes<HTMLTextAreaElement>) { return <textarea {...props} className="input" />; }
+export type TextareaFieldProps = TextareaHTMLAttributes<HTMLTextAreaElement> & { error?: boolean };
+export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaFieldProps>(function TextareaField({ error, className, "aria-invalid": ariaInvalid, ...props }, ref) {
+  return <textarea {...props} ref={ref} className={["input", className].filter(Boolean).join(" ")} aria-invalid={error || ariaInvalid || undefined} />;
+});

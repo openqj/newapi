@@ -18,14 +18,16 @@ const server: RemoteServer = {
 
 function renderRow(overrides: Partial<ComponentProps<typeof RemoteServerRow>> = {}) {
   const onSaveRelay = vi.fn();
+  const onSwitchKey = vi.fn();
+  const onSwitchLocal = vi.fn();
   const onSubmit = vi.fn((event: FormEvent) => event.preventDefault());
   const props: ComponentProps<typeof RemoteServerRow> = {
     server,
     index: 0,
     keyRows: [],
     selected: false,
+    selectedKeyValue: "",
     selectedKeyLabel: "选择中转站密钥",
-    openSelection: false,
     saving: false,
     savingRelay: false,
     testing: false,
@@ -36,9 +38,8 @@ function renderRow(overrides: Partial<ComponentProps<typeof RemoteServerRow>> = 
     editingRelay: null,
     relayDraft: { url: server.relayUrl ?? "", key: "" },
     onToggleSelected: vi.fn(),
-    onSelectMenuToggle: vi.fn(),
-    onCloseSelection: vi.fn(),
-    onSwitchKey: vi.fn(),
+    onSwitchKey,
+    onSwitchLocal,
     onOpenEditor: vi.fn(),
     onTest: vi.fn(),
     onShowLogs: vi.fn(),
@@ -54,7 +55,7 @@ function renderRow(overrides: Partial<ComponentProps<typeof RemoteServerRow>> = 
   };
 
   render(<form onSubmit={onSubmit}><table><tbody><RemoteServerRow {...props} /></tbody></table></form>);
-  return { onSaveRelay, onSubmit };
+  return { onSaveRelay, onSubmit, onSwitchKey, onSwitchLocal };
 }
 
 describe("RemoteServerRow relay editing", () => {
@@ -86,5 +87,14 @@ describe("RemoteServerRow relay editing", () => {
     expect(document.querySelector("button.cancel")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "验证" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "删除" })).toBeDisabled();
+  });
+
+  it("uses the shared dropdown for local relay selection", () => {
+    const { onSwitchLocal } = renderRow();
+
+    fireEvent.click(screen.getByRole("button", { name: "选择中转站密钥" }));
+    fireEvent.click(screen.getByRole("option", { name: "本地中转站 / API 密钥" }));
+
+    expect(onSwitchLocal).toHaveBeenCalledTimes(1);
   });
 });

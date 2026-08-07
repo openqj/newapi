@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { KeyRound } from "lucide-react";
-import { FormDialog, useToast } from "../../../components/ui";
+import { Button, FormDialog, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { remoteApi } from "../api";
@@ -139,24 +139,24 @@ export function RemoteServerDialog({
       footer={
         <>
           {authType === "password" && (
-            <button
-              className="button-secondary ssh-generate-key-button"
-              type="button"
+            <Button
+              variant="secondary"
+              className="ssh-generate-key-button"
               disabled={generatingKey || !password}
               onClick={(event) => void generateKey(event.currentTarget.form)}
             >
               <KeyRound size={16} />
               {generatingKey ? "生成中..." : "生成 SSH 密钥"}
-            </button>
+            </Button>
           )}
-          <button className="button-secondary form-dialog-cancel" type="button" onClick={onClose}>
+          <Button variant="secondary" className="form-dialog-cancel" onClick={onClose}>
             取消
-          </button>
-          <button className="button-primary form-dialog-submit" disabled={saving}>
+          </Button>
+          <Button variant="primary" className="form-dialog-submit" type="submit" disabled={saving}>
             {saving
               ? (server ? "保存并测试中" : "登录中")
               : (server ? "保存并测试连接" : "登录")}
-          </button>
+          </Button>
         </>
       }
     >

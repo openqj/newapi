@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Cloud, HardDriveUpload, LogIn, LogOut, RotateCcw, Trash2 } from "lucide-react";
-import { FormDialog, FormField, Panel, PasswordField, useConfirm, useToast } from "../../../components/ui";
+import { Button, FormDialog, FormField, IconButton, List, ListItem, Panel, PasswordField, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { settingsApi } from "../api";
@@ -161,20 +161,20 @@ export function CloudBackupPanel({ onAuthChanged }: { onAuthChanged?: (status: C
     <header className="cloud-backup-header"><Cloud size={20} /><div><h2>云端备份</h2><p>端到端加密，云端无法读取站点密码和中转密钥。</p></div></header>
     {!auth.configured && <div className="cloud-backup-unavailable">未配置 Supabase。请设置 `SUPABASE_URL` 和 `SUPABASE_ANON_KEY` 后重新启动应用。</div>}
     {auth.configured && !auth.email && <form className="cloud-auth-form" onSubmit={authenticate}>
-      <FormField label="邮箱"><input className="input" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></FormField>
+      <FormField label="邮箱"><TextField type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></FormField>
       <FormField label="账号密码"><PasswordField autoComplete={registering ? "new-password" : "current-password"} required value={password} onChange={(event) => setPassword(event.target.value)} /></FormField>
       {registering && <FormField label="确认密码"><PasswordField autoComplete="new-password" required value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} /></FormField>}
-      <div className="cloud-auth-actions"><button type="submit" className="button-primary" disabled={busy}><LogIn size={16} />{registering ? "注册账户" : "登录"}</button><button type="button" className="button-secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}>{registering ? "已有账户" : "创建账户"}</button>{!registering && <button type="button" className="button-secondary" disabled={busy || !email} onClick={() => void requestPasswordReset()}>忘记密码</button>}</div>
+      <div className="cloud-auth-actions"><Button type="submit" variant="primary" disabled={busy}><LogIn size={16} />{registering ? "注册账户" : "登录"}</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}>{registering ? "已有账户" : "创建账户"}</Button>{!registering && <Button type="button" variant="secondary" disabled={busy || !email} onClick={() => void requestPasswordReset()}>忘记密码</Button>}</div>
     </form>}
     {auth.configured && auth.email && <>
       <div className="cloud-backup-comparison">
         <div><strong>本地数据</strong><small>{localPreview ? `${localPreview.stationCount} 个站点 · ${localPreview.loginProfileCount} 个登录资料 · ${localPreview.remoteServerCount} 个远程服务器` : "正在读取本地数据…"}</small></div>
         <div><strong>云端状态</strong><small>{backups[0] ? `最近备份：${formatDate(backups[0].createdAt)} · ${formatSize(backups[0].byteSize)}` : "点击同步到云端后更新"}</small></div>
       </div>
-      <div className="cloud-account-row"><div><strong>{auth.email}</strong><small>已登录</small></div><button type="button" className="button-secondary" onClick={() => void signOut()} disabled={busy}><LogOut size={16} />退出</button></div>
-      <div className="cloud-backup-actions"><button type="button" className="button-primary" onClick={() => setRecoveryAction({ kind: "backup" })} disabled={busy}><HardDriveUpload size={16} />同步到云端</button><span>保留全部历史备份</span></div>
-      <div className="cloud-backup-list">{backups.map((backup) => <div key={backup.id} className="cloud-backup-row"><div><strong>{formatDate(backup.createdAt)}</strong><small>{formatSize(backup.byteSize)}</small></div><div className="cloud-backup-row-actions"><button type="button" className="button-secondary" disabled={busy} onClick={() => setRecoveryAction({ kind: "restore", id: backup.id })}><RotateCcw size={16} />恢复</button><button type="button" className="icon-button" aria-label="删除云端备份" title="删除云端备份" disabled={busy} onClick={() => void deleteBackup(backup)}><Trash2 size={16} /></button></div></div>)}{backups.length === 0 && <p>尚未创建云端备份。</p>}</div>
+      <div className="cloud-account-row"><div><strong>{auth.email}</strong><small>已登录</small></div><Button type="button" variant="secondary" onClick={() => void signOut()} disabled={busy}><LogOut size={16} />退出</Button></div>
+      <div className="cloud-backup-actions"><Button type="button" variant="primary" onClick={() => setRecoveryAction({ kind: "backup" })} disabled={busy}><HardDriveUpload size={16} />同步到云端</Button><span>保留全部历史备份</span></div>
+      <List className="cloud-backup-list">{backups.map((backup) => <ListItem key={backup.id} className="cloud-backup-row"><div><strong>{formatDate(backup.createdAt)}</strong><small>{formatSize(backup.byteSize)}</small></div><div className="cloud-backup-row-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => setRecoveryAction({ kind: "restore", id: backup.id })}><RotateCcw size={16} />恢复</Button><IconButton type="button" variant="icon" label="删除云端备份" disabled={busy} onClick={() => void deleteBackup(backup)} icon={<Trash2 size={16} />} /></div></ListItem>)}{backups.length === 0 && <p>尚未创建云端备份。</p>}</List>
     </>}
-    {recoveryAction && <FormDialog title={recoveryAction.kind === "backup" ? "创建加密备份" : "解锁云端备份"} description="恢复密码仅用于本次操作，不会被保存。" ariaLabel="恢复密码" onClose={() => { setRecoveryAction(null); setRecoveryPassword(""); }} onSubmit={submitRecovery} footer={<><button type="button" className="button-secondary" onClick={() => { setRecoveryAction(null); setRecoveryPassword(""); }}>取消</button><button type="submit" className="button-primary" disabled={busy}>{recoveryAction.kind === "backup" ? "创建备份" : "预览备份"}</button></>}><FormField label="恢复密码" hint="至少 12 个字符"><PasswordField autoFocus required minLength={12} value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} /></FormField></FormDialog>}
+    {recoveryAction && <FormDialog title={recoveryAction.kind === "backup" ? "创建加密备份" : "解锁云端备份"} description="恢复密码仅用于本次操作，不会被保存。" ariaLabel="恢复密码" onClose={() => { setRecoveryAction(null); setRecoveryPassword(""); }} onSubmit={submitRecovery} footer={<><Button type="button" variant="secondary" onClick={() => { setRecoveryAction(null); setRecoveryPassword(""); }}>取消</Button><Button type="submit" variant="primary" disabled={busy}>{recoveryAction.kind === "backup" ? "创建备份" : "预览备份"}</Button></>}><FormField label="恢复密码" hint="至少 12 个字符"><PasswordField autoFocus required minLength={12} value={recoveryPassword} onChange={(event) => setRecoveryPassword(event.target.value)} /></FormField></FormDialog>}
   </Panel>;
 }

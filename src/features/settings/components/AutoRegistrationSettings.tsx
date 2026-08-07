@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Loader2, Mail } from "lucide-react";
-import { Panel, useToast } from "../../../components/ui";
+import { Button, Panel, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { registrationApi, type MailOAuthStatus, type MailProvider } from "../../registration/api";
@@ -62,11 +62,11 @@ function MailOAuthCard({ provider, status, loading, onStatus, onError, onSuccess
       <StatusBadge status={status} loading={loading} />
     </header>
     <div className="auto-registration-card-body">
-      <div className="auto-registration-form"><label>OAuth Client ID<input className="input" value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="Google Cloud 或 Microsoft Entra 应用 ID" /></label><label>Client Secret（如应用类型要求）<input className="input" type="password" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} placeholder="可留空" /></label></div>
+      <div className="auto-registration-form"><label>OAuth Client ID<TextField value={clientId} onChange={(event) => setClientId(event.target.value)} placeholder="Google Cloud 或 Microsoft Entra 应用 ID" /></label><label>Client Secret（如应用类型要求）<TextField type="password" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} placeholder="可留空" /></label></div>
     </div>
     <footer className="auto-registration-card-footer">
       <small className="auto-registration-help">回调地址使用本机 loopback，由应用在授权时临时生成；请在 OAuth 应用中允许桌面/本机回调。</small>
-      <div className="auto-registration-actions"><button type="button" className="button-secondary" disabled={busy} onClick={() => void save()}>保存配置</button><button type="button" className="button-primary" disabled={busy || !clientId.trim()} onClick={() => void connect()}>{busy ? <><Loader2 size={14} className="register-spin" />处理中…</> : status?.connected ? "重新授权" : "连接 OAuth"}</button>{status?.connected && <button type="button" className="button-secondary" disabled={busy} onClick={() => void disconnect()}>断开</button>}</div>
+      <div className="auto-registration-actions"><Button type="button" variant="secondary" disabled={busy} onClick={() => void save()}>保存配置</Button><Button type="button" variant="primary" disabled={busy || !clientId.trim()} onClick={() => void connect()}>{busy ? <><Loader2 size={14} className="register-spin" />处理中…</> : status?.connected ? "重新授权" : "连接 OAuth"}</Button>{status?.connected && <Button type="button" variant="secondary" disabled={busy} onClick={() => void disconnect()}>断开</Button>}</div>
     </footer>
   </Panel>;
 }
@@ -93,11 +93,11 @@ function QqMailCard({ status, loading, onStatus, onError, onSuccess }: { status?
       <StatusBadge status={status} loading={loading} />
     </header>
     <div className="auto-registration-card-body">
-      <div className="auto-registration-form auto-registration-form-qq"><label>QQ 邮箱<input className="input" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="123456789@qq.com" /></label><label>IMAP 授权码<input className="input" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="QQ 邮箱设置中生成的授权码" /></label></div>
+      <div className="auto-registration-form auto-registration-form-qq"><label>QQ 邮箱<TextField type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="123456789@qq.com" /></label><label>IMAP 授权码<TextField type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="QQ 邮箱设置中生成的授权码" /></label></div>
     </div>
     <footer className="auto-registration-card-footer">
       <small className="auto-registration-help">请先在 QQ 邮箱设置中开启 IMAP/SMTP。应用保存的是授权码，不是网页登录密码。</small>
-      <div className="auto-registration-actions"><button type="button" className="button-primary" disabled={busy} onClick={() => void connect()}>{busy ? "连接中…" : status?.connected ? "更新授权码" : "连接 QQ 邮箱"}</button>{status?.connected && <button type="button" className="button-secondary" disabled={busy} onClick={() => void disconnect()}>断开</button>}</div>
+      <div className="auto-registration-actions"><Button type="button" variant="primary" disabled={busy} onClick={() => void connect()}>{busy ? "连接中…" : status?.connected ? "更新授权码" : "连接 QQ 邮箱"}</Button>{status?.connected && <Button type="button" variant="secondary" disabled={busy} onClick={() => void disconnect()}>断开</Button>}</div>
     </footer>
   </Panel>;
 }

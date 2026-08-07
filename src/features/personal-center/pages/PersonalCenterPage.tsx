@@ -1,7 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BellRing, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Crown, Filter, KeyRound, LogIn, LogOut, Pencil, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smartphone, Store, Trash2, Undo2, UserPlus, UsersRound, X } from "lucide-react";
+import { BellRing, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Crown, Filter, KeyRound, LogIn, LogOut, Pencil, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal, Smartphone, Store, Trash2, Undo2, UserPlus, UsersRound } from "lucide-react";
 import type { AccountRow } from "../../accounts";
-import { FormDialog, FormField, Panel, PasswordField, SelectField, TextareaField, TextField, useConfirm, useToast } from "../../../components/ui";
+import { Button, Drawer, FormDialog, FormField, List, ListItem, Pagination, Panel, PasswordField, SelectField, Switch, TextareaField, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { CloudBackupPanel } from "../../settings/components/CloudBackupPanel";
@@ -62,7 +62,7 @@ const formatTime = (value?: number | null) => {
 };
 
 function PreferenceSwitch({ checked, label, description, onChange }: { checked: boolean; label: string; description: string; onChange: () => void }) {
-  return <label className="personal-center-preference"><span><strong>{label}</strong><small>{description}</small></span><input className="personal-center-switch" type="checkbox" checked={checked} onChange={onChange} aria-label={label} /></label>;
+  return <div className="personal-center-preference"><span><strong>{label}</strong><small>{description}</small></span><Switch label={label} className="personal-center-switch" checked={checked} onCheckedChange={onChange} /></div>;
 }
 
 const audienceLabels = { all: "所有客户端", members: "会员客户端", guests: "未登录客户端", user: "指定用户" };
@@ -100,20 +100,20 @@ export function AdminConsole({ activeTab = "notifications", preferences = defaul
           <PreferenceSwitch label="安全告警" description="账号异常、权限变更等高优先级消息" checked={preferences.alertEnabled} onChange={() => updatePreference("alertEnabled")} />
           <PreferenceSwitch label="套餐优惠" description="接收站点公告与套餐更新" checked={preferences.offerEnabled} onChange={() => updatePreference("offerEnabled")} />
         </div></section>
-        <section className="personal-admin-callout"><SlidersHorizontal size={20} /><div><strong>发布云端通知</strong><p>向全体用户或指定个人中心账户发送实时通知。</p><button type="button" className="button-primary" onClick={onPublishNotification}>发布通知 <ChevronRight size={15} /></button></div></section>
-        <section className="personal-admin-section personal-admin-notification-history"><div className="personal-admin-section-title"><ClipboardList size={17} /><div><h3>已发云端通知</h3><p>保留已发记录；撤回会立刻停止展示，删除会永久移除记录。</p></div></div>{sentNotificationsLoading && !sentNotifications.length ? <AdminLoading label="正在加载已发通知…" /> : sentNotifications.length ? <div className="personal-admin-notification-list">{sentNotifications.map((notification) => <article key={notification.id}><div><div className="personal-admin-notification-heading"><strong>{notification.title}</strong><span className={notification.revokedAt ? "personal-admin-state" : "personal-admin-state enabled"}>{notificationStatus(notification)}</span></div><p>{notification.body}</p><small>{audienceLabels[notification.audience]}{notification.targetEmail ? ` · ${notification.targetEmail}` : ""} · 发布于 {formatTime(notification.publishedAt)}</small></div><aside><button type="button" className="button-secondary" onClick={() => onEditNotification?.(notification)} disabled={Boolean(notification.revokedAt) || notificationActionId === notification.id}><Pencil size={14} />修改</button>{!notification.revokedAt && <button type="button" className="button-secondary" onClick={() => onRevokeNotification?.(notification)} disabled={notificationActionId === notification.id}><Undo2 size={14} />撤回</button>}<button type="button" className="button-secondary" onClick={() => onDeleteNotification?.(notification)} disabled={notificationActionId === notification.id}><Trash2 size={14} />删除</button></aside></article>)}</div> : <div className="personal-admin-empty">暂无已发云端通知。</div>}</section>
+        <section className="personal-admin-callout"><SlidersHorizontal size={20} /><div><strong>发布云端通知</strong><p>向全体用户或指定个人中心账户发送实时通知。</p><Button variant="primary" onClick={onPublishNotification}>发布通知 <ChevronRight size={15} /></Button></div></section>
+        <section className="personal-admin-section personal-admin-notification-history"><div className="personal-admin-section-title"><ClipboardList size={17} /><div><h3>已发云端通知</h3><p>保留已发记录；撤回会立刻停止展示，删除会永久移除记录。</p></div></div>{sentNotificationsLoading && !sentNotifications.length ? <AdminLoading label="正在加载已发通知…" /> : sentNotifications.length ? <List className="personal-admin-notification-list">{sentNotifications.map((notification) => <ListItem as="article" key={notification.id}><div><div className="personal-admin-notification-heading"><strong>{notification.title}</strong><span className={notification.revokedAt ? "personal-admin-state" : "personal-admin-state enabled"}>{notificationStatus(notification)}</span></div><p>{notification.body}</p><small>{audienceLabels[notification.audience]}{notification.targetEmail ? ` · ${notification.targetEmail}` : ""} · 发布于 {formatTime(notification.publishedAt)}</small></div><aside><Button variant="secondary" onClick={() => onEditNotification?.(notification)} disabled={Boolean(notification.revokedAt) || notificationActionId === notification.id}><Pencil size={14} />修改</Button>{!notification.revokedAt && <Button variant="secondary" onClick={() => onRevokeNotification?.(notification)} disabled={notificationActionId === notification.id}><Undo2 size={14} />撤回</Button>}<Button variant="secondary" onClick={() => onDeleteNotification?.(notification)} disabled={notificationActionId === notification.id}><Trash2 size={14} />删除</Button></aside></ListItem>)}</List> : <div className="personal-admin-empty">暂无已发云端通知。</div>}</section>
       </div>}
       {activeTab === "users" && <div className="personal-admin-grid">
         <section className="personal-admin-section"><div className="personal-admin-section-title"><UsersRound size={17} /><div><h3>已连接用户</h3><p>通过站点账户绑定到当前个人中心的成员。</p></div></div><div className="personal-admin-metrics"><div><span>绑定账户</span><strong>{memberships.length}</strong></div><div><span>已启用权限</span><strong>{activeMemberships.length}</strong></div><div><span>即将到期</span><strong>{memberships.filter((item) => isExpiringSoon(item.expiresAt)).length}</strong></div></div>
-          {membershipsLoading && !memberships.length ? <AdminLoading label="正在加载用户权限…" /> : memberships.length ? <div className="personal-admin-user-list">{memberships.slice(0, 3).map((item) => { const status = membershipEffectiveStatus(item); return <div key={`${item.stationId}-${item.accountId}`}><span className={status === "active" ? "personal-admin-avatar enabled" : "personal-admin-avatar"}>{item.accountId.slice(0, 1).toUpperCase()}</span><p><strong>{item.accountId}</strong><small>{item.stationId} · {item.plan}</small></p><MembershipStatus membership={item} /></div>; })}</div> : <div className="personal-admin-empty">尚未绑定用户。连接站点账户后会在这里显示。</div>}
+          {membershipsLoading && !memberships.length ? <AdminLoading label="正在加载用户权限…" /> : memberships.length ? <List className="personal-admin-user-list">{memberships.slice(0, 3).map((item) => { const status = membershipEffectiveStatus(item); return <ListItem key={`${item.stationId}-${item.accountId}`}><span className={status === "active" ? "personal-admin-avatar enabled" : "personal-admin-avatar"}>{item.accountId.slice(0, 1).toUpperCase()}</span><p><strong>{item.accountId}</strong><small>{item.stationId} · {item.plan}</small></p><MembershipStatus membership={item} /></ListItem>; })}</List> : <div className="personal-admin-empty">尚未绑定用户。连接站点账户后会在这里显示。</div>}
         </section>
-        <section className="personal-admin-section"><div className="personal-admin-section-title"><ShieldCheck size={17} /><div><h3>最近登录</h3><p>由登录服务记录的来源 IP、结果与设备信息。</p></div></div>{loginEventsLoading && !loginEvents.length ? <AdminLoading label="正在加载登录记录…" /> : loginEvents.length ? <div className="personal-admin-audit-list">{loginEvents.slice(0, 5).map((event) => <article key={event.id}><span className={`personal-admin-audit-dot ${event.outcome}`} /><div><strong>{event.email}</strong><p>{event.ipAddress ?? "未知 IP"} · {event.outcome === "success" ? "登录成功" : "登录失败"}{event.userAgent ? ` · ${event.userAgent.slice(0, 60)}` : ""}</p></div><time>{formatTime(event.createdAt)}</time></article>)}</div> : <div className="personal-admin-empty">尚无服务端登录记录。</div>}</section>
+        <section className="personal-admin-section"><div className="personal-admin-section-title"><ShieldCheck size={17} /><div><h3>最近登录</h3><p>由登录服务记录的来源 IP、结果与设备信息。</p></div></div>{loginEventsLoading && !loginEvents.length ? <AdminLoading label="正在加载登录记录…" /> : loginEvents.length ? <List className="personal-admin-audit-list">{loginEvents.slice(0, 5).map((event) => <ListItem as="article" key={event.id}><span className={`personal-admin-audit-dot ${event.outcome}`} /><div><strong>{event.email}</strong><p>{event.ipAddress ?? "未知 IP"} · {event.outcome === "success" ? "登录成功" : "登录失败"}{event.userAgent ? ` · ${event.userAgent.slice(0, 60)}` : ""}</p></div><time>{formatTime(event.createdAt)}</time></ListItem>)}</List> : <div className="personal-admin-empty">尚无服务端登录记录。</div>}</section>
       </div>}
-      {activeTab === "membership" && <section className="personal-admin-section"><div className="personal-admin-section-title personal-admin-section-actions"><div className="personal-admin-section-title"><Crown size={17} /><div><h3>会员与权限</h3><p>为站点账户分配套餐、访问等级和有效期。</p></div></div><button type="button" className="button-primary" onClick={onAddMembership}><Plus size={16} />新增权限</button></div>
-        {membershipsLoading && !memberships.length ? <AdminLoading label="正在加载会员权限…" /> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.userEmail} · {item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilegeLabels[privilege] ?? privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><MembershipStatus membership={item} /><small>有效期：{formatTime(item.expiresAt)}</small><button type="button" className="button-secondary" onClick={() => onManageMembership?.(item)}>编辑权限</button></aside></article>)}</div> : <div className="personal-admin-empty">暂无会员权限记录。新增权限后将显示在这里。</div>}
+      {activeTab === "membership" && <section className="personal-admin-section"><div className="personal-admin-section-title personal-admin-section-actions"><div className="personal-admin-section-title"><Crown size={17} /><div><h3>会员与权限</h3><p>为站点账户分配套餐、访问等级和有效期。</p></div></div><Button variant="primary" onClick={onAddMembership}><Plus size={16} />新增权限</Button></div>
+        {membershipsLoading && !memberships.length ? <AdminLoading label="正在加载会员权限…" /> : memberships.length ? <List className="personal-admin-memberships">{memberships.map((item) => <ListItem as="article" key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.userEmail} · {item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilegeLabels[privilege] ?? privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><MembershipStatus membership={item} /><small>有效期：{formatTime(item.expiresAt)}</small><Button variant="secondary" onClick={() => onManageMembership?.(item)}>编辑权限</Button></aside></ListItem>)}</List> : <div className="personal-admin-empty">暂无会员权限记录。新增权限后将显示在这里。</div>}
       </section>}
-      {activeTab === "audit" && <section className="personal-admin-section"><div className="personal-admin-section-title personal-admin-section-actions"><div className="personal-admin-section-title"><ClipboardList size={17} /><div><h3>操作审计</h3><p>保留通知、成员与权限设置的最近变更记录。</p></div></div><button type="button" className="button-secondary" onClick={onViewAudit}>查看完整记录 <ChevronRight size={15} /></button></div>
-        {auditLoading && !auditRecords.length ? <AdminLoading label="正在加载操作审计…" /> : auditRecords.length ? <div className="personal-admin-audit-list">{auditRecords.slice(0, 5).map((record) => <article key={record.id}><span className="personal-admin-audit-dot" /><div><strong>{auditActionLabel(record.action)}</strong><p>{record.subject} · {record.detail}</p><small>{auditActorLabel(record)} · {formatAuditDateTime(record.createdAt)}</small></div><time>{formatTime(record.createdAt)}</time></article>)}</div> : <div className="personal-admin-empty">尚无操作记录。管理员配置变更后会自动留存审计信息。</div>}
+      {activeTab === "audit" && <section className="personal-admin-section"><div className="personal-admin-section-title personal-admin-section-actions"><div className="personal-admin-section-title"><ClipboardList size={17} /><div><h3>操作审计</h3><p>保留通知、成员与权限设置的最近变更记录。</p></div></div><Button variant="secondary" onClick={onViewAudit}>查看完整记录 <ChevronRight size={15} /></Button></div>
+        {auditLoading && !auditRecords.length ? <AdminLoading label="正在加载操作审计…" /> : auditRecords.length ? <List className="personal-admin-audit-list">{auditRecords.slice(0, 5).map((record) => <ListItem as="article" key={record.id}><span className="personal-admin-audit-dot" /><div><strong>{auditActionLabel(record.action)}</strong><p>{record.subject} · {record.detail}</p><small>{auditActorLabel(record)} · {formatAuditDateTime(record.createdAt)}</small></div><time>{formatTime(record.createdAt)}</time></ListItem>)}</List> : <div className="personal-admin-empty">尚无操作记录。管理员配置变更后会自动留存审计信息。</div>}
       </section>}
     </div>
   </div>;
@@ -338,7 +338,7 @@ export function PersonalCenterPage({ accountRows, preferences, initialAuth = nul
       onRevokeNotification={(notification) => void revokeNotification(notification)}
       onDeleteNotification={(notification) => void deleteNotification(notification)}
     /> : <><Panel className="personal-center-panel personal-standard-panel" title="我的会员权限" description="管理员分配的站点权限由服务器同步到当前账户。">
-      {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <div className="personal-admin-memberships">{memberships.map((item) => <article key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilegeLabels[privilege] ?? privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><MembershipStatus membership={item} /><small>有效期：{formatTime(item.expiresAt)}</small></aside></article>)}</div> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
+       {membershipsLoading ? <p className="personal-admin-empty">正在同步会员权限…</p> : memberships.length ? <List className="personal-admin-memberships">{memberships.map((item) => <ListItem as="article" key={`${item.stationId}-${item.accountId}`} className="personal-admin-membership"><div><span className="personal-admin-plan">{item.plan}</span><h4>{item.accountId}</h4><p>{item.stationId} · {item.accessLevel} · 更新于 {formatTime(item.updatedAt)}</p><div className="personal-admin-privileges">{item.privileges.length ? item.privileges.map((privilege) => <span key={privilege}>{privilegeLabels[privilege] ?? privilege}</span>) : <span>未配置额外权限</span>}</div></div><aside><MembershipStatus membership={item} /><small>有效期：{formatTime(item.expiresAt)}</small></aside></ListItem>)}</List> : <div className="personal-admin-empty">当前账户尚未分配会员权限。</div>}
     </Panel><MobileAppConnection email={auth.email} /></>}
      {auth.isAdmin && isEditorOpen && <MembershipEditor accountRows={accountRows} membership={editing} saving={saving} onClose={() => setEditorOpen(false)} onSave={save} onDelete={remove} />}
      {auth.isAdmin && isNotificationEditorOpen && <NotificationEditor notification={editingNotification} saving={publishingNotification} onClose={() => { setNotificationEditorOpen(false); setEditingNotification(null); }} onSave={publishNotification} />}
@@ -357,16 +357,16 @@ function PersonalCenterHeaderNav({ role, activeSection, activeAdminTab, canSync,
 
   return <nav className="personal-center-header-nav" aria-label="个人中心功能导航">
     <div className="personal-center-header-nav-items">
-      <button type="button" className={`personal-center-header-nav-item ${activeSection === "overview" ? "active" : ""}`} aria-current={activeSection === "overview" ? "page" : undefined} onClick={() => onSelectSection("overview")}>个人概览</button>
-      {canSync && <button type="button" className={`personal-center-header-nav-item ${activeSection === "cloudBackup" ? "active" : ""}`} aria-current={activeSection === "cloudBackup" ? "page" : undefined} onClick={() => onSelectSection("cloudBackup")}>云备份</button>}
-      {canMerchant && <button type="button" className={`personal-center-header-nav-item ${activeSection === "merchant" ? "active" : ""}`} aria-current={activeSection === "merchant" ? "page" : undefined} onClick={() => onSelectSection("merchant")}>商家端</button>}
-      {canAdmin && adminItems.map(({ id, label, Icon }) => <button key={id} type="button" className={`personal-center-header-nav-item personal-center-admin-nav-item ${activeSection === "admin" && activeAdminTab === id ? "active" : ""}`} aria-current={activeSection === "admin" && activeAdminTab === id ? "page" : undefined} onClick={() => onSelectAdminTab(id)}><Icon size={15} />{label}</button>)}
+      <Button variant="ghost" className={`personal-center-header-nav-item ${activeSection === "overview" ? "active" : ""}`} aria-current={activeSection === "overview" ? "page" : undefined} onClick={() => onSelectSection("overview")}>个人概览</Button>
+      {canSync && <Button variant="ghost" className={`personal-center-header-nav-item ${activeSection === "cloudBackup" ? "active" : ""}`} aria-current={activeSection === "cloudBackup" ? "page" : undefined} onClick={() => onSelectSection("cloudBackup")}>云备份</Button>}
+      {canMerchant && <Button variant="ghost" className={`personal-center-header-nav-item ${activeSection === "merchant" ? "active" : ""}`} aria-current={activeSection === "merchant" ? "page" : undefined} onClick={() => onSelectSection("merchant")}>商家端</Button>}
+      {canAdmin && adminItems.map(({ id, label, Icon }) => <Button variant="ghost" key={id} className={`personal-center-header-nav-item personal-center-admin-nav-item ${activeSection === "admin" && activeAdminTab === id ? "active" : ""}`} aria-current={activeSection === "admin" && activeAdminTab === id ? "page" : undefined} onClick={() => onSelectAdminTab(id)}><Icon size={15} />{label}</Button>)}
       {canAdmin && <label className={`personal-center-admin-mobile-select ${activeSection === "admin" ? "is-active" : ""}`}><span>管理模块</span><SelectField aria-label="管理模块" value={activeAdminTab} onChange={(event) => onSelectAdminTab(event.target.value as PersonalCenterAdminTab)}>{adminItems.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}</SelectField></label>}
     </div>
     {activeSection !== "cloudBackup" && <div className="personal-center-account-meta">
       <span className="personal-center-account-label">个人账号</span>
       <span className="personal-center-role-badge">{role === "admin" ? "管理员" : role === "merchant" ? "商家" : role === "pro" ? "Pro 会员" : "普通账号"}</span>
-      <button type="button" className="button-secondary personal-center-signout" onClick={onSignOut}><LogOut size={15} />退出</button>
+      <Button variant="secondary" className="personal-center-signout" onClick={onSignOut}><LogOut size={15} />退出</Button>
     </div>}
   </nav>;
 }
@@ -408,31 +408,32 @@ function AuditHistoryDrawer({ entries, loading, onRefresh, onClose }: { entries:
     if (selectedId != null && !filteredEntries.some((entry) => entry.id === selectedId)) setSelectedId(null);
   }, [filteredEntries, page, selectedId, totalPages]);
 
-  return <div className="personal-audit-drawer-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <aside className="personal-audit-drawer" role="dialog" aria-modal="true" aria-label="完整操作审计">
-      <header className="personal-audit-drawer-header">
-        <div>{selected ? <button type="button" className="button-secondary personal-audit-back" onClick={() => setSelectedId(null)}><ChevronLeft size={15} />返回记录</button> : <><h2>完整操作审计</h2><p>筛选管理员变更并查看前后快照。</p></>}</div>
-        <button type="button" className="button-secondary personal-audit-close" aria-label="关闭" title="关闭" onClick={onClose}><X size={16} /></button>
-      </header>
-      {selected ? <AuditEntryDetail entry={selected} /> : <div className="personal-audit-drawer-body">
-        <div className="personal-audit-filter-heading"><strong><Filter size={15} />筛选记录</strong><button type="button" className="button-secondary" onClick={() => void onRefresh()} disabled={loading}><RefreshCw size={14} className={loading ? "sub2-spin" : ""} />刷新</button></div>
+  return <Drawer
+    ariaLabel="完整操作审计"
+    onClose={onClose}
+    className="personal-audit-drawer"
+    headerClassName="personal-audit-drawer-header"
+    contentClassName="personal-audit-drawer-body"
+    header={selected ? <Button variant="secondary" className="personal-audit-back" onClick={() => setSelectedId(null)}><ChevronLeft size={15} />返回记录</Button> : <><h2>完整操作审计</h2><p>筛选管理员变更并查看前后快照。</p></>}
+  >
+      {selected ? <AuditEntryDetail entry={selected} /> : <>
+        <div className="personal-audit-filter-heading"><strong><Filter size={15} />筛选记录</strong><Button variant="secondary" onClick={() => void onRefresh()} disabled={loading}><RefreshCw size={14} className={loading ? "sub2-spin" : ""} />刷新</Button></div>
         <div className="personal-audit-filters">
           <label className="personal-audit-search"><Search size={15} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索动作、对象、操作者" aria-label="搜索审计记录" /></label>
-          <label><span>开始日期</span><span className="personal-audit-date-input"><CalendarDays size={14} aria-hidden="true" /><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="审计开始日期" /></span></label>
-          <label><span>结束日期</span><span className="personal-audit-date-input"><CalendarDays size={14} aria-hidden="true" /><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="审计结束日期" /></span></label>
-          <label><span>操作者</span><select value={actor} onChange={(event) => setActor(event.target.value)} aria-label="按操作者筛选"><option value="all">全部操作者</option>{actors.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-          <label><span>动作</span><select value={action} onChange={(event) => setAction(event.target.value)} aria-label="按动作筛选"><option value="all">全部动作</option>{actions.map((item) => <option key={item} value={item}>{auditActionLabel(item)}</option>)}</select></label>
+          <label><span>开始日期</span><span className="personal-audit-date-input"><CalendarDays size={14} aria-hidden="true" /><TextField type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} aria-label="审计开始日期" /></span></label>
+          <label><span>结束日期</span><span className="personal-audit-date-input"><CalendarDays size={14} aria-hidden="true" /><TextField type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} aria-label="审计结束日期" /></span></label>
+          <label><span>操作者</span><SelectField value={actor} onChange={(event) => setActor(event.target.value)} aria-label="按操作者筛选"><option value="all">全部操作者</option>{actors.map((item) => <option key={item} value={item}>{item}</option>)}</SelectField></label>
+          <label><span>动作</span><SelectField value={action} onChange={(event) => setAction(event.target.value)} aria-label="按动作筛选"><option value="all">全部动作</option>{actions.map((item) => <option key={item} value={item}>{auditActionLabel(item)}</option>)}</SelectField></label>
         </div>
         <div className="personal-audit-result-meta" role="status">共 {filteredEntries.length} 条记录{loading ? "，正在更新…" : ""}</div>
-        {pageEntries.length ? <div className="personal-audit-record-list">{pageEntries.map((entry) => <article key={entry.id} className="personal-audit-record"><div className="personal-audit-record-main"><span className="personal-admin-audit-dot" /><div><strong>{auditActionLabel(entry.action)}</strong><p>{entry.subject} · {entry.detail}</p><small>{auditActorLabel(entry)} · {formatAuditDateTime(entry.createdAt)}</small></div></div><button type="button" className="button-secondary" onClick={() => setSelectedId(entry.id)}>查看详情 <ChevronRight size={14} /></button></article>)}</div> : <div className="personal-admin-empty">没有符合条件的审计记录。</div>}
-        <div className="personal-audit-pagination"><button type="button" className="button-secondary" aria-label="上一页" disabled={page <= 1} onClick={() => setPage((current) => current - 1)}><ChevronLeft size={15} /></button><span>第 {page} / {totalPages} 页</span><button type="button" className="button-secondary" aria-label="下一页" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}><ChevronRight size={15} /></button></div>
-      </div>}
-    </aside>
-  </div>;
+        {pageEntries.length ? <List className="personal-audit-record-list">{pageEntries.map((entry) => <ListItem as="article" key={entry.id} className="personal-audit-record"><div className="personal-audit-record-main"><span className="personal-admin-audit-dot" /><div><strong>{auditActionLabel(entry.action)}</strong><p>{entry.subject} · {entry.detail}</p><small>{auditActorLabel(entry)} · {formatAuditDateTime(entry.createdAt)}</small></div></div><Button variant="secondary" onClick={() => setSelectedId(entry.id)}>查看详情 <ChevronRight size={14} /></Button></ListItem>)}</List> : <div className="personal-admin-empty">没有符合条件的审计记录。</div>}
+        <Pagination page={page} pageCount={totalPages} onPageChange={setPage} ariaLabel="完整操作审计分页" className="personal-audit-pagination" />
+      </>}
+  </Drawer>;
 }
 
 function AuditEntryDetail({ entry }: { entry: PersonalCenterAuditEntry }) {
-  return <div className="personal-audit-drawer-body personal-audit-entry-detail">
+  return <div className="personal-audit-entry-detail">
     <dl className="personal-audit-detail-meta"><div><dt>动作</dt><dd>{auditActionLabel(entry.action)}</dd></div><div><dt>操作者</dt><dd>{auditActorLabel(entry)}</dd></div><div><dt>时间</dt><dd>{formatAuditDateTime(entry.createdAt)}</dd></div><div><dt>对象</dt><dd>{entry.subject}</dd></div><div><dt>说明</dt><dd>{entry.detail}</dd></div></dl>
     <section><h3>变更前</h3><pre>{auditSnapshotText(entry.before)}</pre></section>
     <section><h3>变更后</h3><pre>{auditSnapshotText(entry.after)}</pre></section>
@@ -445,11 +446,11 @@ function MobileAppConnection({ email }: { email?: string }) {
     <div className="mobile-app-connection-content">
       <h2>连接手机 App</h2>
       <p>RelayHub Mobile 与桌面端共用个人中心账户。连接后可在手机端查看设备状态、当前密钥与用量概览。</p>
-      <ol>
-        <li>在手机端打开 RelayHub Mobile。</li>
-        <li>使用下方个人中心账户登录。</li>
-        <li>等待手机端显示“已连接”或“数据已同步”。</li>
-      </ol>
+      <List as="ol">
+        <ListItem as="li">在手机端打开 RelayHub Mobile。</ListItem>
+        <ListItem as="li">使用下方个人中心账户登录。</ListItem>
+        <ListItem as="li">等待手机端显示“已连接”或“数据已同步”。</ListItem>
+      </List>
     </div>
     <div className="mobile-app-connection-account"><span>连接账户</span><strong>{email ?? "未获取"}</strong></div>
   </Panel>;
@@ -475,7 +476,7 @@ function NotificationEditor({ notification, saving, onClose, onSave }: { notific
       expiresAt: expiresAt ? Math.floor(new Date(`${expiresAt}T23:59:59`).getTime() / 1000) : undefined,
     });
   };
-  return <FormDialog title={notification ? "修改云端通知" : "发布云端通知"} description="在线用户将通过 Realtime 秒级收到；离线用户下次启动或恢复窗口时补拉。" ariaLabel="云端通知" onClose={onClose} onSubmit={submit} footer={<><button type="button" className="button-secondary" onClick={onClose} disabled={saving}>取消</button><button type="submit" className="button-primary" disabled={saving || !title.trim() || !body.trim() || (audience === "user" && !targetEmail.includes("@"))}>{saving ? "保存中" : notification ? "保存修改" : "发布通知"}</button></>}>
+  return <FormDialog title={notification ? "修改云端通知" : "发布云端通知"} description="在线用户将通过 Realtime 秒级收到；离线用户下次启动或恢复窗口时补拉。" ariaLabel="云端通知" onClose={onClose} onSubmit={submit} footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>取消</Button><Button variant="primary" type="submit" disabled={saving || !title.trim() || !body.trim() || (audience === "user" && !targetEmail.includes("@"))}>{saving ? "保存中" : notification ? "保存修改" : "发布通知"}</Button></>}>
     <div className="personal-membership-form">
       <div className="personal-membership-grid"><FormField label="接收范围"><SelectField value={audience} onChange={(event) => setAudience(event.target.value as "all" | "members" | "guests" | "user")}><option value="all">所有客户端</option><option value="members">会员客户端</option><option value="guests">未登录客户端</option><option value="user">指定用户</option></SelectField></FormField><FormField label="通知类型"><SelectField value={kind} onChange={(event) => setKind(event.target.value as "info" | "warning" | "offer")}><option value="info">系统公告</option><option value="warning">安全提醒</option><option value="offer">套餐优惠</option></SelectField></FormField></div>
       {audience === "user" && <FormField label="个人中心账户"><TextField type="email" required value={targetEmail} onChange={(event) => setTargetEmail(event.target.value)} placeholder="user@example.com" /></FormField>}
@@ -550,11 +551,11 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
         <span className="personal-login-eyebrow">RelayHub Cloud</span>
         <h1>一个账户，连接所有 RelayHub 设备</h1>
         <p>登录后即可同步桌面端与移动端数据，并集中管理通知、会员权限和云端备份。</p>
-        <ul className="personal-login-benefits">
-          <li><BellRing size={17} /><span><strong>实时通知</strong><small>同步安全告警与服务消息</small></span></li>
-          <li><Crown size={17} /><span><strong>会员权限</strong><small>查看管理员分配的站点权限</small></span></li>
-          <li><Smartphone size={17} /><span><strong>多端连接</strong><small>桌面与手机使用同一账户</small></span></li>
-        </ul>
+        <List as="ul" className="personal-login-benefits">
+          <ListItem as="li"><BellRing size={17} /><span><strong>实时通知</strong><small>同步安全告警与服务消息</small></span></ListItem>
+          <ListItem as="li"><Crown size={17} /><span><strong>会员权限</strong><small>查看管理员分配的站点权限</small></span></ListItem>
+          <ListItem as="li"><Smartphone size={17} /><span><strong>多端连接</strong><small>桌面与手机使用同一账户</small></span></ListItem>
+        </List>
       </section>
       <div className="personal-login-content">
         <div className="personal-login-heading">
@@ -569,16 +570,16 @@ function PersonalCenterLogin({ auth, onAuthenticated }: { auth: CloudAuthStatus;
           </div>
           <div className="personal-login-actions">
             <div className="personal-login-primary-actions">
-              <button type="submit" className="button-primary personal-login-submit" disabled={busy}><LogIn size={16} />{busy ? "请稍候" : registering ? "创建账户" : "登录"}</button>
-              <button type="button" className="button-secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}><UserPlus size={16} />{registering ? "已有账户" : "注册账户"}</button>
+              <Button variant="primary" className="personal-login-submit" type="submit" disabled={busy}><LogIn size={16} />{busy ? "请稍候" : registering ? "创建账户" : "登录"}</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => { setRegistering((value) => !value); setPasswordConfirmation(""); }}><UserPlus size={16} />{registering ? "已有账户" : "注册账户"}</Button>
             </div>
-            {!registering && <div className="personal-login-secondary-actions"><button type="button" className="button-secondary" disabled={busy || !email} onClick={() => void resetPassword()}><KeyRound size={16} />忘记密码</button></div>}
+            {!registering && <div className="personal-login-secondary-actions"><Button variant="secondary" disabled={busy || !email} onClick={() => void resetPassword()}><KeyRound size={16} />忘记密码</Button></div>}
             {import.meta.env.DEV && !registering && hasDevelopmentAccounts && <details className="personal-login-dev-tools">
               <summary>开发调试账号</summary>
               <div className="personal-login-dev-actions">
-                <button type="button" className="button-secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.member)}><LogIn size={16} />会员</button>
-                <button type="button" className="button-secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.merchant)}><Store size={16} />商家</button>
-                <button type="button" className="button-secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.admin)}><ShieldCheck size={16} />管理员</button>
+                <Button variant="secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.member)}><LogIn size={16} />会员</Button>
+                <Button variant="secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.merchant)}><Store size={16} />商家</Button>
+                <Button variant="secondary" disabled={busy} onClick={() => void devSignIn(developmentAccounts.admin)}><ShieldCheck size={16} />管理员</Button>
               </div>
             </details>}
           </div>
@@ -632,12 +633,12 @@ function MembershipEditor({ accountRows, membership, saving, onClose, onSave, on
   };
   const togglePrivilege = (value: string) => setPrivileges((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
 
-  return <FormDialog title={membership ? "编辑会员权限" : "新增会员权限"} description="权限会同步到服务器，并自动下发给对应的个人中心账户。" ariaLabel="会员权限" onClose={onClose} onSubmit={submit} footer={<><button type="button" className="button-secondary" onClick={onClose} disabled={saving}>取消</button>{membership && <button type="button" className="button-secondary" onClick={() => void onDelete(membership)} disabled={saving}>撤销权限</button>}<button type="submit" className="button-primary" disabled={saving || !account || !userEmail.includes("@")}>{saving ? "保存中" : "保存权限"}</button></>}>
+  return <FormDialog title={membership ? "编辑会员权限" : "新增会员权限"} description="权限会同步到服务器，并自动下发给对应的个人中心账户。" ariaLabel="会员权限" onClose={onClose} onSubmit={submit} footer={<><Button variant="secondary" onClick={onClose} disabled={saving}>取消</Button>{membership && <Button variant="secondary" onClick={() => void onDelete(membership)} disabled={saving}>撤销权限</Button>}<Button variant="primary" type="submit" disabled={saving || !account || !userEmail.includes("@")}>{saving ? "保存中" : "保存权限"}</Button></>}>
     <div className="personal-membership-form">
       <FormField label="站点账户"><SelectField value={account} onChange={(event) => setAccount(event.target.value)} disabled={Boolean(membership)}>{accountRows.map((row) => <option key={`${row.stationId}:${row.account.id}`} value={`${row.stationId}:${row.account.id}`}>{row.stationName} · {row.account.displayName || row.account.username || row.account.id}</option>)}</SelectField></FormField>
       <FormField label="个人中心账户"><TextField type="email" required placeholder="user@example.com" value={userEmail} onChange={(event) => setUserEmail(event.target.value)} /></FormField>
       <div className="personal-membership-grid"><FormField label="会员套餐"><TextField required value={plan} onChange={(event) => setPlan(event.target.value)} /></FormField><FormField label="访问级别"><SelectField value={accessLevel} onChange={(event) => setAccessLevel(event.target.value)}><option value="viewer">只读</option><option value="member">会员</option><option value="manager">管理员</option><option value="admin">超级管理员</option></SelectField></FormField></div>
-      <div className="personal-membership-grid"><FormField label="有效期"><TextField type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></FormField><label className="personal-membership-enabled"><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />启用此会员权限</label></div>
+      <div className="personal-membership-grid"><FormField label="有效期"><TextField type="date" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} /></FormField><label className="personal-membership-enabled"><Switch aria-label="启用此会员权限" checked={enabled} onCheckedChange={setEnabled} />启用此会员权限</label></div>
       <fieldset className="personal-membership-privileges"><legend>附加权限</legend>{privilegeOptions.map(([value, label]) => <label key={value}><input type="checkbox" checked={privileges.includes(value)} onChange={() => togglePrivilege(value)} />{label}</label>)}</fieldset>
     </div>
   </FormDialog>;

@@ -43,7 +43,7 @@ export function useRemoteServers({ demoServers = [], loadOnMount = true }: UseRe
 }
 
 type RemoteBulkAction = "switch" | "test" | "session" | "delete" | null;
-const LOCAL_RELAY_SELECTION = "__local_codex_relay__";
+export const LOCAL_RELAY_SELECTION = "__local_codex_relay__";
 
 type UseRemoteBulkActionsOptions = {
   servers: RemoteServer[];

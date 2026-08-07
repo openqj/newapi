@@ -8,7 +8,9 @@ describe("GroupRateSelect", () => {
   it("renders outside its parent and closes when clicking elsewhere", () => {
     render(<><GroupRateSelect value="vip" groups={[{ name: "vip", multiplier: 0.5 }]} onChange={vi.fn()} /><button type="button">Outside</button></>);
 
-    fireEvent.click(screen.getByRole("button", { name: "请选择分组: vip 0.500x" }));
+    const trigger = screen.getByRole("button", { name: "请选择分组: vip 0.500x" });
+    expect(trigger).toHaveClass("group-rate-select-tone-green");
+    fireEvent.click(trigger);
     expect(screen.getByRole("option", { name: "vip 0.500x 倍率" })).toBeInTheDocument();
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Outside" }));
@@ -79,7 +81,9 @@ describe("GroupRateSelect", () => {
   it("uses a bracketed suffix as a fallback subtitle", () => {
     render(<GroupRateSelect value="【Kiro】有点问题现在只有70缓" groups={[{ name: "【Kiro】有点问题现在只有70缓", multiplier: 0.7 }]} onChange={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "请选择分组: 【Kiro】 有点问题现在只有70缓 0.700x" }));
+    const trigger = screen.getByRole("button", { name: "请选择分组: 【Kiro】 有点问题现在只有70缓 0.700x" });
+    expect(trigger).toHaveClass("group-rate-select-tone-orange");
+    fireEvent.click(trigger);
 
     expect(screen.getByRole("option", { name: "【Kiro】 有点问题现在只有70缓 0.700x 倍率" })).toHaveTextContent("有点问题现在只有70缓");
   });

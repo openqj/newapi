@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Download, RefreshCw } from "lucide-react";
-import { InlineAlert, useConfirm } from "../../components/ui";
+import { Button, InlineAlert, useConfirm } from "../../components/ui";
 import { isTauri } from "../../lib/platform";
 import { useDesktopUpdate } from "./hooks";
 
@@ -31,12 +31,12 @@ export function UpdateSettings() {
       value={update ? `可更新至 ${update.version}` : state === "latest" ? "已是最新" : ""}
       action={<>
         {repositoryLink}
-        <button type="button" className="button-secondary" disabled={state === "checking" || state === "downloading"} onClick={() => void check()}>
+        <Button variant="secondary" disabled={state === "checking" || state === "downloading"} onClick={() => void check()}>
           <RefreshCw size={15} className={state === "checking" ? "animate-spin" : ""} />检查更新
-        </button>
-        {update && <button type="button" className="button-primary" disabled={state === "downloading"} onClick={() => void install()}>
+        </Button>
+        {update && <Button variant="primary" disabled={state === "downloading"} onClick={() => void install()}>
           <Download size={15} />{state === "downloading" ? "下载中" : "安装"}
-        </button>}
+        </Button>}
       </>}
     />
     {state === "downloading" && <div className="setting-update-progress" role="status">

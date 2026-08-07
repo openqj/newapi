@@ -1,12 +1,14 @@
 import { createPortal } from "react-dom";
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type AriaAttributes, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Button } from "./Button";
 import "./SelectDropdown.css";
 
 export type SelectDropdownOption = {
   value: string;
   label: ReactNode;
   searchText?: string;
+  ariaLabel?: string;
   disabled?: boolean;
 };
 
@@ -33,7 +35,7 @@ type SelectDropdownProps = {
   name?: string;
   ariaLabelledBy?: string;
   ariaDescribedBy?: string;
-  ariaInvalid?: boolean | "false" | "true";
+  ariaInvalid?: AriaAttributes["aria-invalid"];
   required?: boolean;
   minMenuWidth?: number;
   searchable?: boolean;
@@ -43,6 +45,7 @@ type SelectDropdownProps = {
   renderValue?: (option: SelectDropdownOption | undefined) => ReactNode;
   renderOption?: (option: SelectDropdownOption, context: SelectDropdownRenderContext) => ReactNode;
   renderSelectedIndicator?: (option: SelectDropdownOption) => ReactNode;
+  showSelectedIndicator?: boolean;
   triggerIcon?: ReactNode;
 };
 
@@ -78,6 +81,7 @@ export function SelectDropdown({
   renderValue,
   renderOption,
   renderSelectedIndicator,
+  showSelectedIndicator = true,
   triggerIcon,
 }: SelectDropdownProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -137,7 +141,7 @@ export function SelectDropdown({
     setActiveIndex(enabled[nextPosition]);
   };
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
       closeMenu(true);
@@ -180,7 +184,7 @@ export function SelectDropdown({
       if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       closeMenu();
     };
-    const closeOnEscape = (event: KeyboardEvent) => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") closeMenu(true);
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer);
@@ -231,11 +235,13 @@ export function SelectDropdown({
           const isSelected = option.value === value;
           const isActive = index === activeIndex;
           const customClassName = typeof optionClassName === "function" ? optionClassName(option, { isSelected, isActive }) : optionClassName;
-          return <button
+          return <Button
+            variant="ghost"
             type="button"
             id={`${listboxId}-option-${index}`}
             role="option"
             aria-selected={isSelected}
+            aria-label={option.ariaLabel}
             aria-disabled={option.disabled || undefined}
             className={`ui-select-dropdown-option ${isSelected ? "selected" : ""} ${isActive ? "active" : ""} ${customClassName ?? ""}`.trim()}
             key={option.value}
@@ -244,8 +250,8 @@ export function SelectDropdown({
             onClick={() => choose(option)}
           >
             {renderOption ? renderOption(option, { isSelected, isActive }) : <span className="ui-select-dropdown-option-label">{option.label}</span>}
-            {isSelected && (renderSelectedIndicator ? renderSelectedIndicator(option) : <Check size={16} className="ui-select-dropdown-check" aria-hidden="true" />)}
-          </button>;
+            {isSelected && showSelectedIndicator && (renderSelectedIndicator ? renderSelectedIndicator(option) : <Check size={16} className="ui-select-dropdown-check" aria-hidden="true" />)}
+          </Button>;
         })}
       </div>
     </div>,
@@ -253,7 +259,8 @@ export function SelectDropdown({
   );
 
   return <div ref={rootRef} className={`ui-select-dropdown ${className}`.trim()}>
-    <button
+    <Button
+      variant="ghost"
       ref={triggerRef}
       id={id}
       type="button"
@@ -273,7 +280,7 @@ export function SelectDropdown({
     >
       {renderValue ? renderValue(selected) : <span className="ui-select-dropdown-value">{selected?.label ?? placeholder}</span>}
       {triggerIcon ?? (open ? <ChevronUp size={15} aria-hidden="true" /> : <ChevronDown size={15} aria-hidden="true" />)}
-    </button>
+    </Button>
     {name && <input type="hidden" name={name} value={value} />}
     {menu && <>{menu}</>}
   </div>;

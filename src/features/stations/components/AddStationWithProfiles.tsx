@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronDown, Eye, EyeOff, Settings } from "lucide-react";
-import { FormDialog, useToast } from "../../../components/ui";
+import { Button, FormDialog, IconButton, SelectField, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
@@ -270,23 +270,23 @@ export function AddStationWithProfiles({
       contentClassName="space-y-4"
       footer={
         <>
-          {!merchantRegistration && <button className="button-secondary form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting || loadingCredentials}>
+          {!merchantRegistration && <Button variant="secondary" type="submit" className="form-dialog-submit add-station-continue" name="submitAction" value="continue" disabled={submitting || loadingCredentials}>
             {submitting ? "正在连接" : loadingCredentials ? "正在读取" : initial ? "保存并继续" : "添加并继续"}
-          </button>}
-          {merchantRateOffer && onExistingAccountLogin && <button type="button" className="button-secondary form-dialog-submit" onClick={onExistingAccountLogin} disabled={submitting}>已有账号登录</button>}
-          <button type="button" className="button-secondary form-dialog-cancel" onClick={onClose}>
+          </Button>}
+          {merchantRateOffer && onExistingAccountLogin && <Button variant="secondary" className="form-dialog-submit" onClick={onExistingAccountLogin} disabled={submitting}>已有账号登录</Button>}
+          <Button variant="secondary" className="form-dialog-cancel" onClick={onClose}>
             {redemptionResult?.success ? "关闭" : "取消"}
-          </button>
-          <button className="button-primary form-dialog-submit" name="submitAction" value="save" disabled={submitting || loadingCredentials || Boolean(redemptionResult)}>
+          </Button>
+          <Button variant="primary" type="submit" className="form-dialog-submit" name="submitAction" value="save" disabled={submitting || loadingCredentials || Boolean(redemptionResult)}>
             {redemptionResult ? (redemptionResult.success ? "已领取" : "请重新领取") : submitting ? (merchantRegistration ? "正在处理中" : "正在连接") : loadingCredentials ? "正在读取" : merchantFreeOffer ? "领取" : merchantRateOffer ? "注册并充值" : "保存"}
-          </button>
+          </Button>
         </>
       }
     >
             <label>
               站点名称
-              <input
-                className="input mt-1"
+              <TextField
+                className="mt-1"
                 value={name}
                 readOnly={merchantRegistration}
                 onChange={(event) => setName(event.target.value)}
@@ -295,8 +295,8 @@ export function AddStationWithProfiles({
             </label>
             <label>
               站点地址
-              <input
-                className="input mt-1"
+              <TextField
+                className="mt-1"
                 value={baseUrl}
                 inputMode="url"
                 readOnly={merchantRegistration}
@@ -313,8 +313,7 @@ export function AddStationWithProfiles({
             <label>
               {merchantRegistration ? "邮箱/账号" : "账号"}
               <div className="account-input-actions mt-1" ref={accountProfileRef}>
-                <input
-                  className="input"
+                <TextField
                   value={username}
                   disabled={loadingCredentials}
                   onChange={(event) => {
@@ -325,21 +324,20 @@ export function AddStationWithProfiles({
                   autoComplete="username"
                   placeholder={merchantRegistration ? "请输入注册邮箱或选择常用登录" : initial ? "留空则保留已保存的账号" : "请输入站点登录账号"}
                 />
-                <button
-                  type="button"
+                <IconButton
+                  variant="ghost"
                   className="account-profile-trigger"
                   disabled={loadingCredentials}
                   aria-expanded={showProfileMenu}
-                  title="选择常用登录"
+                  label="选择常用登录"
                   onClick={() => setShowProfileMenu((visible) => !visible)}
-                >
-                  <ChevronDown size={16} />
-                </button>
+                  icon={<ChevronDown size={16} />}
+                />
                 {showProfileMenu && (
                   <div className="account-profile-menu" role="menu">
                     {profiles.length === 0 ? (
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
                         role="menuitem"
                         onClick={() => {
                           setShowProfileMenu(false);
@@ -347,23 +345,23 @@ export function AddStationWithProfiles({
                         }}
                       >
                         添加常用登录
-                      </button>
+                      </Button>
                     ) : (
                       profiles.map((profile) => (
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
                           role="menuitem"
                           key={profile.id}
                           onClick={() => void selectProfile(profile.id)}
                         >
                           <span>{profile.name}</span>
                           <small>{profile.username}</small>
-                        </button>
+                        </Button>
                       ))
                     )}
                   </div>
                 )}
-                <select
+                <SelectField
                   className="account-profile-picker"
                   aria-label="选择常用登录"
                   defaultValue=""
@@ -377,26 +375,24 @@ export function AddStationWithProfiles({
                       {profile.name} · {profile.username}
                     </option>
                   ))}
-                </select>
+                </SelectField>
                 <ChevronDown className="account-profile-chevron" size={16} />
-                <button
-                  type="button"
+                <IconButton
+                  label="管理常用登录"
                   className="account-profile-manage"
                   title="管理常用登录"
                   aria-label="管理常用登录"
                   disabled={loadingCredentials}
                   onClick={onManageProfiles}
-                >
-                  <Settings size={15} />
-                </button>
+                  icon={<Settings size={15} />}
+                />
               </div>
               {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
             </label>
             <label>
               密码
               <div className="password-input-actions mt-1">
-                <input
-                  className="input"
+                <TextField
                   value={password}
                   disabled={loadingCredentials}
                   onChange={(event) => {
@@ -410,17 +406,15 @@ export function AddStationWithProfiles({
                   autoComplete={merchantRegistration ? "new-password" : "current-password"}
                   placeholder={merchantRegistration ? "请设置站点注册密码" : initial ? "留空则保留已保存的密码" : "请输入站点登录密码"}
                 />
-                <button
-                  type="button"
+                <IconButton
+                  label={showPassword ? "隐藏密码" : "显示密码"}
                   className="password-visibility-toggle"
-                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
                   aria-pressed={showPassword}
                   title={showPassword ? "隐藏密码" : "显示密码"}
                   disabled={loadingCredentials}
                   onClick={() => setShowPassword((visible) => !visible)}
-                >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
+                  icon={showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                />
               </div>
               {loadingCredentials && <p className="field-message" role="status">正在读取已保存的账号和密码…</p>}
               {credentialError && <p id="station-credential-error" className="field-error" role="alert">{credentialError}</p>}
@@ -429,8 +423,7 @@ export function AddStationWithProfiles({
             {merchantRegistration && <label>
               邮箱验证码
               <div className="verification-code-actions mt-1">
-                <input
-                  className="input"
+                <TextField
                   value={verificationCode}
                   onChange={(event) => {
                     setVerificationCode(event.target.value);
@@ -442,16 +435,16 @@ export function AddStationWithProfiles({
                   autoComplete="one-time-code"
                   placeholder="请输入邮箱收到的验证码"
                 />
-                <button type="button" className="button-secondary" disabled={sendingVerification || verificationCooldown > 0} onClick={() => void sendVerificationCode()}>
+                <Button variant="secondary" disabled={sendingVerification || verificationCooldown > 0} onClick={() => void sendVerificationCode()}>
                   {sendingVerification ? "发送中" : verificationCooldown > 0 ? `${verificationCooldown} 秒` : "获取验证码"}
-                </button>
+                </Button>
               </div>
               {fieldErrors.verificationCode && <p className="field-error">{fieldErrors.verificationCode}</p>}
             </label>}
             {merchantFreeOffer && redemptionResult && <p className={`field-message ${redemptionResult.success ? "success" : "error"}`} role="status">{redemptionResult.message}</p>}
             {!merchantRegistration && <label>
               站点类型
-              <select
+              <SelectField
                 className="input mt-1"
                 value={kind}
                 onChange={(event) => setKind(event.target.value)}
@@ -459,12 +452,12 @@ export function AddStationWithProfiles({
                 <option value="auto">自动识别</option>
                 <option value="newapi">New API</option>
                 <option value="sub2api">Sub2API</option>
-              </select>
+              </SelectField>
             </label>}
             {!merchantRegistration && <label>
               TOTP 验证码（可选）
-              <input
-                className="input mt-1"
+              <TextField
+                className="mt-1"
                 value={totp}
                 onChange={(event) => setTotp(event.target.value)}
                 inputMode="numeric"

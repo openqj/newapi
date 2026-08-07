@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
-import { FormDialog, FormField, PasswordField, useToast } from "../../../components/ui";
+import { Button, FormDialog, FormField, PasswordField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { signalPersonalCenterAuthChanged } from "../../personal-center";
@@ -92,8 +92,8 @@ export function PasswordResetDialog() {
     onClose={close}
     onSubmit={submit}
     footer={<>
-      <button type="button" className="button-secondary" onClick={close} disabled={busy}>取消</button>
-      <button type="submit" className="button-primary" disabled={busy}>更新密码</button>
+      <Button type="button" variant="secondary" onClick={close} disabled={busy}>取消</Button>
+      <Button type="submit" variant="primary" disabled={busy}>更新密码</Button>
     </>}
   >
     <FormField label="新密码" hint="至少 8 个字符">

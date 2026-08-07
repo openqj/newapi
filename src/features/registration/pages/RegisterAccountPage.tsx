@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit } from "@tauri-apps/api/event";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, ScrollText } from "lucide-react";
-import { FormDialog } from "../../../components/ui";
+import { Button, FormDialog, IconButton, List, ListItem, TextField } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { profileApi } from "../../profiles";
@@ -302,36 +302,34 @@ export function RegisterAccountPage() {
       contentClassName="register-account-content"
       footer={
         <>
-          <button type="button" className="button-secondary form-dialog-cancel" onClick={close} disabled={submitting}>取消</button>
-          <button type="submit" className="button-primary form-dialog-submit" disabled={submitting || !baseUrl.trim()}>{submitLabel}</button>
+          <Button variant="secondary" className="form-dialog-cancel" onClick={close} disabled={submitting}>取消</Button>
+          <Button variant="primary" className="form-dialog-submit" type="submit" disabled={submitting || !baseUrl.trim()}>{submitLabel}</Button>
         </>
       }
     >
       <div className="register-fields">
         <label>
           中转站网址
-          <input className="input mt-1" required type="text" inputMode="url" autoComplete="url" placeholder="https://relay.example.com" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={submitting || state === "waiting-code"} />
+          <TextField className="mt-1" required type="text" inputMode="url" autoComplete="url" placeholder="https://relay.example.com" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} disabled={submitting || state === "waiting-code"} />
         </label>
         <label>
           用户名
-          <input className="input mt-1" type="text" autoComplete="username" placeholder="自动生成或手工填写" value={username} onChange={(event) => setUsername(event.target.value)} disabled={submitting} />
+          <TextField className="mt-1" type="text" autoComplete="username" placeholder="自动生成或手工填写" value={username} onChange={(event) => setUsername(event.target.value)} disabled={submitting} />
         </label>
         <label>
           邮箱
-          <input className="input mt-1" type="email" autoComplete="email" placeholder="自动填充已连接邮箱" value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} />
+          <TextField className="mt-1" type="email" autoComplete="email" placeholder="自动填充已连接邮箱" value={email} onChange={(event) => setEmail(event.target.value)} disabled={submitting} />
         </label>
         <label>
           密码
           <div className="password-input-actions mt-1">
-            <input className="input" type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="自动生成或手工填写" value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
-            <button type="button" className="password-visibility-toggle" title={showPassword ? "隐藏密码" : "显示密码"} aria-label={showPassword ? "隐藏密码" : "显示密码"} aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)} disabled={submitting}>
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
+            <TextField type={showPassword ? "text" : "password"} autoComplete="new-password" placeholder="自动生成或手工填写" value={password} onChange={(event) => setPassword(event.target.value)} disabled={submitting} />
+            <IconButton label={showPassword ? "隐藏密码" : "显示密码"} className="password-visibility-toggle" aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)} disabled={submitting} icon={showPassword ? <EyeOff size={16} /> : <Eye size={16} />} />
           </div>
         </label>
         <label>
           邮箱验证码
-          <input ref={verificationInputRef} className="input mt-1" type="text" inputMode="text" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} placeholder="自动识别或手工填写" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} disabled={submitting} aria-invalid={state === "waiting-code" || undefined} />
+          <TextField ref={verificationInputRef} className="mt-1" type="text" inputMode="text" autoComplete="one-time-code" autoCapitalize="none" spellCheck={false} placeholder="自动识别或手工填写" value={verificationCode} onChange={(event) => setVerificationCode(event.target.value)} disabled={submitting} aria-invalid={state === "waiting-code" || undefined} />
         </label>
       </div>
 
@@ -339,14 +337,14 @@ export function RegisterAccountPage() {
 
       <section className="register-log-panel" aria-label="注册日志">
         <header className="register-log-heading"><span><ScrollText size={15} />注册日志</span><small>{logs.length} 条</small></header>
-        <ol className="register-log" role="log" aria-live="polite">
-          {logs.map((entry, index) => <li key={entry.id} ref={index === logs.length - 1 ? logEndRef : undefined} className={`register-log-entry ${entry.level}`}>
+        <List as="ol" className="register-log" role="log" aria-live="polite">
+          {logs.map((entry, index) => <ListItem as="li" key={entry.id} ref={index === logs.length - 1 ? logEndRef : undefined} className={`register-log-entry ${entry.level}`}>
             <span className="register-log-index">{String(index + 1).padStart(2, "0")}</span>
             <time>{entry.time}</time>
             {entry.level === "success" ? <CheckCircle2 size={14} aria-hidden="true" /> : entry.level === "warning" || entry.level === "error" ? <AlertCircle size={14} aria-hidden="true" /> : <i aria-hidden="true" />}
             <span>{entry.message}</span>
-          </li>)}
-        </ol>
+          </ListItem>)}
+        </List>
       </section>
 
       {resultMessage && <div className={`register-result ${state}`} role={state === "error" ? "alert" : "status"}>{resultMessage}</div>}

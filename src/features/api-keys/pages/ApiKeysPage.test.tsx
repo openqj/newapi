@@ -139,9 +139,10 @@ describe("ApiKeysPage selection and testing", () => {
       </ToastProvider>,
     );
 
-    expect(screen.getByRole("columnheader", { name: "模型类型" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "倍率" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "模型类型" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "倍率" })).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "余额" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "请选择分组: default 0.750x" })).toBeInTheDocument();
     expect(screen.getAllByText("0.750x").length).toBeGreaterThan(0);
     expect(screen.getAllByText("12.35 元").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ChatGPT").length).toBeGreaterThan(0);

@@ -41,7 +41,8 @@
 .merchant-list-toolbar { position: sticky; top: 0; z-index: 2; display: flex; justify-content: flex-end; align-items: center; padding: .6rem .85rem .25rem; border-bottom: 1px solid #e5e7eb; background: rgba(246,247,248,.96); color: #64748b; font-size: .75rem; backdrop-filter: blur(8px); }
 .merchant-list-toolbar label { color: inherit; font-size: inherit; font-weight: 500; }
 .merchant-list-toolbar > label { display: inline-flex; align-items: center; gap: .25rem; }
-.merchant-sort-select { min-width: 4.2rem; border: 0; background-color: transparent; color: #334155; font-size: inherit; font-weight: 600; }
+.merchant-sort-select { min-width: 4.2rem; width: 4.2rem; }
+.merchant-sort-select .ui-select-dropdown-trigger { min-height: 2rem; border: 0; border-radius: 5px; background: transparent; padding: .2rem .3rem; color: #334155; font-size: inherit; font-weight: 600; }
 .merchant-load-error { margin: .35rem .7rem; }
 .merchant-card-list { display: grid; gap: .65rem; padding: .35rem .7rem .7rem; }
 .merchant-list-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid #e3e8ef; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(15,23,42,.04); cursor: pointer; }
@@ -104,13 +105,14 @@
 .merchant-admin-search, .merchant-admin-filter-field { display: flex; min-width: 0; align-items: center; gap: .45rem; }
 .merchant-admin-search { border: 1px solid #d9dee7; border-radius: 6px; background: #fff; padding: 0 .65rem; color: #64748b; }
 .merchant-admin-search:focus-within { border-color: #111; box-shadow: 0 0 0 2px rgba(17,24,39,.1); }
-.merchant-admin-search input, .merchant-admin-filter-field select { min-width: 0; width: 100%; border: 0; background: transparent; color: #1f2937; font: inherit; outline: 0; }
+.merchant-admin-search input, .merchant-admin-filter-field .ui-select-dropdown-trigger { min-width: 0; width: 100%; border: 0; background: transparent; color: #1f2937; font: inherit; outline: 0; }
 .merchant-admin-search input { min-height: 2.25rem; }
 .merchant-admin-search input::placeholder { color: #9ca3af; }
 .merchant-admin-filter-field { border: 1px solid #d9dee7; border-radius: 6px; padding: 0 .65rem; }
 .merchant-admin-filter-field:focus-within { border-color: #111; box-shadow: 0 0 0 2px rgba(17,24,39,.1); }
 .merchant-admin-filter-field span { flex: 0 0 auto; color: #64748b; font-size: .6875rem; }
-.merchant-admin-filter-field select { min-height: 2.25rem; padding: 0; }
+.merchant-admin-filter-field .select-field { min-width: 0; flex: 1; }
+.merchant-admin-filter-field .ui-select-dropdown-trigger { min-height: 2.25rem; padding: 0; }
 .merchant-admin-filter-meta { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: .75rem; color: #64748b; font-size: .6875rem; }
 .merchant-admin-filter-meta > span { display: inline-flex; align-items: center; gap: .3rem; }
 .merchant-admin-filter-meta .button-secondary { min-height: 1.9rem; padding: .3rem .5rem; }

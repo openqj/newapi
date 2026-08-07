@@ -1,0 +1,18 @@
+.ui-table-pagination { display: flex; min-height: 3.5rem; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.25rem; border-top: 1px solid #e5eaed; background: rgba(255, 255, 255, .9); padding: .55rem 1.25rem; color: #475569; font-size: .75rem; }
+.ui-table-pagination-summary { display: flex; align-items: center; gap: 1rem; white-space: nowrap; }
+.ui-table-pagination-summary label { display: inline-flex; align-items: center; gap: .45rem; color: #475569; font-size: .75rem; font-weight: 400; }
+.ui-table-pagination-summary select, .ui-table-pagination-summary .select-field { width: 4.5rem; min-width: 4.5rem; }
+.ui-table-pagination-summary .select-field .ui-select-dropdown-trigger { min-height: 2rem; border-radius: 9px; padding: .35rem .55rem; color: #334155; font-size: .75rem; }
+.ui-table-pagination nav { display: inline-flex; align-items: center; }
+.ui-table-pagination nav button, .ui-table-pagination nav span { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border: 1px solid #e2e8f0; background: #fff; color: #94a3b8; }
+.ui-table-pagination nav button:first-child { border-radius: 7px 0 0 7px; }
+.ui-table-pagination nav button:last-child { border-radius: 0 7px 7px 0; }
+.ui-table-pagination nav button:hover:not(:disabled) { background: #f8fafb; color: #475569; }
+.ui-table-pagination nav button:disabled { cursor: not-allowed; opacity: .5; }
+.ui-table-pagination nav span { border-color: #20c8bd; color: #0f9f96; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 767px) {
+  .ui-table-pagination { align-items: stretch; flex-direction: column; padding-inline: .75rem; }
+  .ui-table-pagination-summary { justify-content: space-between; }
+  .ui-table-pagination nav { align-self: flex-end; }
+}

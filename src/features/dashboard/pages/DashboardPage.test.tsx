@@ -59,6 +59,7 @@ describe("DashboardPage local route pool", () => {
   it("shows queued routes and their health in local routing mode", async () => {
     gatewayStatus.mockResolvedValue({
       mode: "localGateway",
+      connectionMode: "localRouting",
       running: true,
       port: 8787,
       baseUrl: "http://127.0.0.1:8787/v1",
@@ -105,6 +106,7 @@ describe("DashboardPage local route pool", () => {
   it("shows detailed credentials and relay information in direct mode", async () => {
     gatewayStatus.mockResolvedValue({
       mode: "ccSwitch",
+      connectionMode: "direct",
       running: false,
       port: 8787,
       baseUrl: "http://127.0.0.1:8787/v1",
@@ -142,6 +144,7 @@ describe("DashboardPage local route pool", () => {
   it("does not display the first key when direct mode has no matching route", async () => {
     gatewayStatus.mockResolvedValue({
       mode: "ccSwitch",
+      connectionMode: "direct",
       running: false,
       port: 8787,
       baseUrl: "http://127.0.0.1:8787/v1",
@@ -171,5 +174,38 @@ describe("DashboardPage local route pool", () => {
     expect(within(routingCard as HTMLElement).getAllByText("尚未选择")).toHaveLength(2);
     expect(within(routingCard as HTMLElement).queryByText("开发环境")).not.toBeInTheDocument();
     expect(within(routingCard as HTMLElement).queryByText("Alpha Gateway")).not.toBeInTheDocument();
+  });
+
+  it("shows the disabled state when Codex is using an external local config", async () => {
+    gatewayStatus.mockResolvedValue({
+      mode: "ccSwitch",
+      connectionMode: "disabled",
+      running: false,
+      port: 8787,
+      baseUrl: "http://127.0.0.1:8787/v1",
+      activeStationId: null,
+      activeKeyId: null,
+      hasActiveRoute: false,
+      routeQueue: [],
+      routeHealth: [],
+    });
+
+    renderWithProviders(
+      <DashboardPage
+        stations={[]}
+        keys={[]}
+        remoteServers={[]}
+        accountRows={[]}
+        summary={{}}
+        usageRows={[]}
+        onRefresh={vi.fn().mockResolvedValue(undefined)}
+        onNavigate={vi.fn()}
+        onOpenUpdates={vi.fn()}
+      />,
+    );
+
+    const routingCard = await waitFor(() => screen.getByRole("heading", { name: "中转方式" }).closest("article"));
+    expect(within(routingCard as HTMLElement).getByRole("button", { name: "未开启" })).toHaveClass("active");
+    expect(within(routingCard as HTMLElement).getByRole("button", { name: "未开启" })).toBeDisabled();
   });
 });

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
-import { EmptyState, FormField, Panel, SelectField, StatusBadge, TextField, useConfirm, useToast } from "../../../components/ui";
+import { Button, EmptyState, FormField, IconButton, List, ListItem, Panel, SelectField, StatusBadge, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import type { KeyRow } from "../../api-keys";
@@ -215,31 +215,31 @@ export function ConfigProfilesPage({ keyRows }: { keyRows: KeyRow[] }) {
         <FormField label="模型" hint={modelOptions.length > 0 ? "可从已同步模型中选择，也可以直接输入。" : "可直接输入模型名称。"}><TextField list="config-profile-models" value={draft.model ?? ""} placeholder="例如：claude-sonnet-4-5" onChange={(event) => updateDraft({ model: event.target.value })} /><datalist id="config-profile-models">{modelOptions.map((model) => <option key={model} value={model} />)}</datalist></FormField>
         <FormField label="Base URL 覆盖项" hint="留空时使用站点默认 /v1 地址。"><TextField value={draft.baseUrl ?? ""} placeholder="留空使用站点地址" onChange={(event) => updateDraft({ baseUrl: event.target.value })} /></FormField>
         <FormField label="协议标记"><TextField value={draft.protocol ?? ""} placeholder="例如：responses、anthropic、gemini" onChange={(event) => updateDraft({ protocol: event.target.value })} /></FormField>
-        <div className="config-profile-form-actions"><button type="button" className="button-secondary" onClick={resetDraft} disabled={busy}>清空</button><button type="submit" className="button-primary" disabled={busy || !draft.name?.trim() || !draft.stationId || !draft.keyId}>{draft.id ? "保存修改" : "保存档案"}</button></div>
+        <div className="config-profile-form-actions"><Button variant="secondary" onClick={resetDraft} disabled={busy}>清空</Button><Button variant="primary" type="submit" disabled={busy || !draft.name?.trim() || !draft.stationId || !draft.keyId}>{draft.id ? "保存修改" : "保存档案"}</Button></div>
       </form>
     </Panel>
 
     <Panel title="配置档案列表" description="点击应用即可切换对应客户端的本地配置文件。">
-      {profiles.length === 0 ? <EmptyState title="还没有配置档案" description="先在上方创建一个 Claude Code、Codex 或 Gemini CLI 档案。" action={<button type="button" className="button-secondary" onClick={() => document.querySelector<HTMLInputElement>(".config-profile-form input")?.focus()}><Plus size={15} />创建档案</button>} /> : <div className="config-profile-list">{profiles.map((profile) => {
+      {profiles.length === 0 ? <EmptyState title="还没有配置档案" description="先在上方创建一个 Claude Code、Codex 或 Gemini CLI 档案。" action={<Button variant="secondary" onClick={() => document.querySelector<HTMLInputElement>(".config-profile-form input")?.focus()}><Plus size={15} />创建档案</Button>} /> : <List className="config-profile-list">{profiles.map((profile) => {
         const row = keyInfo(profile);
         const isActive = active?.profile.id === profile.id;
-        return <article className={`config-profile-row ${isActive ? "active" : ""}`} key={profile.id}>
+        return <ListItem as="article" className={`config-profile-row ${isActive ? "active" : ""}`} key={profile.id}>
           <div className="config-profile-main"><div className="config-profile-title"><strong>{profile.name}</strong>{isActive && <StatusBadge status="online">当前</StatusBadge>}</div><div className="config-profile-meta"><span>{applicationLabels[profile.application]}</span><span>{row?.stationName ?? (profile.stationId ? profile.stationId : "外部导入")}</span><span>{profile.model || "未指定模型"}</span></div><code>{displayBaseUrl(profile)}</code></div>
-          <div className="config-profile-actions"><button type="button" className="button-primary" disabled={busy || isActive} onClick={() => void apply(profile)}><Play size={15} />{isActive ? "已应用" : "应用"}</button>{profile.stationId && <button type="button" className="button-secondary" disabled={busy} onClick={() => edit(profile)} aria-label={`编辑${profile.name}`}><Pencil size={15} /></button>}<button type="button" className="button-secondary" disabled={busy} onClick={() => void remove(profile)} aria-label={`删除${profile.name}`}><Trash2 size={15} /></button></div>
-        </article>;
-      })}</div>}
+          <div className="config-profile-actions"><Button variant="primary" disabled={busy || isActive} onClick={() => void apply(profile)}><Play size={15} />{isActive ? "已应用" : "应用"}</Button>{profile.stationId && <IconButton variant="secondary" disabled={busy} onClick={() => edit(profile)} label={`编辑${profile.name}`} icon={<Pencil size={15} />} />}<IconButton variant="secondary" disabled={busy} onClick={() => void remove(profile)} label={`删除${profile.name}`} icon={<Trash2 size={15} />} /></div>
+        </ListItem>;
+      })}</List>}
     </Panel>
 
     <Panel title="客户端备份" description="每次应用配置前都会生成一个带时间戳的本地备份。恢复前会再次备份当前文件。">
       {backupPreview && <div className="config-backup-preview">
         <div><strong>恢复预览 · {backupPreview.backup.fileName}</strong><span>{applicationLabels[backupPreview.backup.application]} · {formatBackupTime(backupPreview.backup.createdAt)}</span></div>
         <div className="config-backup-preview-metrics"><span>备份文件：{formatBytes(backupPreview.backup.byteSize)}</span><span>当前文件：{backupPreview.targetExists ? formatBytes(backupPreview.targetSize) : "不存在"}</span><span>{backupPreview.canRestore ? "可以恢复" : "备份不可用"}</span></div>
-        <div className="config-backup-preview-actions"><button type="button" className="button-secondary" onClick={() => setBackupPreview(null)} disabled={busy}>取消</button><button type="button" className="button-primary" onClick={() => void restorePreview()} disabled={busy || !backupPreview.canRestore}>恢复此版本</button></div>
+        <div className="config-backup-preview-actions"><Button variant="secondary" onClick={() => setBackupPreview(null)} disabled={busy}>取消</Button><Button variant="primary" onClick={() => void restorePreview()} disabled={busy || !backupPreview.canRestore}>恢复此版本</Button></div>
       </div>}
-      {backups.length === 0 ? <EmptyState title="暂无客户端备份" description="应用配置后，这里会出现可预览和恢复的历史版本。" /> : <div className="config-backup-list">{backups.map((backup) => <div className="config-backup-row" key={backup.id}>
+      {backups.length === 0 ? <EmptyState title="暂无客户端备份" description="应用配置后，这里会出现可预览和恢复的历史版本。" /> : <List className="config-backup-list">{backups.map((backup) => <ListItem className="config-backup-row" key={backup.id}>
         <div className="config-backup-main"><div><strong>{backup.fileName}</strong><StatusBadge status="neutral">{applicationLabels[backup.application]}</StatusBadge></div><span>{formatBackupTime(backup.createdAt)} · {formatBytes(backup.byteSize)}</span><code>{backup.targetPath}</code></div>
-        <button type="button" className="button-secondary" disabled={busy} onClick={() => void previewBackup(backup)}>预览恢复</button>
-      </div>)}</div>}
+        <Button variant="secondary" disabled={busy} onClick={() => void previewBackup(backup)}>预览恢复</Button>
+      </ListItem>)}</List>}
     </Panel>
   </div>;
 }

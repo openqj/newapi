@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Pencil, Plus, RefreshCw, Search, Server, TicketCheck, Trash2 } from "lucide-react";
-import { DataTable, EmptyState, FormDialog, FormField, StatusBadge, TextField, useConfirm, useToast } from "../../../components/ui";
+import { Button, DataTable, EmptyState, FormDialog, FormField, IconButton, SelectField, StatusBadge, TableBulkActions, TextField, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import type { Station } from "../../stations";
 import { accountApi } from "../api";
@@ -140,19 +140,19 @@ export function AccountsPage({
     <section className="table-page-toolbar">
       <div className="table-page-filters">
         <label className="sub2-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索站点账号、站点、邮箱或分组" /></label>
-        <select aria-label="站点筛选" value={station} onChange={(event) => setStation(event.target.value)}>
+        <SelectField aria-label="站点筛选" value={station} onChange={(event) => setStation(event.target.value)}>
           <option value="all">全部站点</option>
           {stations.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
-        </select>
+        </SelectField>
       </div>
       <div className="table-page-actions">
-        <button className="button-secondary" title="刷新站点账号" aria-label="刷新站点账号" onClick={() => void refresh()} disabled={refreshing}><RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} /></button>
-        <button className="button-primary" onClick={onAdd}><Plus size={16} />添加站点</button>
+        <IconButton variant="secondary" label="刷新站点账号" onClick={() => void refresh()} disabled={refreshing} icon={<RefreshCw size={16} className={refreshing ? "sub2-spin" : ""} />} />
+        <Button variant="primary" onClick={onAdd}><Plus size={16} />添加站点</Button>
       </div>
     </section>
-    <div className="accounts-bulk-actions">
-      <button className="button-primary" type="button" disabled={!selectedRows.length || bulkDeleting || Boolean(deleting)} onClick={() => void removeSelected()}><Trash2 size={16} />{bulkDeleting ? "删除中" : "批量删除"}</button>
-    </div>
+    <TableBulkActions>
+      <Button variant="primary" disabled={!selectedRows.length || bulkDeleting || Boolean(deleting)} onClick={() => void removeSelected()}><Trash2 size={16} />{bulkDeleting ? "删除中" : "批量删除"}</Button>
+    </TableBulkActions>
     <DataTable
       className="sub2-panel sub2-table-panel"
       ariaLabel="站点账号"
@@ -163,18 +163,18 @@ export function AccountsPage({
         <th>中转站</th><th>账户</th><th>邮箱</th><th>角色</th><th>账户状态</th><th>站点余额</th><th>今日请求</th><th>总请求</th><th>同步状态</th><th>同步时间</th><th>操作</th>
       </tr></thead><tbody>{filtered.map((row) => <tr key={row.stationId}>
         <td className="table-page-select-cell"><input type="checkbox" aria-label={`选择站点账号 ${row.stationName}`} checked={selectedIds.includes(row.stationId)} onChange={() => toggleSelected(row.stationId)} /></td>
-        <td><button type="button" className="table-page-station account-station-link" title={`打开 ${row.stationName}`} onClick={() => void onOpenStation(row.stationUrl)}><strong>{row.stationName}</strong><small>{row.stationUrl}</small></button></td>
+        <td><Button variant="ghost" className="table-page-station account-station-link" title={`打开 ${row.stationName}`} onClick={() => void onOpenStation(row.stationUrl)}><strong>{row.stationName}</strong><small>{row.stationUrl}</small></Button></td>
         <td><strong className="account-name">{row.account.displayName || row.account.username || "未命名账户"}</strong></td>
         <td>{row.account.email || "-"}</td><td>{row.account.role || "-"}</td><td>{row.account.status || "-"}</td>
         <td><span className={`account-balance${row.account.balance == null ? " missing" : ""}`}>{formatMoney(row.account.balance)}</span></td>
         <td>{formatNumber(row.usage.todayRequests)}</td><td>{formatNumber(row.usage.totalRequests)}</td><td><StatusBadge status={row.syncStatus} /></td><td>{formatTime(row.lastSyncedAt)}</td>
-        <td><div className="account-row-actions"><button type="button" className="button-secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={15} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} /><span>刷新</span></button><button type="button" className="redeem" title="兑换额度" onClick={() => setRedeemRow(row)}><TicketCheck size={15} /><span>兑换</span></button><button type="button" className="edit" title="编辑站点账号" onClick={() => onEdit(row)}><Pencil size={15} /><span>编辑</span></button><button type="button" className="delete" title="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={15} /><span>删除</span></button></div></td>
+        <td><div className="account-row-actions"><Button variant="secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={15} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} /><span>刷新</span></Button><Button variant="ghost" className="redeem" title="兑换额度" onClick={() => setRedeemRow(row)}><TicketCheck size={15} /><span>兑换</span></Button><Button variant="ghost" className="edit" title="编辑站点账号" onClick={() => onEdit(row)}><Pencil size={15} /><span>编辑</span></Button><Button variant="ghost" className="delete" title="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={15} /><span>删除</span></Button></div></td>
       </tr>)}</tbody></table></div>}
       mobile={<div className="sub2-mobile-cards">{filtered.map((row) => <article className="sub2-record-card" key={row.stationId}>
         <div className="sub2-record-card-heading"><label className="table-page-mobile-select"><input type="checkbox" aria-label={`选择站点账号 ${row.stationName}`} checked={selectedIds.includes(row.stationId)} onChange={() => toggleSelected(row.stationId)} /><strong>{row.account.displayName || row.account.username || "未命名账户"}</strong></label><StatusBadge status={row.syncStatus} /></div>
         <small>{row.stationName}</small>
         <dl><div><dt>邮箱</dt><dd>{row.account.email || "-"}</dd></div><div><dt>角色</dt><dd>{row.account.role || "-"}</dd></div><div><dt>余额</dt><dd><span className={`account-balance${row.account.balance == null ? " missing" : ""}`}>{formatMoney(row.account.balance)}</span></dd></div><div><dt>今日请求</dt><dd>{formatNumber(row.usage.todayRequests)}</dd></div></dl>
-        <div className="sub2-card-actions"><button type="button" className="button-secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={16} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} />刷新</button><button className="button-secondary" onClick={() => setRedeemRow(row)}><TicketCheck size={16} />兑换</button><button className="button-secondary" onClick={() => void onOpenStation(row.stationUrl)}><Server size={16} />打开站点</button><button className="button-secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</button><button type="button" className="sub2-icon-action sub2-danger-action" aria-label="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)}><Trash2 size={16} /></button></div>
+        <div className="sub2-card-actions"><Button variant="secondary" title={`刷新 ${row.stationName} 登录状态`} aria-label={`刷新 ${row.stationName} 登录状态`} disabled={refreshingStationId !== null} onClick={() => void refreshLogin(row)}><RefreshCw size={16} className={refreshingStationId === row.stationId ? "sub2-spin" : ""} />刷新</Button><Button variant="secondary" onClick={() => setRedeemRow(row)}><TicketCheck size={16} />兑换</Button><Button variant="secondary" onClick={() => void onOpenStation(row.stationUrl)}><Server size={16} />打开站点</Button><Button variant="secondary" onClick={() => onEdit(row)}><Pencil size={16} />编辑</Button><IconButton variant="ghost" className="sub2-icon-action sub2-danger-action" label="删除站点账号" disabled={deleting === row.stationId} onClick={() => void remove(row)} icon={<Trash2 size={16} />} /></div>
       </article>)}</div>}
     />
     {redeemRow && <RedeemCodeDialog row={redeemRow} onClose={() => setRedeemRow(null)} onRedeemed={onUpdated} />}
@@ -201,7 +201,7 @@ function RedeemCodeDialog({ row, onClose, onRedeemed }: { row: AccountRow; onClo
       setSubmitting(false);
     }
   };
-  return <FormDialog title="兑换站点额度" description={`兑换码将提交到 ${row.stationName}，成功后自动刷新账户余额。`} ariaLabel="兑换站点额度" onClose={onClose} onSubmit={submit} footer={<><button type="button" className="button-secondary" onClick={onClose} disabled={submitting}>关闭</button><button type="submit" className="button-primary" disabled={submitting || !code.trim()}>{submitting ? "兑换中" : "立即兑换"}</button></>}>
+  return <FormDialog title="兑换站点额度" description={`兑换码将提交到 ${row.stationName}，成功后自动刷新账户余额。`} ariaLabel="兑换站点额度" onClose={onClose} onSubmit={submit} footer={<><Button variant="secondary" onClick={onClose} disabled={submitting}>关闭</Button><Button variant="primary" type="submit" disabled={submitting || !code.trim()}>{submitting ? "兑换中" : "立即兑换"}</Button></>}>
     <FormField label="兑换码" required>
       <TextField autoFocus value={code} onChange={(event) => { setCode(event.target.value); setResult(null); }} autoComplete="off" aria-invalid={result?.type === "error"} aria-describedby="redeem-code-result" placeholder="请输入兑换码" />
       <p id="redeem-code-result" className={`redeem-code-result ${result?.type ?? ""}`} aria-live="polite">{result?.message ?? " "}</p>

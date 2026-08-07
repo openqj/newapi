@@ -1,12 +1,13 @@
-import { EmptyState, PageHeader, Panel } from "../../../components/ui";
+import { EmptyState, List, ListItem, PageHeader, Panel } from "../../../components/ui";
 import type { Offer } from "../types";
 
 export function OffersPage({ offers }: { offers: Offer[] }) {
   return <>
     <PageHeader title="优惠中心" description="汇总站点公告与套餐" />
-    <div className="grid max-w-4xl gap-3">
+    <List className="grid max-w-4xl gap-3">
       {offers.map((offer) => (
-        <Panel key={offer.id} className="offers-card">
+        <ListItem key={offer.id}>
+          <Panel className="offers-card">
           <div className="flex items-start justify-between gap-5 p-5">
             <div>
               <h2 className="font-semibold">{offer.title}</h2>
@@ -18,13 +19,14 @@ export function OffersPage({ offers }: { offers: Offer[] }) {
               打开站点
             </a>
           </div>
-        </Panel>
+          </Panel>
+        </ListItem>
       ))}
       {!offers.length && (
         <Panel>
           <EmptyState title="暂无优惠或公告" description="当前站点没有可公开的内容。" />
         </Panel>
       )}
-    </div>
+    </List>
   </>;
 }

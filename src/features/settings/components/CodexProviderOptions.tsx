@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { FormDialog, FormField, Panel, TextareaField, useToast } from "../../../components/ui";
+import { Button, FormDialog, FormField, Panel, Switch, TextareaField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { settingsApi } from "../api";
 import type { CodexIntegrationStatus } from "../types";
@@ -73,40 +73,41 @@ export function CodexProviderOptions({ compact = false }: CodexProviderOptionsPr
 
   const options = <div className={`codex-option-grid ${compact ? "codex-option-grid-compact" : ""}`}>
     <label>
-      <input
-        type="checkbox"
+      <Switch
+        aria-label="Goal mode"
         checked={status?.goalMode ?? true}
         disabled={!status || saving}
-        onChange={(event) => void updateOption({ goalMode: event.target.checked })}
+        onCheckedChange={(checked) => void updateOption({ goalMode: checked })}
       />
       <span>启用 Goal mode</span>
     </label>
     <label title="将当前供应商名称写为 OpenAI，让 Codex 尝试远程压缩。">
-      <input
-        type="checkbox"
+      <Switch
+        aria-label="Remote compaction"
         checked={status?.remoteCompaction ?? true}
         disabled={!status || saving}
-        onChange={(event) => void updateOption({ remoteCompaction: event.target.checked })}
+        onCheckedChange={(checked) => void updateOption({ remoteCompaction: checked })}
       />
       <span>启用远程压缩</span>
     </label>
     <label>
-      <input
-        type="checkbox"
+      <Switch
+        aria-label="Common config"
         checked={status?.commonConfigEnabled ?? false}
         disabled={!status || saving}
-        onChange={(event) => void updateOption({ commonConfigEnabled: event.target.checked })}
+        onCheckedChange={(checked) => void updateOption({ commonConfigEnabled: checked })}
       />
       <span>应用通用配置</span>
     </label>
-    <button
+    <Button
       type="button"
-      className="button-secondary codex-common-config-button"
+      variant="secondary"
+      className="codex-common-config-button"
       disabled={!status || saving}
       onClick={() => setDialogOpen(true)}
     >
       编辑通用配置
-    </button>
+    </Button>
   </div>;
 
   const dialog = dialogOpen && <FormDialog
@@ -116,8 +117,8 @@ export function CodexProviderOptions({ compact = false }: CodexProviderOptionsPr
     onClose={() => setDialogOpen(false)}
     onSubmit={(event) => void saveSnippet(event)}
     footer={<>
-      <button type="button" className="button-secondary" onClick={() => setDialogOpen(false)} disabled={saving}>取消</button>
-      <button type="submit" className="button-primary" disabled={saving}>保存</button>
+      <Button type="button" variant="secondary" onClick={() => setDialogOpen(false)} disabled={saving}>取消</Button>
+      <Button type="submit" variant="primary" disabled={saving}>保存</Button>
     </>}
   >
     <FormField label="TOML 配置片段">

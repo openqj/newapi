@@ -1,0 +1,63 @@
+.ui-drawer-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, .28);
+}
+
+.ui-drawer {
+  display: flex;
+  width: min(100%, 36rem);
+  height: 100%;
+  flex-direction: column;
+  border-left: 1px solid var(--ui-border);
+  background: var(--ui-panel);
+  box-shadow: -12px 0 34px rgba(15, 23, 42, .16);
+}
+
+.ui-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--ui-border);
+  padding: 1rem 1.1rem;
+}
+
+.ui-drawer-header-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ui-drawer-header-content h2 {
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 1rem;
+}
+
+.ui-drawer-header-content p {
+  margin: .25rem 0 0;
+  color: var(--ui-muted);
+  font-size: .75rem;
+}
+
+.ui-drawer-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: .4rem;
+}
+
+.ui-drawer-header-actions > .icon-button {
+  width: 2rem;
+  height: 2rem;
+}
+
+.ui-drawer-content {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}

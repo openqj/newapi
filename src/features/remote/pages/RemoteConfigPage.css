@@ -36,36 +36,21 @@
 .remote-codex-version { display: flex; min-width: 0; align-items: center; gap: .35rem; }
 .remote-codex-version > span { min-width: 0; }
 .remote-codex-action { display: inline-flex; min-height: 1.9rem; flex: 0 0 auto; align-items: center; gap: .25rem; padding: .3rem .45rem; font-size: .75rem; }
-.relay-switch-select { position: relative; width: 100%; border: 1px solid #e2e8f0; border-radius: 7px; background: #fff; color: #334155; }
-.relay-switch-select summary { display: flex; min-height: 2.35rem; align-items: center; justify-content: space-between; gap: .5rem; padding: .45rem .65rem; cursor: pointer; list-style: none; }
-.relay-switch-select summary::-webkit-details-marker { display: none; }
-.relay-switch-select[open] { border-color: #94a3b8; border-radius: 7px; }
-.relay-switch-options { position: fixed; z-index: 30; max-height: 12rem; overflow-y: auto; border: 1px solid #94a3b8; border-radius: 7px; background: #fff; box-shadow: 0 8px 16px rgba(15,23,42,.12); }
-.relay-switch-options button { display: block; width: 100%; padding: .5rem .65rem; color: #334155; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.relay-switch-options button:hover { background: #f3f4f6; }
-.relay-switch-options .relay-switch-local { border-bottom: 1px solid #e5e7eb; color: #111827; font-weight: 600; }
-.relay-switch-empty { padding: .65rem; color: #94a3b8; font-size: .75rem; }
+.relay-switch-dropdown { width: 100%; }
 .remote-bulk-action-group { display: flex; flex-wrap: nowrap; align-items: center; gap: .5rem; }
 .remote-bulk-action-group > * { flex: 0 0 auto; }
-.remote-bulk-switch-menu { position: relative; }
-.remote-bulk-switch-menu summary { list-style: none; cursor: pointer; }
-.remote-bulk-switch-menu summary[aria-disabled="true"] { cursor: not-allowed; opacity: .55; }
-.remote-bulk-switch-menu summary::-webkit-details-marker { display: none; }
-.remote-bulk-switch-menu[open] summary { border-color: #94a3b8; background: #e5e7eb; }
-.remote-bulk-switch-options { position: absolute; z-index: 30; top: calc(100% + .25rem); left: 0; display: flex; width: max-content; min-width: 14rem; max-width: 22rem; flex-direction: column; overflow: hidden; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; box-shadow: 0 8px 16px rgba(15,23,42,.12); }
-.remote-bulk-switch-options button { display: block; width: 100%; padding: .5rem .65rem; color: #334155; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.remote-bulk-switch-options button:hover { background: #f3f4f6; }
-.remote-bulk-switch-options .remote-bulk-local-switch { order: -1; border-bottom: 1px solid #e5e7eb; color: #111827; font-weight: 600; }
-.remote-bulk-switch-options p { padding: .65rem; color: #94a3b8; font-size: .75rem; }
+.remote-bulk-switch-dropdown { width: 14rem; min-width: 14rem; }
 .remote-test-notice { display: flex; align-items: center; justify-content: space-between; margin-top: .75rem; }
 .remote-test-notice .icon-button { flex: 0 0 auto; color: currentColor; }
 .remote-log-dialog { width: min(100%, 38rem); }
+.remote-log-dialog .form-dialog-content { padding: 0; }
 .remote-log-list { display: grid; max-height: min(60vh, 32rem); gap: .65rem; overflow-y: auto; padding: 1rem 1.25rem; }
 .remote-log-entry { border: 1px solid #e2e8f0; border-left-width: 3px; border-radius: 6px; padding: .65rem .75rem; color: #475569; font-size: .8125rem; line-height: 1.35rem; }
 .remote-log-entry.success { border-left-color: #22c55e; }
 .remote-log-entry.error { border-left-color: #f43f5e; }
 .remote-log-entry p + p { margin-top: .2rem; }
 .remote-codex-install-dialog { display: flex; width: min(100%, 48rem); max-height: min(calc(100vh - 2rem), 42rem); flex-direction: column; }
+.remote-codex-install-dialog .form-dialog-content { display: flex; min-height: 0; flex-direction: column; padding: 0; }
 .remote-codex-install-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #e2e8f0; padding: .9rem 1.25rem; }
 .remote-codex-install-header h2 { color: #1f2937; font-size: 1rem; font-weight: 650; }
 .remote-codex-install-header p { margin-top: .25rem; overflow: hidden; color: #64748b; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .75rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -82,7 +67,8 @@
 .remote-codex-install-log-line.error .remote-codex-install-log-message { color: #fda4af; }
 .remote-codex-install-empty { color: #94a3b8; text-align: center; }
 .remote-codex-install-footer { display: flex; justify-content: flex-end; border-top: 1px solid #e2e8f0; padding: .7rem 1.25rem; }
-.audit-history-dialog { max-height: calc(100vh - 2rem); }
+.audit-history-dialog { width: min(100%, 64rem); max-height: calc(100vh - 2rem); }
+.audit-history-dialog .form-dialog-content { display: flex; min-height: 0; flex-direction: column; padding: 0; }
 .audit-history-list { height: min(60vh, 32rem); }
 .form-dialog.remote-server-dialog { width: min(100%, 32rem); }
 .form-dialog-content.remote-server-form { display: flex; flex-direction: column; gap: 1rem; padding: 0 1.25rem; }

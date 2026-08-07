@@ -7,8 +7,6 @@ import {
   Bot,
   CalendarDays,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Coins,
   Database,
   Download,
@@ -40,7 +38,7 @@ import {
 import { Line } from "react-chartjs-2";
 import { isTauri } from "../../../lib/platform";
 import { errorMessage } from "../../../lib/errors";
-import { useToast } from "../../../components/ui";
+import { Button, Drawer, EmptyState, IconButton, Pagination, SelectField, TextField, useToast } from "../../../components/ui";
 import { localUsageApi } from "../api";
 import type {
   LocalModelPricing,
@@ -428,7 +426,7 @@ export function UsageStatistics() {
 
     <div className="local-usage-toolbar">
       <div className="local-usage-app-filter" role="group" aria-label="应用筛选">
-        {APP_FILTERS.map((app) => <button
+        {APP_FILTERS.map((app) => <Button
           key={app.id}
           type="button"
           className={appType === app.id ? "active" : ""}
@@ -436,33 +434,33 @@ export function UsageStatistics() {
           aria-label={app.label}
           aria-pressed={appType === app.id}
           onClick={() => updateApp(app.id)}
-        >{appIcon(app.id)}</button>)}
+        >{appIcon(app.id)}</Button>)}
       </div>
-      <select aria-label="来源筛选" value={providerName} onChange={(event) => { setProviderName(event.target.value); setModel("all"); setPage(1); }}>
+      <SelectField aria-label="来源筛选" value={providerName} onChange={(event) => { setProviderName(event.target.value); setModel("all"); setPage(1); }}>
         <option value="all">全部来源</option>
         {dashboard.providers.map((value) => <option key={value} value={value}>{value}</option>)}
-      </select>
-      <select aria-label="模型筛选" value={model} onChange={(event) => { setModel(event.target.value); setPage(1); }}>
+      </SelectField>
+      <SelectField aria-label="模型筛选" value={model} onChange={(event) => { setModel(event.target.value); setPage(1); }}>
         <option value="all">全部模型</option>
         {dashboard.models.map((value) => <option key={value} value={value}>{value}</option>)}
-      </select>
-      <select className="local-usage-refresh-select" aria-label="自动刷新间隔" value={refreshInterval} onChange={(event) => void saveRefreshInterval(Number(event.target.value))}>
+      </SelectField>
+      <SelectField className="local-usage-refresh-select" aria-label="自动刷新间隔" value={refreshInterval} onChange={(event) => void saveRefreshInterval(Number(event.target.value))}>
         {REFRESH_OPTIONS.map((value) => <option key={value} value={value}>{value === 0 ? "关闭刷新" : `${value / 1000}s`}</option>)}
-      </select>
+      </SelectField>
       <div className="local-usage-date-control">
-        <button type="button" className="button-secondary" aria-expanded={dateMenuOpen} onClick={() => setDateMenuOpen((value) => !value)}><CalendarDays size={15} />{dateLabel}<ChevronDown size={14} /></button>
+        <Button type="button" variant="secondary" aria-expanded={dateMenuOpen} onClick={() => setDateMenuOpen((value) => !value)}><CalendarDays size={15} />{dateLabel}<ChevronDown size={14} /></Button>
         {dateMenuOpen && <div className="local-usage-date-menu">
           <div className="local-usage-date-presets">
-            {(["today", "1d", "7d", "14d", "30d"] as RangePreset[]).map((value) => <button key={value} type="button" className={range === value ? "active" : ""} onClick={() => updateRange(value)}>{value === "today" ? "当天" : value}</button>)}
+            {(["today", "1d", "7d", "14d", "30d"] as RangePreset[]).map((value) => <Button key={value} type="button" className={range === value ? "active" : ""} onClick={() => updateRange(value)}>{value === "today" ? "当天" : value}</Button>)}
           </div>
           <div className="local-usage-date-fields">
-            <label>开始日期<input type="date" value={customStart} onChange={(event) => { setCustomStart(event.target.value); setRange("custom"); }} /></label>
-            <label>结束日期<input type="date" value={customEnd} onChange={(event) => { setCustomEnd(event.target.value); setRange("custom"); }} /></label>
+            <label>开始日期<TextField type="date" value={customStart} onChange={(event) => { setCustomStart(event.target.value); setRange("custom"); }} /></label>
+            <label>结束日期<TextField type="date" value={customEnd} onChange={(event) => { setCustomEnd(event.target.value); setRange("custom"); }} /></label>
           </div>
-          <button type="button" className="button-primary" onClick={() => { setPage(1); setDateMenuOpen(false); }}>应用日期</button>
+          <Button type="button" variant="primary" onClick={() => { setPage(1); setDateMenuOpen(false); }}>应用日期</Button>
         </div>}
       </div>
-      <button type="button" className="button-secondary local-usage-refresh-button" title="刷新本地统计" aria-label="刷新本地统计" onClick={() => void loadDashboard()} disabled={loading}><RefreshCw size={15} className={loading ? "local-usage-spin" : ""} /></button>
+      <IconButton type="button" variant="secondary" className="local-usage-refresh-button" label="刷新本地统计" onClick={() => void loadDashboard()} disabled={loading} icon={<RefreshCw size={15} className={loading ? "local-usage-spin" : ""} />} />
     </div>
 
     <section className="local-usage-hero">
@@ -488,14 +486,14 @@ export function UsageStatistics() {
 
     <section className="local-usage-panel local-usage-trend-panel">
       <div className="local-usage-panel-heading"><div><h3>使用趋势</h3><p>{dateLabel}</p></div><span className="local-usage-trend-note">{hourly ? "按小时聚合" : "按日期聚合"}</span></div>
-      <div className="local-usage-chart">{dashboard.trends.length ? <Line data={trendData} options={trendOptions} /> : <EmptyState message="暂无本地统计数据" />}</div>
+      <div className="local-usage-chart">{dashboard.trends.length ? <Line data={trendData} options={trendOptions} /> : <EmptyState className="local-usage-empty" message="暂无本地统计数据" />}</div>
     </section>
 
     <section className="local-usage-results">
       <div className="local-usage-tabs" role="tablist" aria-label="统计明细">
-        <button type="button" role="tab" aria-selected={activeTab === "logs"} className={activeTab === "logs" ? "active" : ""} onClick={() => setActiveTab("logs")}><ListFilter size={15} />请求日志</button>
-        <button type="button" role="tab" aria-selected={activeTab === "providers"} className={activeTab === "providers" ? "active" : ""} onClick={() => setActiveTab("providers")}><Activity size={15} />来源统计</button>
-        <button type="button" role="tab" aria-selected={activeTab === "models"} className={activeTab === "models" ? "active" : ""} onClick={() => setActiveTab("models")}><BarChart3 size={15} />模型统计</button>
+        <Button type="button" variant="ghost" role="tab" aria-selected={activeTab === "logs"} className={activeTab === "logs" ? "active" : ""} onClick={() => setActiveTab("logs")}><ListFilter size={15} />请求日志</Button>
+        <Button type="button" variant="ghost" role="tab" aria-selected={activeTab === "providers"} className={activeTab === "providers" ? "active" : ""} onClick={() => setActiveTab("providers")}><Activity size={15} />来源统计</Button>
+        <Button type="button" variant="ghost" role="tab" aria-selected={activeTab === "models"} className={activeTab === "models" ? "active" : ""} onClick={() => setActiveTab("models")}><BarChart3 size={15} />模型统计</Button>
       </div>
       {activeTab === "logs" && <RequestLogs logs={dashboard.logs} total={dashboard.totalLogs} page={page} totalPages={totalPages} onPage={setPage} onSelect={setSelectedLog} />}
       {activeTab === "providers" && <ProviderStats rows={dashboard.providerStats} />}
@@ -508,7 +506,7 @@ export function UsageStatistics() {
     </details>
     <details className="local-usage-disclosure">
       <summary><span><Database size={17} /><strong>维护</strong><small>清理本地 Gateway 统计数据</small></span><ChevronDown size={16} /></summary>
-      <div className="local-usage-maintenance"><p>本地统计只保存经过 RelayHub Gateway 的请求，不会影响中转站使用记录。</p><button type="button" className="button-secondary" onClick={() => void clearLogs()}><Trash2 size={15} />清空本地统计</button></div>
+      <div className="local-usage-maintenance"><p>本地统计只保存经过 RelayHub Gateway 的请求，不会影响中转站使用记录。</p><Button type="button" variant="secondary" onClick={() => void clearLogs()}><Trash2 size={15} />清空本地统计</Button></div>
     </details>
 
     {selectedLog && <LogDetail log={selectedLog} onClose={() => setSelectedLog(null)} />}
@@ -517,10 +515,6 @@ export function UsageStatistics() {
 
 function MiniMetric({ icon, label, value, tone, muted = false, tooltip }: { icon: React.ReactNode; label: string; value: string; tone: string; muted?: boolean; tooltip?: string }) {
   return <div className={`local-usage-mini-metric tone-${tone} ${muted ? "is-muted" : ""}`} title={tooltip}><span>{icon}<em>{label}</em>{tooltip && <Info size={12} aria-label={tooltip} />}</span><strong>{value}</strong></div>;
-}
-
-function EmptyState({ message }: { message: string }) {
-  return <div className="local-usage-empty"><Activity size={18} />{message}</div>;
 }
 
 const RequestLogs = memo(function RequestLogs({ logs, total, page, totalPages, onPage, onSelect }: { logs: LocalUsageLogDetail[]; total: number; page: number; totalPages: number; onPage: (page: number) => void; onSelect: (log: LocalUsageLogDetail) => void }) {
@@ -535,26 +529,31 @@ const RequestLogs = memo(function RequestLogs({ logs, total, page, totalPages, o
       <td className="align-right"><strong>{formatCompactTokens(log.totalTokens)}</strong><small>输入 {formatCompactTokens(log.inputTokens)}</small></td>
       <td className="align-right">{formatCost(log.totalCostUsd)}</td>
       <td className="align-right">{log.latencyMs}ms</td>
-    </tr>)}</tbody></table></div> : <EmptyState message="暂无符合条件的本地请求" />}
-    {totalPages > 1 && <div className="local-usage-pagination"><button type="button" className="button-secondary" aria-label="上一页" disabled={page <= 1} onClick={() => onPage(page - 1)}><ChevronLeft size={15} /></button><span>第 {page} / {totalPages} 页</span><button type="button" className="button-secondary" aria-label="下一页" disabled={page >= totalPages} onClick={() => onPage(page + 1)}><ChevronRight size={15} /></button></div>}
+    </tr>)}</tbody></table></div> : <EmptyState className="local-usage-empty" message="暂无符合条件的本地请求" />}
+    <Pagination page={page} pageCount={totalPages} onPageChange={onPage} ariaLabel="本地请求分页" className="local-usage-pagination" />
   </div>;
 });
 
 const ProviderStats = memo(function ProviderStats({ rows }: { rows: LocalUsageDashboard["providerStats"] }) {
-  return <div className="local-usage-table-panel"><div className="local-usage-table-scroll"><table className="local-usage-table compact"><thead><tr><th>来源</th><th className="align-right">请求数</th><th className="align-right">Tokens</th><th className="align-right">成本</th><th className="align-right">成功率</th><th className="align-right">平均延迟</th></tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={row.providerId}><td><strong>{row.providerName}</strong><small>{row.providerId}</small></td><td className="align-right">{formatNumber(row.requestCount)}</td><td className="align-right">{formatCompactTokens(row.totalTokens)}</td><td className="align-right">{formatCost(row.totalCost)}</td><td className="align-right">{row.successRate.toFixed(1)}%</td><td className="align-right">{row.avgLatencyMs}ms</td></tr>) : <tr><td colSpan={6}><EmptyState message="暂无数据" /></td></tr>}</tbody></table></div></div>;
+  return <div className="local-usage-table-panel"><div className="local-usage-table-scroll"><table className="local-usage-table compact"><thead><tr><th>来源</th><th className="align-right">请求数</th><th className="align-right">Tokens</th><th className="align-right">成本</th><th className="align-right">成功率</th><th className="align-right">平均延迟</th></tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={row.providerId}><td><strong>{row.providerName}</strong><small>{row.providerId}</small></td><td className="align-right">{formatNumber(row.requestCount)}</td><td className="align-right">{formatCompactTokens(row.totalTokens)}</td><td className="align-right">{formatCost(row.totalCost)}</td><td className="align-right">{row.successRate.toFixed(1)}%</td><td className="align-right">{row.avgLatencyMs}ms</td></tr>) : <tr><td colSpan={6}><EmptyState className="local-usage-empty" message="暂无数据" /></td></tr>}</tbody></table></div></div>;
 });
 
 const ModelStats = memo(function ModelStats({ rows }: { rows: LocalUsageDashboard["modelStats"] }) {
-  return <div className="local-usage-table-panel"><div className="local-usage-table-scroll"><table className="local-usage-table compact"><thead><tr><th>模型</th><th className="align-right">请求数</th><th className="align-right">Tokens</th><th className="align-right">总成本</th><th className="align-right">平均成本</th></tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={row.model}><td><code>{row.model}</code></td><td className="align-right">{formatNumber(row.requestCount)}</td><td className="align-right">{formatCompactTokens(row.totalTokens)}</td><td className="align-right">{formatCost(row.totalCost)}</td><td className="align-right">{formatCost(row.avgCostPerRequest, 6)}</td></tr>) : <tr><td colSpan={5}><EmptyState message="暂无数据" /></td></tr>}</tbody></table></div></div>;
+  return <div className="local-usage-table-panel"><div className="local-usage-table-scroll"><table className="local-usage-table compact"><thead><tr><th>模型</th><th className="align-right">请求数</th><th className="align-right">Tokens</th><th className="align-right">总成本</th><th className="align-right">平均成本</th></tr></thead><tbody>{rows.length ? rows.map((row) => <tr key={row.model}><td><code>{row.model}</code></td><td className="align-right">{formatNumber(row.requestCount)}</td><td className="align-right">{formatCompactTokens(row.totalTokens)}</td><td className="align-right">{formatCost(row.totalCost)}</td><td className="align-right">{formatCost(row.avgCostPerRequest, 6)}</td></tr>) : <tr><td colSpan={5}><EmptyState className="local-usage-empty" message="暂无数据" /></td></tr>}</tbody></table></div></div>;
 });
 
 function LogDetail({ log, onClose }: { log: LocalUsageLogDetail; onClose: () => void }) {
-  return <div className="local-usage-drawer-backdrop" role="presentation" onClick={onClose}><aside className="local-usage-drawer" role="dialog" aria-modal="true" aria-label="请求详情" onClick={(event) => event.stopPropagation()}>
-    <header><div><h3>请求详情</h3><p>{log.requestId}</p></div><button type="button" className="button-secondary" title="关闭" aria-label="关闭" onClick={onClose}><X size={16} /></button></header>
-    <div className="local-usage-drawer-body"><div className="local-usage-detail-banner"><span className={`local-usage-status ${log.statusCode >= 200 && log.statusCode < 400 ? "is-good" : "is-error"}`}><i />HTTP {log.statusCode}</span><span>{formatDateTime(log.createdAt)}</span></div><dl>
+  return <Drawer
+    ariaLabel="请求详情"
+    onClose={onClose}
+    className="local-usage-drawer"
+    contentClassName="local-usage-drawer-body"
+    header={<div><h3>请求详情</h3><p>{log.requestId}</p></div>}
+  >
+    <div className="local-usage-detail-banner"><span className={`local-usage-status ${log.statusCode >= 200 && log.statusCode < 400 ? "is-good" : "is-error"}`}><i />HTTP {log.statusCode}</span><span>{formatDateTime(log.createdAt)}</span></div><dl>
       <dt>应用</dt><dd>{log.appType}</dd><dt>来源</dt><dd>{log.providerName}</dd><dt>模型</dt><dd><code>{log.model}</code></dd><dt>请求模型</dt><dd>{log.requestModel || "--"}</dd><dt>端点</dt><dd><code>{log.endpoint || "--"}</code></dd><dt>输入</dt><dd>{formatNumber(log.inputTokens)}</dd><dt>输出</dt><dd>{formatNumber(log.outputTokens)}</dd><dt>缓存读取</dt><dd>{formatNumber(log.cacheReadTokens)}</dd><dt>缓存创建</dt><dd>{formatNumber(log.cacheCreationTokens)}</dd><dt>真实消耗</dt><dd>{formatNumber(log.totalTokens)}</dd><dt>成本</dt><dd>{formatCost(log.totalCostUsd, 6)}</dd><dt>首 Token</dt><dd>{log.firstTokenMs == null ? "--" : `${log.firstTokenMs}ms`}</dd><dt>总耗时</dt><dd>{log.durationMs == null ? `${log.latencyMs}ms` : `${log.durationMs}ms`}</dd>
-    </dl>{log.errorMessage && <p className="local-usage-detail-error">{log.errorMessage}</p>}</div>
-  </aside></div>;
+    </dl>{log.errorMessage && <p className="local-usage-detail-error">{log.errorMessage}</p>}
+  </Drawer>;
 }
 
 function PricingPanel({ pricing, onChanged, onNotify }: { pricing: LocalModelPricing[]; onChanged: () => void; onNotify: (message: string, tone: "success" | "error") => void }) {
@@ -589,9 +588,9 @@ function PricingPanel({ pricing, onChanged, onNotify }: { pricing: LocalModelPri
       onNotify(errorMessage(reason, "删除模型定价失败。"), "error");
     }
   };
-  const input = (value: LocalModelPricing, field: keyof LocalModelPricing, label: string) => <label className="local-usage-pricing-field"><span>{label}</span><input aria-label={label} type="number" min="0" step="0.0001" value={value[field] as number} onChange={(event) => setDraft({ ...value, [field]: Number(event.target.value) })} /></label>;
-  return <div className="local-usage-pricing"><div className="local-usage-pricing-heading"><p>价格单位：USD / 1M Tokens</p><button type="button" className="button-primary" onClick={() => { setAdding(true); setDraft(emptyDraft()); }}><Plus size={15} />新增定价</button></div>
-    {adding && draft && <div className="local-usage-pricing-editor"><label>模型 ID<input value={draft.modelId} onChange={(event) => setDraft({ ...draft, modelId: event.target.value })} placeholder="例如 claude-3-5-sonnet" /></label><label>显示名称<input value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} placeholder="例如 Claude 3.5 Sonnet" /></label>{input(draft, "inputCostPerMillion", "输入")} {input(draft, "outputCostPerMillion", "输出")} {input(draft, "cacheReadCostPerMillion", "缓存读取")} {input(draft, "cacheCreationCostPerMillion", "缓存创建")}<div className="local-usage-pricing-editor-actions"><button type="button" className="button-secondary" onClick={() => setAdding(false)}>取消</button><button type="button" className="button-primary" onClick={() => void save(draft)}>保存</button></div></div>}
-    <div className="local-usage-pricing-table-scroll"><table className="local-usage-pricing-table"><thead><tr><th>模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存创建</th><th /></tr></thead><tbody>{pricing.map((item) => editing === item.modelId && draft ? <tr key={item.modelId}><td><strong>{item.displayName}</strong><small>{item.modelId}</small></td><td>{input(draft, "inputCostPerMillion", "输入")}</td><td>{input(draft, "outputCostPerMillion", "输出")}</td><td>{input(draft, "cacheReadCostPerMillion", "缓存读取")}</td><td>{input(draft, "cacheCreationCostPerMillion", "缓存创建")}</td><td><div className="local-usage-inline-actions"><button type="button" className="button-primary" title="保存" aria-label="保存" onClick={() => void save(draft)}><Download size={14} /></button><button type="button" className="button-secondary" title="取消" aria-label="取消" onClick={() => { setEditing(null); setDraft(null); }}><X size={14} /></button></div></td></tr> : <tr key={item.modelId}><td><strong>{item.displayName}</strong><small>{item.modelId}</small></td><td>{item.inputCostPerMillion}</td><td>{item.outputCostPerMillion}</td><td>{item.cacheReadCostPerMillion}</td><td>{item.cacheCreationCostPerMillion}</td><td><div className="local-usage-inline-actions"><button type="button" className="button-secondary" title="编辑" aria-label="编辑" onClick={() => { setEditing(item.modelId); setDraft({ ...item }); }}><Pencil size={14} /></button><button type="button" className="button-secondary" title="删除" aria-label="删除" disabled={item.modelId === "*"} onClick={() => void remove(item.modelId)}><Trash2 size={14} /></button></div></td></tr>)}</tbody></table></div>
+  const input = (value: LocalModelPricing, field: keyof LocalModelPricing, label: string) => <label className="local-usage-pricing-field"><span>{label}</span><TextField aria-label={label} type="number" min="0" step="0.0001" value={value[field] as number} onChange={(event) => setDraft({ ...value, [field]: Number(event.target.value) })} /></label>;
+  return <div className="local-usage-pricing"><div className="local-usage-pricing-heading"><p>价格单位：USD / 1M Tokens</p><Button type="button" variant="primary" onClick={() => { setAdding(true); setDraft(emptyDraft()); }}><Plus size={15} />新增定价</Button></div>
+    {adding && draft && <div className="local-usage-pricing-editor"><label>模型 ID<TextField value={draft.modelId} onChange={(event) => setDraft({ ...draft, modelId: event.target.value })} placeholder="例如 claude-3-5-sonnet" /></label><label>显示名称<TextField value={draft.displayName} onChange={(event) => setDraft({ ...draft, displayName: event.target.value })} placeholder="例如 Claude 3.5 Sonnet" /></label>{input(draft, "inputCostPerMillion", "输入")} {input(draft, "outputCostPerMillion", "输出")} {input(draft, "cacheReadCostPerMillion", "缓存读取")} {input(draft, "cacheCreationCostPerMillion", "缓存创建")}<div className="local-usage-pricing-editor-actions"><Button type="button" variant="secondary" onClick={() => setAdding(false)}>取消</Button><Button type="button" variant="primary" onClick={() => void save(draft)}>保存</Button></div></div>}
+    <div className="local-usage-pricing-table-scroll"><table className="local-usage-pricing-table"><thead><tr><th>模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存创建</th><th /></tr></thead><tbody>{pricing.map((item) => editing === item.modelId && draft ? <tr key={item.modelId}><td><strong>{item.displayName}</strong><small>{item.modelId}</small></td><td>{input(draft, "inputCostPerMillion", "输入")}</td><td>{input(draft, "outputCostPerMillion", "输出")}</td><td>{input(draft, "cacheReadCostPerMillion", "缓存读取")}</td><td>{input(draft, "cacheCreationCostPerMillion", "缓存创建")}</td><td><div className="local-usage-inline-actions"><IconButton type="button" variant="primary" label="保存" onClick={() => void save(draft)} icon={<Download size={14} />} /><IconButton type="button" variant="secondary" label="取消" onClick={() => { setEditing(null); setDraft(null); }} icon={<X size={14} />} /></div></td></tr> : <tr key={item.modelId}><td><strong>{item.displayName}</strong><small>{item.modelId}</small></td><td>{item.inputCostPerMillion}</td><td>{item.outputCostPerMillion}</td><td>{item.cacheReadCostPerMillion}</td><td>{item.cacheCreationCostPerMillion}</td><td><div className="local-usage-inline-actions"><IconButton type="button" variant="secondary" label="编辑" onClick={() => { setEditing(item.modelId); setDraft({ ...item }); }} icon={<Pencil size={14} />} /><IconButton type="button" variant="secondary" label="删除" disabled={item.modelId === "*"} onClick={() => void remove(item.modelId)} icon={<Trash2 size={14} />} /></div></td></tr>)}</tbody></table></div>
   </div>;
 }

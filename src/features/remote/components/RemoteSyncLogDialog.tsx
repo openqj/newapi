@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Dialog, List, ListItem } from "../../../components/ui";
 import type { RemoteServer, RemoteSyncLog } from "../types";
 
 type RemoteSyncLogDialogProps = {
@@ -18,51 +18,30 @@ export function RemoteSyncLogDialog({
   entries,
   onClose,
 }: RemoteSyncLogDialogProps) {
+  const description = <>{server.name}{server.hostKeyFingerprint ? ` · ${server.hostKeyFingerprint.slice(0, 22)}...` : " · 首次连接后将固定 SSH 指纹"}</>;
+
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section
-        className="modal remote-log-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="\u670d\u52a1\u5668\u540c\u6b65\u8bb0\u5f55"
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div>
-            <h2 className="font-semibold">\u540c\u6b65\u8bb0\u5f55</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              {server.name}
-              {server.hostKeyFingerprint
-                ? ` \u00b7 ${server.hostKeyFingerprint.slice(0, 22)}...`
-                : " \u00b7 \u9996\u6b21\u8fde\u63a5\u540e\u5c06\u56fa\u5b9a SSH \u6307\u7eb9"}
+    <Dialog
+      title="同步记录"
+      description={description}
+      ariaLabel="服务器同步记录"
+      className="remote-log-dialog"
+      contentClassName="remote-log-dialog-content"
+      onClose={onClose}
+    >
+      <List className="remote-log-list">
+        {entries.map((entry) => (
+          <ListItem className={`remote-log-entry ${entry.status}`} key={entry.id}>
+            <p className="font-medium">{entry.action} · {entry.status}</p>
+            <p>{entry.summary}</p>
+            <p className="text-xs text-slate-400">
+              {formatLogTime(entry.createdAt)}
+              {entry.configFingerprint ? ` · ${entry.configFingerprint.slice(0, 18)}...` : ""}
             </p>
-          </div>
-          <button
-            className="icon-button"
-            type="button"
-            title="\u5173\u95ed"
-            onClick={onClose}
-          >
-            <X size={17} />
-          </button>
-        </div>
-        <div className="remote-log-list">
-          {entries.map((entry) => (
-            <div className={`remote-log-entry ${entry.status}`} key={entry.id}>
-              <p className="font-medium">{entry.action} \u00b7 {entry.status}</p>
-              <p>{entry.summary}</p>
-              <p className="text-xs text-slate-400">
-                {formatLogTime(entry.createdAt)}
-                {entry.configFingerprint
-                  ? ` \u00b7 ${entry.configFingerprint.slice(0, 18)}...`
-                  : ""}
-              </p>
-            </div>
-          ))}
-          {entries.length === 0 && (
-            <p className="empty-cell">\u6682\u65e0\u540c\u6b65\u8bb0\u5f55</p>
-          )}
-        </div>
-      </section>
-    </div>
+          </ListItem>
+        ))}
+        {entries.length === 0 && <p className="empty-cell">暂无同步记录</p>}
+      </List>
+    </Dialog>
   );
 }

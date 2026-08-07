@@ -1,6 +1,7 @@
 import { createPortal } from "react-dom";
 import { Archive, ArrowDown, ArrowUp, Info, PencilLine } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { IconButton } from "../../../components/ui";
 import type { UsageLog } from "../types";
 
 export type UsageColumns = Record<"key" | "model" | "reasoning" | "endpoint" | "ip" | "source" | "group" | "type" | "billing" | "tokens" | "cost" | "latency" | "time", boolean>;
@@ -151,22 +152,21 @@ function CostDetails({ row }: { row: UsageLog }) {
   }, [visible]);
 
   return <span className="usage-cost-details">
-    <button
+    <IconButton
       ref={triggerRef}
       type="button"
+      variant="ghost"
       className="usage-cost-details-trigger"
-      aria-label="查看费用明细"
+      label="查看费用明细"
       aria-describedby={visible ? tooltipId : undefined}
       aria-expanded={visible}
-      title="查看费用明细"
       onMouseEnter={() => { setHovered(true); updatePosition(); }}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => { setFocused(true); updatePosition(); }}
       onBlur={() => setFocused(false)}
       onClick={() => setPinned((value) => !value)}
-    >
-      <Info size={13} strokeWidth={2} />
-    </button>
+      icon={<Info size={13} strokeWidth={2} />}
+    />
     {visible && position && createPortal(
       <div id={tooltipId} role="tooltip" className="usage-cost-tooltip" style={{ left: position.left, top: position.top }}>
         <span className={`usage-cost-tooltip-arrow ${position.side}`} aria-hidden="true" />
@@ -255,22 +255,21 @@ function TokenDetails({ row }: { row: UsageLog }) {
   }, [visible]);
 
   return <span className="usage-token-details">
-    <button
+    <IconButton
       ref={triggerRef}
       type="button"
+      variant="ghost"
       className="usage-token-details-trigger"
-      aria-label="查看 Token 详情"
+      label="查看 Token 详情"
       aria-describedby={visible ? tooltipId : undefined}
       aria-expanded={visible}
-      title="查看 Token 详情"
       onMouseEnter={() => { setHovered(true); updatePosition(); }}
       onMouseLeave={() => setHovered(false)}
       onFocus={() => { setFocused(true); updatePosition(); }}
       onBlur={() => setFocused(false)}
       onClick={() => setPinned((value) => !value)}
-    >
-      <Info size={13} strokeWidth={2} />
-    </button>
+      icon={<Info size={13} strokeWidth={2} />}
+    />
     {visible && position && createPortal(
       <div id={tooltipId} role="tooltip" className="usage-token-tooltip" style={{ left: position.left, top: position.top }}>
         <span className={`usage-token-tooltip-arrow ${position.side}`} aria-hidden="true" />

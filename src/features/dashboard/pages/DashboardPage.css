@@ -18,8 +18,9 @@
 .sub2-dashboard-overview-card button:focus-visible,
 .sub2-dashboard-overview-card select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
 
-.sub2-dashboard-routing-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .35rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: .25rem; }
+.sub2-dashboard-routing-switch { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .35rem; border: 1px solid #e2e8f0; border-radius: 8px; padding: .25rem; }
 .sub2-dashboard-routing-switch .test-mode-button { min-height: 2.35rem; }
+.sub2-dashboard-routing-switch .test-mode-button.is-status:disabled { cursor: default; opacity: 1; }
 .sub2-dashboard-routing-status { flex: 0 0 auto; }
 .sub2-dashboard-route-pool { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; margin-top: .75rem; }
 .sub2-dashboard-route-pool-heading { display: flex; align-items: end; justify-content: space-between; gap: .75rem; margin-bottom: .55rem; }
@@ -116,8 +117,7 @@
 .sub2-dashboard-control-actions .sub2-quick-range button + button { border-left: 1px solid #dfe3e8; }
 .sub2-dashboard-control-actions .sub2-quick-range button:hover { background: #f3f4f6; }
 .sub2-dashboard-control-actions .sub2-granularity { display: grid; gap: .35rem; color: #4b5563; font-size: .75rem; font-weight: 600; }
-.sub2-dashboard-control-actions .sub2-granularity select { min-height: 2.35rem; border: 1px solid #d9dde4; border-radius: 7px; background: #fff; padding: .35rem .6rem; color: #374151; font: inherit; font-weight: 400; outline: 0; }
-.sub2-dashboard-control-actions .sub2-granularity select:focus { border-color: #6b7280; box-shadow: 0 0 0 3px rgba(17,24,39,.08); }
+.sub2-dashboard-control-actions .sub2-granularity .select-field { min-width: 8rem; }
 
 .sub2-dashboard-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
 .sub2-dashboard-chart-card { min-height: 286px; margin: 0; }
@@ -194,7 +194,7 @@
   .sub2-dashboard-route-title span { color: #d4d4d4; }
   .sub2-dashboard-route-content small, .sub2-dashboard-route-empty span { color: #a3a3a3; }
   .sub2-dashboard-route-empty strong { color: #d4d4d4; }
-  .sub2-dashboard-date-fields input, .sub2-dashboard-control-actions .sub2-granularity select { border-color: #454545; background: #333; color: #e5e5e5; }
+  .sub2-dashboard-date-fields input, .sub2-dashboard-control-actions .sub2-granularity .ui-select-dropdown-trigger { border-color: #454545; background: #333; color: #e5e5e5; }
   .sub2-dashboard-model-table th { color: #bdbdbd; }
   .sub2-dashboard-model-table td { border-color: #414141; color: #d4d4d4; }
 }

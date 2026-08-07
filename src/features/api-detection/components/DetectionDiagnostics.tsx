@@ -1,12 +1,13 @@
 import { Play, Search } from "lucide-react";
+import { Button } from "../../../components/ui";
 import type { ModelTestResult, ProviderDoctorReport } from "../types";
 import { formatCost, formatDuration, formatNumber } from "../utils";
 
 export function DetectionDiagnostics({ selected, selectedCount, doctor, doctorRunning, batchResults, batchRunning, batchMode, onBatchModeChange, onDoctor, onBatch }: { selected: boolean; selectedCount: number; doctor?: ProviderDoctorReport; doctorRunning: boolean; batchResults?: ModelTestResult[]; batchRunning: boolean; batchMode: "chat" | "responses"; onBatchModeChange: (mode: "chat" | "responses") => void; onDoctor: () => void; onBatch: () => void }) {
   if (!selected) return null;
   return <>
-    <section className="api-detection-model-matrix" aria-live="polite"><div><h2>站点体检</h2><p>检查认证、站点快照、余额/用量、密钥与用量分页接口，以及适配器能力。</p></div><button type="button" className="button-secondary" disabled={doctorRunning} onClick={onDoctor}><Search size={16} />{doctorRunning ? "体检中" : "运行体检"}</button>{doctor && <DoctorTable report={doctor} />}</section>
-    <section className="api-detection-model-matrix" aria-live="polite"><div><h2>批量模型测试</h2><p>已选 {selectedCount} 个模型；并发运行短 {batchMode === "chat" ? "Chat" : "Responses"} 探针。</p></div><div className="test-mode-tabs" role="group" aria-label="模型测试协议"><button type="button" className={`test-mode-button${batchMode === "chat" ? " active" : ""}`} onClick={() => onBatchModeChange("chat")} aria-pressed={batchMode === "chat"}>Chat</button><button type="button" className={`test-mode-button${batchMode === "responses" ? " active" : ""}`} onClick={() => onBatchModeChange("responses")} aria-pressed={batchMode === "responses"}>Responses</button></div><button type="button" className="button-secondary" disabled={batchRunning || !selectedCount} onClick={onBatch}><Play size={16} />{batchRunning ? "测试中" : "测试所选模型"}</button>{batchResults && <BatchTable results={batchResults} />}</section>
+    <section className="api-detection-model-matrix" aria-live="polite"><div><h2>站点体检</h2><p>检查认证、站点快照、余额/用量、密钥与用量分页接口，以及适配器能力。</p></div><Button variant="secondary" disabled={doctorRunning} onClick={onDoctor}><Search size={16} />{doctorRunning ? "体检中" : "运行体检"}</Button>{doctor && <DoctorTable report={doctor} />}</section>
+    <section className="api-detection-model-matrix" aria-live="polite"><div><h2>批量模型测试</h2><p>已选 {selectedCount} 个模型；并发运行短 {batchMode === "chat" ? "Chat" : "Responses"} 探针。</p></div><div className="test-mode-tabs" role="group" aria-label="模型测试协议"><Button variant="test" className={batchMode === "chat" ? "active" : ""} onClick={() => onBatchModeChange("chat")} aria-pressed={batchMode === "chat"}>Chat</Button><Button variant="test" className={batchMode === "responses" ? "active" : ""} onClick={() => onBatchModeChange("responses")} aria-pressed={batchMode === "responses"}>Responses</Button></div><Button variant="secondary" disabled={batchRunning || !selectedCount} onClick={onBatch}><Play size={16} />{batchRunning ? "测试中" : "测试所选模型"}</Button>{batchResults && <BatchTable results={batchResults} />}</section>
   </>;
 }
 

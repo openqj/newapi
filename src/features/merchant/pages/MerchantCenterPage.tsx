@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { BadgeCheck, ContactRound, Save, Upload } from "lucide-react";
-import { FormField, Panel, TextareaField, TextField, useToast } from "../../../components/ui";
+import { Button, FormField, Panel, Switch, TextareaField, TextField, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { merchantApi } from "../api";
 import type { MerchantFreeCodeInput, MerchantProfile } from "../types";
@@ -103,20 +103,20 @@ export function MerchantCenterPage() {
   return <div className="merchant-center-page">
     <Panel className="merchant-center-management-card">
       <nav className="merchant-center-tabs" role="tablist" aria-label="商家端功能">
-        <button type="button" className={`merchant-center-tab ${activeTab === "profile" ? "active" : ""}`} role="tab" aria-selected={activeTab === "profile"} aria-controls="merchant-center-profile" onClick={() => setActiveTab("profile")}>商家资料</button>
-        <button type="button" className={`merchant-center-tab ${activeTab === "freeCodes" ? "active" : ""}`} role="tab" aria-selected={activeTab === "freeCodes"} aria-controls="merchant-center-free-codes" onClick={() => setActiveTab("freeCodes")}>免费额度兑换码</button>
-        <button type="button" className={`merchant-center-tab ${activeTab === "rates" ? "active" : ""}`} role="tab" aria-selected={activeTab === "rates"} aria-controls="merchant-center-rates" onClick={() => setActiveTab("rates")}>分组倍率充值</button>
+        <Button variant="ghost" className={`merchant-center-tab ${activeTab === "profile" ? "active" : ""}`} role="tab" aria-selected={activeTab === "profile"} aria-controls="merchant-center-profile" onClick={() => setActiveTab("profile")}>商家资料</Button>
+        <Button variant="ghost" className={`merchant-center-tab ${activeTab === "freeCodes" ? "active" : ""}`} role="tab" aria-selected={activeTab === "freeCodes"} aria-controls="merchant-center-free-codes" onClick={() => setActiveTab("freeCodes")}>免费额度兑换码</Button>
+        <Button variant="ghost" className={`merchant-center-tab ${activeTab === "rates" ? "active" : ""}`} role="tab" aria-selected={activeTab === "rates"} aria-controls="merchant-center-rates" onClick={() => setActiveTab("rates")}>分组倍率充值</Button>
       </nav>
       {activeTab === "profile" && <section id="merchant-center-profile" className="merchant-center-tab-panel" role="tabpanel">
         <div className="merchant-center-tab-heading"><div><h2>商家资料</h2><p>公开展示在商家信息窗口中的名称与充值联系方式。</p></div></div>
         <form className="merchant-profile-form" onSubmit={save}>
-          {profileError && <div className="merchant-form-error" role="alert"><span>{profileError}</span><button type="button" className="button-secondary" onClick={() => void loadProfile()} disabled={profileLoading}>重试</button></div>}
+          {profileError && <div className="merchant-form-error" role="alert"><span>{profileError}</span><Button variant="secondary" onClick={() => void loadProfile()} disabled={profileLoading}>重试</Button></div>}
           <div className="merchant-form-grid"><FormField label="商家名称" required><TextField required value={profile.merchantName} onChange={(event) => setProfile((current) => ({ ...current, merchantName: event.target.value }))} /></FormField><FormField label="QQ"><TextField value={profile.qq ?? ""} onChange={(event) => setProfile((current) => ({ ...current, qq: event.target.value }))} /></FormField></div>
           <FormField label="商家说明 / 签名"><TextareaField rows={3} maxLength={160} value={profile.description ?? ""} onChange={(event) => setProfile((current) => ({ ...current, description: event.target.value }))} placeholder="例如：稳定高速 · 新用户专享" /></FormField>
           <FormField label="商家网址"><TextField type="url" value={profile.websiteUrl ?? ""} onChange={(event) => setProfile((current) => ({ ...current, websiteUrl: event.target.value }))} placeholder="https://example.com" /></FormField>
           <FormField label="QQ / QQ群福利链接"><TextField type="url" value={profile.qqLink ?? ""} onChange={(event) => setProfile((current) => ({ ...current, qqLink: event.target.value }))} placeholder="https://qm.qq.com/..." /></FormField>
           <FormField label="微信二维码图片地址"><TextField type="url" value={profile.wechatQrUrl ?? ""} onChange={(event) => setProfile((current) => ({ ...current, wechatQrUrl: event.target.value }))} placeholder="https://..." /></FormField>
-          <div className="merchant-form-actions"><button className="button-primary" disabled={saving || profileLoading || !profile.merchantName.trim()}><Save size={16} />{saving ? "保存中" : profileLoading ? "加载中" : "保存资料"}</button></div>
+          <div className="merchant-form-actions"><Button variant="primary" type="submit" disabled={saving || profileLoading || !profile.merchantName.trim()}><Save size={16} />{saving ? "保存中" : profileLoading ? "加载中" : "保存资料"}</Button></div>
         </form>
       </section>}
       {activeTab === "freeCodes" && <section id="merchant-center-free-codes" className="merchant-center-tab-panel" role="tabpanel">
@@ -126,7 +126,7 @@ export function MerchantCenterPage() {
           <FormField label="站点地址" required><TextField type="url" required value={stationUrl} onChange={(event) => setStationUrl(event.target.value)} placeholder="https://" /></FormField>
           <FormField label="批量兑换码" required><TextareaField required rows={9} value={codes} onChange={(event) => setCodes(event.target.value)} placeholder={"每行一个兑换码\nRH-FREE-XXXX-XXXX"} /></FormField>
           <div className={`merchant-import-meta ${pendingCodeCount > 200 ? "invalid" : ""}`}><ContactRound size={16} /><span>{pendingCodeCount} / 200 个待发布兑换码</span></div>
-          <div className="merchant-form-actions"><button className="button-primary" disabled={importing || pendingCodeCount > 200 || !stationName.trim() || !stationUrl.trim() || !quota.trim() || !expiresAt || !codes.trim()}><Upload size={16} />{importing ? "发布中" : "批量发布"}</button></div>
+          <div className="merchant-form-actions"><Button variant="primary" type="submit" disabled={importing || pendingCodeCount > 200 || !stationName.trim() || !stationUrl.trim() || !quota.trim() || !expiresAt || !codes.trim()}><Upload size={16} />{importing ? "发布中" : "批量发布"}</Button></div>
         </form>
       </section>}
       {activeTab === "rates" && <section id="merchant-center-rates" className="merchant-center-tab-panel" role="tabpanel">
@@ -135,8 +135,8 @@ export function MerchantCenterPage() {
           <div className="merchant-form-grid"><FormField label="站点名称" required><TextField required value={rateStationName} onChange={(event) => setRateStationName(event.target.value)} /></FormField><FormField label="分组名称" required><TextField required value={groupName} onChange={(event) => setGroupName(event.target.value)} /></FormField></div>
           <div className="merchant-form-grid"><FormField label="站点地址" required><TextField type="url" required value={rateStationUrl} onChange={(event) => setRateStationUrl(event.target.value)} placeholder="https://" /></FormField><FormField label="卡密充值地址" required><TextField type="url" required value={rechargeUrl} onChange={(event) => setRechargeUrl(event.target.value)} placeholder="https://" /></FormField></div>
           <FormField label="倍率说明" required><TextField required maxLength={500} value={multiplierSummary} onChange={(event) => setMultiplierSummary(event.target.value)} placeholder="例如：GPT-4o 0.5x" /></FormField>
-          <div className="merchant-rate-commitments"><label><input type="checkbox" checked={oneToOneRecharge} onChange={(event) => setOneToOneRecharge(event.target.checked)} />￥1 = $1 充值兑换</label><label><input type="checkbox" checked={officialPricing} onChange={(event) => setOfficialPricing(event.target.checked)} />使用官方定价模式</label></div>
-          <div className="merchant-form-actions"><button className="button-primary" disabled={publishingRate || !canPublishMerchantRate({ stationName: rateStationName, stationUrl: rateStationUrl, groupName, multiplierSummary, rechargeUrl, oneToOneRecharge, officialPricing })}><BadgeCheck size={16} />{publishingRate ? "发布中" : "发布倍率"}</button></div>
+          <div className="merchant-rate-commitments"><label><Switch aria-label="1 比 1 充值兑换" checked={oneToOneRecharge} onCheckedChange={setOneToOneRecharge} />￥1 = $1 充值兑换</label><label><Switch aria-label="使用官方定价模式" checked={officialPricing} onCheckedChange={setOfficialPricing} />使用官方定价模式</label></div>
+          <div className="merchant-form-actions"><Button variant="primary" type="submit" disabled={publishingRate || !canPublishMerchantRate({ stationName: rateStationName, stationUrl: rateStationUrl, groupName, multiplierSummary, rechargeUrl, oneToOneRecharge, officialPricing })}><BadgeCheck size={16} />{publishingRate ? "发布中" : "发布倍率"}</Button></div>
         </form>
       </section>}
     </Panel>

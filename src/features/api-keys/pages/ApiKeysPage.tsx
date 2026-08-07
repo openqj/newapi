@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Play } from "lucide-react";
-import { useConfirm, useToast } from "../../../components/ui";
+import { Play } from "lucide-react";
+import { Button, TableBulkActions, TablePagination, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { isTauri } from "../../../lib/platform";
 import { stationApi, type Station } from "../../stations";
@@ -63,7 +63,7 @@ export function ApiKeysPage({
   const [modelType, setModelType] = useState("all");
   const [status, setStatus] = useState("all");
   const [showColumns, setShowColumns] = useState(false);
-  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, modelType: true, name: true, apiKey: true, group: true, multiplier: true, balance: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
+  const [visible, setVisible] = useState<Record<KeyTableColumn, boolean>>({ station: true, name: true, apiKey: true, group: true, balance: true, concurrency: true, usage: true, expires: true, status: true, created: true, actions: true });
   const [saving, setSaving] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editor, setEditor] = useState<{ row?: KeyRow } | null>(null);
@@ -276,14 +276,6 @@ export function ApiKeysPage({
       setRefreshing(false);
     }
   };
-  const copyEndpoint = async (stationItem: Station) => {
-    try {
-      await navigator.clipboard.writeText(stationItem.baseUrl);
-      notify("接口地址已复制", "success");
-    } catch (reason) {
-      showError(reason);
-    }
-  };
   const hiddenColumns = keyTableColumns.filter(({ key }) => !visible[key]).map(({ key }) => `sub2-key-column-hidden-${key}`).join(" ");
 
   return <div className="sub2-page sub2-keys-page sub2-api-keys-page">
@@ -306,11 +298,10 @@ export function ApiKeysPage({
       onCloseColumns={() => setShowColumns(false)}
       onRefresh={() => void refresh()}
       onCreate={() => setEditor({})}
-      onCopyEndpoint={(stationItem) => void copyEndpoint(stationItem)}
     />
-    <div className="api-key-bulk-actions">
-      <button className="button-primary" type="button" disabled={testRunning || selectedRows.length === 0} onClick={() => void testSelected()}><Play size={16} />{testRunning ? "测试中" : "一键测试"}</button>
-    </div>
+    <TableBulkActions>
+      <Button variant="primary" disabled={testRunning || selectedRows.length === 0} onClick={() => void testSelected()}><Play size={16} />{testRunning ? "测试中" : "一键测试"}</Button>
+    </TableBulkActions>
     <ApiKeyTable
       rows={pageRows}
       hiddenColumns={hiddenColumns}
@@ -330,7 +321,7 @@ export function ApiKeysPage({
       onEdit={(row) => setEditor({ row })}
       onDelete={(row) => void remove(row)}
     />
-    {filtered.length > 0 && <ApiKeyPagination page={page} pageCount={pageCount} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} />}
+    {filtered.length > 0 && <TablePagination page={page} pageCount={pageCount} pageSize={pageSize} total={filtered.length} onPageChange={setPage} onPageSizeChange={(value) => { setPageSize(value); setPage(1); }} />}
     {editor && <ApiKeyEditor
       row={editor.row}
       rows={rows}
@@ -346,13 +337,4 @@ export function ApiKeysPage({
       onError={showError}
     />}
   </div>;
-}
-
-function ApiKeyPagination({ page, pageCount, pageSize, total, onPageChange, onPageSizeChange }: { page: number; pageCount: number; pageSize: number; total: number; onPageChange: (page: number) => void; onPageSizeChange: (pageSize: number) => void }) {
-  const from = (page - 1) * pageSize + 1;
-  const to = Math.min(page * pageSize, total);
-  return <footer className="sub2-key-pagination">
-    <div className="sub2-key-pagination-summary">显示 {from} 至 {to} 共 {total} 条结果 <label>每页:<select aria-label="每页" value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))}><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label></div>
-    <nav aria-label="分页"><button type="button" title="上一页" aria-label="上一页" disabled={page <= 1} onClick={() => onPageChange(page - 1)}><ChevronLeft size={16} /></button><span aria-current="page">{page}</span><button type="button" title="下一页" aria-label="下一页" disabled={page >= pageCount} onClick={() => onPageChange(page + 1)}><ChevronRight size={16} /></button></nav>
-  </footer>;
 }

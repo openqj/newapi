@@ -7,7 +7,6 @@ type RemoteServerTableProps = {
   servers: RemoteServer[];
   keyRows: KeyRow[];
   selectedServerIds: string[];
-  openSelection: string | null;
   saving: string | null;
   savingRelay: string | null;
   testingServer: string | null;
@@ -16,13 +15,13 @@ type RemoteServerTableProps = {
   codexAction: string | null;
   deletingServer: string | null;
   editingRelay: RelayEditing;
+  selectedKeyValue: (serverId: string) => string;
   selectedKeyLabel: (serverId: string) => string;
   relayDraft: (server: RemoteServer) => RelayDraft;
   onToggleAll: () => void;
   onToggleSelected: (serverId: string) => void;
-  onSelectMenuToggle: (server: RemoteServer, details: HTMLDetailsElement) => void;
-  onCloseSelection: () => void;
   onSwitchKey: (server: RemoteServer, value: string) => void;
+  onSwitchLocal: (server: RemoteServer) => void;
   onOpenEditor: (server: RemoteServer) => void;
   onTest: (server: RemoteServer) => void;
   onShowLogs: (server: RemoteServer) => void;
@@ -37,9 +36,9 @@ type RemoteServerTableProps = {
 };
 
 export function RemoteServerTable({
-  servers, keyRows, selectedServerIds, openSelection, saving, savingRelay, testingServer,
-  verifyingSession, loadingLogs, codexAction, deletingServer, editingRelay, selectedKeyLabel,
-  relayDraft, onToggleAll, onToggleSelected, onSelectMenuToggle, onCloseSelection, onSwitchKey,
+  servers, keyRows, selectedServerIds, saving, savingRelay, testingServer,
+  verifyingSession, loadingLogs, codexAction, deletingServer, editingRelay, selectedKeyValue, selectedKeyLabel,
+  relayDraft, onToggleAll, onToggleSelected, onSwitchKey, onSwitchLocal,
   onOpenEditor, onTest, onShowLogs, onVerifySession, onCancelOperation, onDelete,
   onManageCodex, onStartRelayEdit, onCancelRelayEdit, onRelayDraftChange, onSaveRelay,
 }: RemoteServerTableProps) {
@@ -60,8 +59,8 @@ export function RemoteServerTable({
         index={index}
         keyRows={keyRows}
         selected={selectedServerIds.includes(server.id)}
+        selectedKeyValue={selectedKeyValue(server.id)}
         selectedKeyLabel={selectedKeyLabel(server.id)}
-        openSelection={openSelection === server.id}
         saving={saving === server.id}
         savingRelay={savingRelay === server.id}
         testing={testingServer === server.id}
@@ -72,9 +71,8 @@ export function RemoteServerTable({
         editingRelay={editingRelay}
         relayDraft={relayDraft(server)}
         onToggleSelected={() => onToggleSelected(server.id)}
-        onSelectMenuToggle={(details) => onSelectMenuToggle(server, details)}
-        onCloseSelection={onCloseSelection}
         onSwitchKey={(value) => onSwitchKey(server, value)}
+        onSwitchLocal={() => onSwitchLocal(server)}
         onOpenEditor={() => onOpenEditor(server)}
         onTest={() => onTest(server)}
         onShowLogs={() => onShowLogs(server)}

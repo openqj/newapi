@@ -1,0 +1,15 @@
+.ui-dialog-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: .35rem;
+}
+
+.ui-dialog:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-dialog,
+  .modal-backdrop { animation: none !important; transition: none !important; }
+}

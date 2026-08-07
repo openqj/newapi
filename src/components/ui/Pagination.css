@@ -1,0 +1,18 @@
+.ui-pagination {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  color: var(--ui-muted);
+  font-size: .75rem;
+}
+
+.ui-pagination > span {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ui-pagination > button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}

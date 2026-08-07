@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { RotateCcw, X } from "lucide-react";
-import { useConfirm, useToast } from "../../../components/ui";
+import { RotateCcw } from "lucide-react";
+import { Button, Dialog, List, ListItem, useConfirm, useToast } from "../../../components/ui";
 import { errorMessage } from "../../../lib/errors";
 import { remoteApi } from "../api";
 
@@ -82,28 +82,21 @@ export function AuditHistoryDialog({ onClose, onChanged }: { onClose: () => void
     finally { setRollingBack(undefined); }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="变更历史">
-    <section className="audit-history-dialog w-full max-w-4xl overflow-hidden rounded-lg bg-white shadow-xl">
-      <header className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-        <div><h2 className="text-base font-semibold">配置与密钥变更历史</h2><p className="mt-1 text-sm text-slate-500">仅显示已脱敏字段。远端 relay 回滚所需密钥只保存在本机系统凭据库中。</p></div>
-        <button className="icon-button" type="button" onClick={onClose} title="关闭"><X size={18} /></button>
-      </header>
+  return <Dialog title="配置与密钥变更历史" description="仅显示已脱敏字段。远端 relay 回滚所需密钥只保存在本机系统凭据库中。" ariaLabel="变更历史" className="audit-history-dialog" contentClassName="audit-history-dialog-content" onClose={onClose} footer={<Button variant="secondary" onClick={onClose}>关闭</Button>}>
       <div className="flex gap-2 border-b border-slate-100 px-5 py-3">
-        {([ ["all", "全部"], ["remote", "远程配置"], ["keys", "API 密钥"] ] as const).map(([value, label]) => <button key={value} type="button" className={filter === value ? "button-primary" : "button-secondary"} onClick={() => setFilter(value)}>{label}</button>)}
+        {([ ["all", "全部"], ["remote", "远程配置"], ["keys", "API 密钥"] ] as const).map(([value, label]) => <Button key={value} variant={filter === value ? "primary" : "secondary"} onClick={() => setFilter(value)}>{label}</Button>)}
       </div>
       <div className="audit-history-list max-h-[60vh] overflow-auto p-5">
-        {loading ? <p className="text-sm text-slate-500">加载中...</p> : filtered.length === 0 ? <p className="text-sm text-slate-500">此筛选条件下暂无变更。</p> : <ol className="space-y-4">{filtered.map((event) => {
+        {loading ? <p className="text-sm text-slate-500">加载中...</p> : filtered.length === 0 ? <p className="text-sm text-slate-500">此筛选条件下暂无变更。</p> : <List as="ol" className="space-y-4">{filtered.map((event) => {
           const diff = changes(event);
-          return <li key={event.id} className="border-b border-slate-100 pb-4 last:border-b-0">
+          return <ListItem as="li" key={event.id} className="border-b border-slate-100 pb-4 last:border-b-0">
             <div className="flex items-start justify-between gap-4"><div><p className="font-medium">{event.detail}</p><p className="mt-1 text-xs text-slate-500">{new Date(event.createdAt * 1000).toLocaleString()} · {event.action} · {event.stationId}</p></div>
-              {canRollback(event) && <button type="button" className="button-secondary shrink-0" disabled={rollingBack === event.id} onClick={() => void rollback(event)}><RotateCcw size={15} />{rollingBack === event.id ? "恢复中" : "恢复"}</button>}
+              {canRollback(event) && <Button variant="secondary" className="shrink-0" disabled={rollingBack === event.id} onClick={() => void rollback(event)}><RotateCcw size={15} />{rollingBack === event.id ? "恢复中" : "恢复"}</Button>}
             </div>
             {diff.length > 0 && <dl className="mt-3 grid grid-cols-[minmax(7rem,auto)_1fr_1fr] gap-x-3 gap-y-1 rounded bg-slate-50 p-3 text-xs"><dt className="font-medium text-slate-500">字段</dt><dd className="font-medium text-slate-500">变更前</dd><dd className="font-medium text-slate-500">变更后</dd>{diff.map((row) => <div key={row.key} className="contents"><dt>{labels[row.key] ?? row.key}</dt><dd className="break-all text-slate-600">{row.before}</dd><dd className="break-all text-slate-900">{row.after}</dd></div>)}</dl>}
             {event.payload?.rollback?.note && <p className={`mt-2 text-xs ${event.payload.rollback.kind === "unavailable" ? "text-amber-700" : "text-slate-500"}`}>{event.payload.rollback.note}</p>}
-          </li>;
-        })}</ol>}
+          </ListItem>;
+        })}</List>}
       </div>
-      <footer className="flex justify-end border-t border-slate-100 px-5 py-3"><button type="button" className="button-secondary" onClick={onClose}>关闭</button></footer>
-    </section>
-  </div>;
+  </Dialog>;
 }

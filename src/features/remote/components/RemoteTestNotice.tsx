@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import { IconButton } from "../../../components/ui";
 
 type RemoteTestNoticeProps = {
   result: {
@@ -15,14 +16,12 @@ export function RemoteTestNotice({ result, onClose }: RemoteTestNoticeProps) {
       role={result.success ? "status" : "alert"}
     >
       <span>{result.message}</span>
-      <button
-        className="icon-button"
-        type="button"
-        title="\u5173\u95ed\u63d0\u793a"
+      <IconButton
+        label="关闭提示"
+        title="关闭提示"
         onClick={onClose}
-      >
-        <X size={16} />
-      </button>
+        icon={<X size={16} />}
+      />
     </div>
   );
 }
